@@ -1,0 +1,4 @@
+# For `wrangler dev` only. Copy to .dev.vars and fill in. Do not commit .dev.vars.
+# Production uses `wrangler secret put` instead.
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key

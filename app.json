@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "Lumen",
+    "slug": "lumen-fashion",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0B0B0B"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.lumen.fashion"
+    },
+    "android": {
+      "package": "com.lumen.fashion"
+    }
+  }
+}

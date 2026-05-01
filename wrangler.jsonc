@@ -1,0 +1,15 @@
+{
+    // Post metadata: set secrets (not in repo):
+    //   npx wrangler secret put SUPABASE_URL
+    //   npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+    // Local: .dev.vars from .dev.vars.example
+    "name": "wild-mountain-072a",
+    "main": "worker.js",
+    "compatibility_date": "2026-04-19",
+    "r2_buckets": [
+      {
+        "binding": "VIDEOS",
+        "bucket_name": "mijn-app-videos"
+      }
+    ]
+  }
