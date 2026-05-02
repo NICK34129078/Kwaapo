@@ -28,6 +28,7 @@ import { FullscreenVideoPlayer } from "../components/FullscreenVideoPlayer";
 import { useCloudVideoUpload } from "../hooks/useCloudVideoUpload";
 import { PROFILE_POSTS } from "../data/placeholder";
 import { theme } from "../constants/theme";
+import { useAuth } from "../context/AuthContext";
 
 const GAP = 2;
 type ProfilePost = {
@@ -107,6 +108,22 @@ export function ProfileScreen() {
   const [emailEnabled, setEmailEnabled] = useState(false);
   const [darkModeEnabled, setDarkModeEnabled] = useState(true);
   const { isUploading, pickAndUploadVideo } = useCloudVideoUpload();
+  const { signOut } = useAuth();
+  const [logoutBusy, setLogoutBusy] = useState(false);
+
+  const handleLogout = useCallback(async () => {
+    setLogoutBusy(true);
+    try {
+      const { error } = await signOut();
+      if (error) {
+        Alert.alert("Uitloggen mislukt", error.message);
+      } else {
+        setSettingsVisible(false);
+      }
+    } finally {
+      setLogoutBusy(false);
+    }
+  }, [signOut]);
 
   const showStubMessage = (label: string) => {
     Alert.alert(label, "Deze optie is alvast voorbereid als placeholder.");
@@ -160,6 +177,19 @@ export function ProfileScreen() {
             accessibilityLabel="Open settings"
           >
             <Ionicons name="settings-outline" size={22} color={theme.text} />
+          </Pressable>
+          <Pressable
+            style={styles.iconButton}
+            onPress={() => void handleLogout()}
+            disabled={logoutBusy}
+            accessibilityRole="button"
+            accessibilityLabel="Uitloggen"
+          >
+            {logoutBusy ? (
+              <ActivityIndicator size="small" color={theme.text} />
+            ) : (
+              <Ionicons name="log-out-outline" size={22} color={theme.text} />
+            )}
           </Pressable>
         </View>
 
@@ -401,9 +431,14 @@ export function ProfileScreen() {
 
             <Pressable
               style={styles.logoutButton}
-              onPress={() => showStubMessage("Log out")}
+              onPress={() => void handleLogout()}
+              disabled={logoutBusy}
             >
-              <Text style={styles.logoutText}>Log out</Text>
+              {logoutBusy ? (
+                <ActivityIndicator size="small" color="#ff8a84" />
+              ) : (
+                <Text style={styles.logoutText}>Log out</Text>
+              )}
             </Pressable>
           </View>
         </View>
@@ -421,9 +456,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   topActions: {
-    alignItems: "flex-end",
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
     paddingHorizontal: 12,
     marginBottom: 8,
+    gap: 8,
   },
   iconButton: {
     width: 36,
