@@ -1,5 +1,6 @@
 import React from "react";
 import { PlaceholderScreen } from "./PlaceholderScreen";
+import { ActivityScreen } from "./ActivityScreen";
 
 export function CreateTabScreen() {
   return (
@@ -11,11 +12,6 @@ export function CreateTabScreen() {
 }
 
 export function ActivityTabScreen() {
-  return (
-    <PlaceholderScreen
-      title="Studio"
-      subtitle="Activity, mentions and saves — placeholder."
-    />
-  );
+  return <ActivityScreen />;
 }
 

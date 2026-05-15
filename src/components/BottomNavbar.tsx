@@ -29,6 +29,12 @@ const TAB_CONFIG: {
 }[] = [
   { key: "Home", icon: "home-outline", iconActive: "home", label: "Home" },
   {
+    key: "Search",
+    icon: "search-outline",
+    iconActive: "search",
+    label: "Zoeken",
+  },
+  {
     key: "Activity",
     icon: "play-outline",
     iconActive: "play",

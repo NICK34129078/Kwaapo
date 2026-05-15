@@ -3,20 +3,25 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { ReelsScreen } from "./src/screens/ReelsScreen";
+import { SearchScreen } from "./src/screens/SearchScreen";
 import { ActivityTabScreen } from "./src/screens/TabScreens";
 import { ProfileScreen } from "./src/screens/ProfileScreen";
-import { AuthScreen } from "./src/screens/AuthScreen";
+import { PublicProfileScreen } from "./src/screens/PublicProfileScreen";
 import { BottomNavbar } from "./src/components/BottomNavbar";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
+import { AuthPromptProvider } from "./src/context/AuthPromptContext";
+import { GlobalFeedProvider } from "./src/context/GlobalFeedContext";
 import { LikesProvider } from "./src/context/LikesContext";
 import { UserUploadsProvider } from "./src/context/UserUploadsContext";
 import { theme } from "./src/constants/theme";
 
 const Tab = createBottomTabNavigator();
+const RootStack = createNativeStackNavigator();
 
 const navTheme = {
   ...DefaultTheme,
@@ -32,7 +37,7 @@ const navTheme = {
 
 function MainTabs() {
   return (
-    <NavigationContainer theme={navTheme}>
+    <>
       <StatusBar style="light" />
       <Tab.Navigator
         initialRouteName="Home"
@@ -42,15 +47,16 @@ function MainTabs() {
         }}
       >
         <Tab.Screen name="Home" component={ReelsScreen} />
+        <Tab.Screen name="Search" component={SearchScreen} />
         <Tab.Screen name="Activity" component={ActivityTabScreen} />
         <Tab.Screen name="Profile" component={ProfileScreen} />
       </Tab.Navigator>
-    </NavigationContainer>
+    </>
   );
 }
 
 function AppGate() {
-  const { user, loading } = useAuth();
+  const { loading } = useAuth();
 
   if (loading) {
     return (
@@ -60,16 +66,28 @@ function AppGate() {
     );
   }
 
-  if (user == null) {
-    return <AuthScreen />;
-  }
-
   return (
-    <UserUploadsProvider>
+    <AuthPromptProvider>
       <LikesProvider>
-        <MainTabs />
+        <GlobalFeedProvider>
+          <UserUploadsProvider>
+            <NavigationContainer theme={navTheme}>
+              <RootStack.Navigator
+                screenOptions={{
+                  headerShown: false,
+                }}
+              >
+                <RootStack.Screen name="MainTabs" component={MainTabs} />
+                <RootStack.Screen
+                  name="PublicProfile"
+                  component={PublicProfileScreen}
+                />
+              </RootStack.Navigator>
+            </NavigationContainer>
+          </UserUploadsProvider>
+        </GlobalFeedProvider>
       </LikesProvider>
-    </UserUploadsProvider>
+    </AuthPromptProvider>
   );
 }
 

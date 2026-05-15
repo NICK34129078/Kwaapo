@@ -4,191 +4,473 @@ import {
   UPLOADED_VIDEO_OWNER,
   getCloudVideoStreamUrl,
 } from "../constants/cloudVideo";
-import { env, isAppUserIdConfigured } from "../config/env";
-import type { UserVideoPost } from "../types/userVideoPost";
+import { supabase } from "../lib/supabase";
+import type { ProfilePostMediaItem, UserVideoPost } from "../types/userVideoPost";
+
+/** Profiel (mijn uploads): vaste owner-handle. Globale feed: afgeleid van `user_id`. */
+export type UserVideoPostMappingScope = "own_profile" | "global";
 
 export type PostRow = {
-id: string;
-user_id: string;
-type: string;
-video_url: string;
-r2_key: string;
-thumbnail_url: string | null;
-filename: string;
-caption: string | null;
-likes_count: number;
-comments_count: number;
-created_at: string;
-is_deleted: boolean;
+  id: string;
+  user_id: string;
+  type: string;
+  video_url: string | null;
+  r2_key: string;
+  thumbnail_url: string | null;
+  filename: string;
+  caption: string | null;
+  /** Hashtags uit `public.posts.tags` (text[]). */
+  tags?: string[];
+  likes_count: number;
+  comments_count: number;
+  created_at: string;
+  is_deleted: boolean;
 };
 
 type MaybePostRow = PostRow & {
-userId?: string;
-videoUrl?: string;
-thumbnailUrl?: string | null;
-r2Key?: string;
-likesCount?: number;
-commentsCount?: number;
-captionText?: string | null;
-createdAt?: string;
-isDeleted?: boolean;
+  userId?: string;
+  videoUrl?: string | null;
+  thumbnailUrl?: string | null;
+  r2Key?: string;
+  likesCount?: number;
+  commentsCount?: number;
+  captionText?: string | null;
+  createdAt?: string;
+  isDeleted?: boolean;
 };
 
-function normalizePostRow(row: MaybePostRow): PostRow {
-return {
-...row,
-user_id: row.user_id ?? row.userId ?? "",
-video_url: row.video_url ?? row.videoUrl ?? "",
-r2_key: row.r2_key ?? row.r2Key ?? "",
-thumbnail_url:
-typeof row.thumbnail_url !== "undefined" ? row.thumbnail_url : row.thumbnailUrl ?? null,
-caption: typeof row.caption !== "undefined" ? row.caption : row.captionText ?? null,
-likes_count: row.likes_count ?? row.likesCount ?? 0,
-comments_count: row.comments_count ?? row.commentsCount ?? 0,
-created_at: row.created_at ?? row.createdAt ?? new Date().toISOString(),
-is_deleted: row.is_deleted ?? row.isDeleted ?? false,
-};
+function normalizeTagsFromApi(v: unknown): string[] | undefined {
+  if (v == null) {
+    return undefined;
+  }
+  if (Array.isArray(v)) {
+    const out = v.filter((x): x is string => typeof x === "string" && x.length > 0);
+    return out.length > 0 ? out : undefined;
+  }
+  return undefined;
 }
 
-function mapRowToUserVideoPost(row: PostRow): UserVideoPost {
-const poster =
-row.thumbnail_url && row.thumbnail_url.length > 0
-? row.thumbnail_url
-: REEL_VIDEO_POSTER_FALLBACK;
-const playableVideoUrl =
-row.video_url && row.video_url.length > 0
-? row.video_url
-: getCloudVideoStreamUrl(row.r2_key);
-
-const handle = UPLOADED_VIDEO_OWNER.startsWith("@")
-? UPLOADED_VIDEO_OWNER.slice(1)
-: UPLOADED_VIDEO_OWNER;
-
-return {
-id: row.id,
-type: "video",
-imageUrl: poster,
-videoUrl: playableVideoUrl,
-thumbnailUrl: row.thumbnail_url ?? undefined,
-filename: row.filename,
-createdAt: new Date(row.created_at).getTime(),
-owner: UPLOADED_VIDEO_OWNER,
-username: handle,
-caption: row.caption && row.caption.length > 0 ? row.caption : "Nieuwe look",
-price: "—",
-likesCount: row.likes_count,
-comments: String(row.comments_count),
-shares: "0",
-musicThumbUrl: row.thumbnail_url ?? undefined,
+type ProfileOwnerRow = {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
 };
+
+type PostMediaDbRow = {
+  post_id: string;
+  url: string;
+  media_type: string | null;
+  sort_order: number | null;
+};
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value
+  );
+}
+
+function normalizePostRow(row: MaybePostRow): PostRow {
+  const rawVideo = row.video_url ?? row.videoUrl;
+  const videoNorm =
+    rawVideo == null || (typeof rawVideo === "string" && rawVideo.length === 0)
+      ? null
+      : String(rawVideo);
+  return {
+    ...row,
+    user_id: row.user_id ?? row.userId ?? "",
+    type: typeof row.type === "string" && row.type.length > 0 ? row.type : "video",
+    video_url: videoNorm,
+    r2_key: row.r2_key ?? row.r2Key ?? "",
+    thumbnail_url:
+      typeof row.thumbnail_url !== "undefined"
+        ? row.thumbnail_url
+        : row.thumbnailUrl ?? null,
+    caption:
+      typeof row.caption !== "undefined"
+        ? row.caption
+        : row.captionText ?? null,
+    likes_count: row.likes_count ?? row.likesCount ?? 0,
+    comments_count: row.comments_count ?? row.commentsCount ?? 0,
+    created_at: row.created_at ?? row.createdAt ?? new Date().toISOString(),
+    is_deleted: row.is_deleted ?? row.isDeleted ?? false,
+    ...(() => {
+      const t = normalizeTagsFromApi(row.tags);
+      return t ? { tags: t } : {};
+    })(),
+  };
+}
+
+/** Zichtbare handle in de globale feed zonder aparte profieltabel. */
+function usernameFromUserIdForGlobalFeed(userId: string): string {
+  const compact = userId.replace(/-/g, "").slice(0, 12);
+  return compact.length > 0 ? `user_${compact}` : "user_unknown";
+}
+
+function mapRowToUserVideoPost(
+  row: PostRow,
+  scope: UserVideoPostMappingScope = "own_profile",
+  ownerProfile?: ProfileOwnerRow,
+  mediaByPostId?: Map<string, ProfilePostMediaItem[]>
+): UserVideoPost {
+  const poster =
+    row.thumbnail_url && row.thumbnail_url.length > 0
+      ? row.thumbnail_url
+      : REEL_VIDEO_POSTER_FALLBACK;
+
+  const handleOwn =
+    UPLOADED_VIDEO_OWNER.startsWith("@")
+      ? UPLOADED_VIDEO_OWNER.slice(1)
+      : UPLOADED_VIDEO_OWNER;
+
+  const usernameFromProfile = ownerProfile?.username?.trim() ?? "";
+  const fallbackUsername =
+    scope === "global"
+      ? usernameFromUserIdForGlobalFeed(row.user_id)
+      : handleOwn;
+  const displayUsername = usernameFromProfile.length
+    ? usernameFromProfile
+    : fallbackUsername;
+  const username = displayUsername.startsWith("@")
+    ? displayUsername
+    : `@${displayUsername}`;
+  const owner = username;
+
+  const baseCaption =
+    row.caption && row.caption.length > 0 ? row.caption : "Nieuwe look";
+
+  if (row.type === "image_carousel") {
+    const fromMap = mediaByPostId?.get(row.id);
+    const mediaItems: ProfilePostMediaItem[] =
+      fromMap && fromMap.length > 0
+        ? fromMap
+        : row.thumbnail_url && row.thumbnail_url.length > 0
+          ? [
+              {
+                url: row.thumbnail_url,
+                mediaType: "image",
+                sortOrder: 0,
+              },
+            ]
+          : [];
+
+    return {
+      id: row.id,
+      ownerProfileId: row.user_id,
+      ownerUsername: usernameFromProfile.length ? usernameFromProfile : null,
+      ownerDisplayName: ownerProfile?.display_name ?? null,
+      ownerAvatarUrl: ownerProfile?.avatar_url ?? null,
+      type: "image_carousel",
+      imageUrl: poster,
+      thumbnailUrl: row.thumbnail_url ?? undefined,
+      filename: row.filename,
+      createdAt: new Date(row.created_at).getTime(),
+      owner,
+      username,
+      caption: baseCaption,
+      price: "—",
+      likesCount: row.likes_count,
+      comments: String(row.comments_count),
+      shares: "0",
+      musicThumbUrl: row.thumbnail_url ?? undefined,
+      mediaItems,
+      ...(row.tags && row.tags.length > 0 ? { tags: row.tags } : {}),
+    };
+  }
+
+  const playableVideoUrl =
+    row.video_url && row.video_url.length > 0
+      ? row.video_url
+      : getCloudVideoStreamUrl(row.r2_key);
+
+  return {
+    id: row.id,
+    ownerProfileId: row.user_id,
+    ownerUsername: usernameFromProfile.length ? usernameFromProfile : null,
+    ownerDisplayName: ownerProfile?.display_name ?? null,
+    ownerAvatarUrl: ownerProfile?.avatar_url ?? null,
+    type: "video",
+    imageUrl: poster,
+    videoUrl: playableVideoUrl,
+    thumbnailUrl: row.thumbnail_url ?? undefined,
+    filename: row.filename,
+    createdAt: new Date(row.created_at).getTime(),
+    owner,
+    username,
+    caption: baseCaption,
+    price: "—",
+    likesCount: row.likes_count,
+    comments: String(row.comments_count),
+    shares: "0",
+    musicThumbUrl: row.thumbnail_url ?? undefined,
+    ...(row.tags && row.tags.length > 0 ? { tags: row.tags } : {}),
+  };
+}
+
+type WorkerPostsPayload = {
+  success?: boolean;
+  posts?: PostRow[];
+  message?: string;
+};
+
+async function fetchWorkerPostsJson(
+  url: string,
+  init?: RequestInit
+): Promise<{ res: Response; json: WorkerPostsPayload }> {
+  const res = await fetch(url, init);
+  let json: WorkerPostsPayload = {};
+  try {
+    json = await res.json();
+  } catch {
+    /* ignore */
+  }
+  return { res, json };
+}
+
+async function fetchPostMediaByPostIds(
+  postIds: string[]
+): Promise<Map<string, ProfilePostMediaItem[]>> {
+  const map = new Map<string, ProfilePostMediaItem[]>();
+  if (postIds.length === 0) {
+    return map;
+  }
+  const { data, error } = await supabase
+    .from("post_media")
+    .select("post_id, url, media_type, sort_order")
+    .in("post_id", postIds)
+    .order("sort_order", { ascending: true });
+
+  if (error) {
+    if (__DEV__) {
+      console.warn("[postsService] post_media:", error.message);
+    }
+    return map;
+  }
+
+  for (const raw of data ?? []) {
+    const r = raw as PostMediaDbRow;
+    const item: ProfilePostMediaItem = {
+      url: r.url,
+      mediaType: r.media_type === "video" ? "video" : "image",
+      sortOrder: typeof r.sort_order === "number" ? r.sort_order : 0,
+    };
+    const list = map.get(r.post_id) ?? [];
+    list.push(item);
+    map.set(r.post_id, list);
+  }
+  return map;
+}
+
+async function mapWorkerPostsToUserVideoPosts(
+  rows: PostRow[],
+  scope: UserVideoPostMappingScope,
+  ownerProfilesById: Map<string, ProfileOwnerRow>
+): Promise<UserVideoPost[]> {
+  const normalized = rows
+    .map((p) => normalizePostRow(p as MaybePostRow))
+    .filter((p) => !p.is_deleted)
+    .sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  const carouselIds = normalized
+    .filter((p) => p.type === "image_carousel")
+    .map((p) => p.id);
+  const mediaByPostId = await fetchPostMediaByPostIds(carouselIds);
+  return normalized.map((row) =>
+    mapRowToUserVideoPost(row, scope, ownerProfilesById.get(row.user_id), mediaByPostId)
+  );
+}
+
+async function fetchOwnerProfilesByIds(
+  rows: PostRow[]
+): Promise<Map<string, ProfileOwnerRow>> {
+  const uniqueIds = Array.from(
+    new Set(rows.map((row) => row.user_id).filter((id) => id.length > 0))
+  );
+  const validProfileIds = uniqueIds.filter(isUuid);
+  if (validProfileIds.length === 0) {
+    return new Map<string, ProfileOwnerRow>();
+  }
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, username, display_name, avatar_url")
+    .in("id", validProfileIds);
+
+  if (error) {
+    if (__DEV__) {
+      console.warn("[postsService] owner profile fetch failed:", error.message);
+    }
+    return new Map<string, ProfileOwnerRow>();
+  }
+
+  return new Map(
+    ((data ?? []) as ProfileOwnerRow[]).map((profile) => [profile.id, profile])
+  );
 }
 
 /**
-
-* Fetches post rows via Cloudflare Worker
-  */
-  export async function fetchUserVideoPosts(): Promise<UserVideoPost[]> {
-  if (!isAppUserIdConfigured()) {
-  return [];
+ * Profielposts: alleen rows voor de opgegeven gebruiker via Worker `?userPosts=1`.
+ * @returns `undefined` als `json.posts` ontbreekt — caller moet state niet leegmaken.
+ */
+export async function fetchUserPosts(
+  userId: string,
+  scope: UserVideoPostMappingScope = "own_profile"
+): Promise<UserVideoPost[] | undefined> {
+  if (!userId || userId.length === 0) {
+    return [];
   }
 
-const appUserId = process.env.EXPO_PUBLIC_APP_USER_ID || "1";
+  const workerUrl = new URL(CLOUD_VIDEO_WORKER_BASE);
+  workerUrl.searchParams.set("userPosts", "1");
+  workerUrl.searchParams.set("userId", userId);
 
-const workerUrl = `${CLOUD_VIDEO_WORKER_BASE}?posts=1&userId=${encodeURIComponent(appUserId)}`;
+  const { res, json } = await fetchWorkerPostsJson(workerUrl.toString(), {
+    method: "GET",
+    headers: {
+      "X-App-User-Id": userId,
+    },
+  });
 
-if (__DEV__) {
-console.log("[restore] userId", appUserId);
-console.log("[restore] url", workerUrl);
+  if (!res.ok || json.success === false) {
+    throw new Error(json.message || "Worker fetch failed");
+  }
+
+  if (!Array.isArray(json.posts)) {
+    return undefined;
+  }
+
+  const ownerProfilesById = await fetchOwnerProfilesByIds(json.posts);
+  return await mapWorkerPostsToUserVideoPosts(json.posts, scope, ownerProfilesById);
 }
 
-const res = await fetch(workerUrl, {
-method: "GET",
-headers: {
-"X-App-User-Id": appUserId,
-},
-});
-
-if (__DEV__) {
-console.log("[restore] status", res.status);
+export function userVideoPostFromPostRow(
+  row: PostRow,
+  mediaOverride?: ProfilePostMediaItem[]
+): UserVideoPost {
+  const map = new Map<string, ProfilePostMediaItem[]>();
+  if (mediaOverride && mediaOverride.length > 0) {
+    map.set(row.id, mediaOverride);
+  }
+  return mapRowToUserVideoPost(row, "own_profile", undefined, map);
 }
 
-let data: { success?: boolean; posts?: PostRow[]; message?: string } = {};
-
-try {
-data = await res.json();
-} catch {}
-
-if (__DEV__) {
-console.log("[restore] raw json", data);
-console.log("[restore] posts count", Array.isArray(data.posts) ? data.posts.length : 0);
-console.log("RESTORED POSTS:", JSON.stringify(data.posts ?? [], null, 2));
+/**
+ * Zelfde mapping als de globale Worker-feed, voor RPC-rows (bijv. `get_personalized_feed`).
+ * Extra velden op de row (zoals `ranking_score`) vallen buiten `UserVideoPost` en worden niet in de UI gezet.
+ */
+export async function mapSupabasePostRowsToGlobalUserVideoPosts(
+  raw: unknown[]
+): Promise<UserVideoPost[]> {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return [];
+  }
+  const asRows = raw as MaybePostRow[];
+  const normalized = asRows
+    .map((p) => normalizePostRow(p))
+    .filter((p) => !p.is_deleted);
+  if (normalized.length === 0) {
+    return [];
+  }
+  const ownerProfilesById = await fetchOwnerProfilesByIds(normalized);
+  const carouselIds = normalized
+    .filter((p) => p.type === "image_carousel")
+    .map((p) => p.id);
+  const mediaByPostId = await fetchPostMediaByPostIds(carouselIds);
+  return normalized.map((row) =>
+    mapRowToUserVideoPost(row, "global", ownerProfilesById.get(row.user_id), mediaByPostId)
+  );
 }
 
-if (!res.ok || data.success === false) {
-throw new Error(data.message || "Worker fetch failed");
+/**
+ * Globale Reels-feed: Worker haalt metadata uit Supabase `public.posts` (`?posts=1`).
+ * Like-tellers in de app komen uit `public.post_likes` (zie `fetchLikeCountsForPosts`), niet uit `posts.likes_count`.
+ *
+ * @returns `undefined` als `json.posts` ontbreekt — caller moet state niet leegmaken.
+ */
+export async function fetchGlobalPosts(): Promise<UserVideoPost[] | undefined> {
+  const workerUrl = new URL(CLOUD_VIDEO_WORKER_BASE);
+  workerUrl.searchParams.set("posts", "1");
+  const { res, json } = await fetchWorkerPostsJson(workerUrl.toString(), {
+    method: "GET",
+  });
+
+  if (!res.ok || json.success === false) {
+    throw new Error(json.message || "Worker fetch failed");
+  }
+  if (!Array.isArray(json.posts)) {
+    return undefined;
+  }
+
+  const ownerProfilesById = await fetchOwnerProfilesByIds(json.posts);
+  return await mapWorkerPostsToUserVideoPosts(json.posts, "global", ownerProfilesById);
 }
 
-if (!Array.isArray(data.posts)) {
-throw new Error("No posts returned");
+export const fetchGlobalVideoPosts = fetchGlobalPosts;
+export const fetchUserVideoPosts = fetchUserPosts;
+
+export type DeleteMyPostResult = {
+  success?: boolean;
+  post_id?: string;
+  reason?: string;
+};
+
+/**
+ * Soft-delete eigen post via Supabase RPC `delete_my_post` (RLS + auth.uid()).
+ */
+export async function deleteMyPost(postId: string): Promise<void> {
+  if (!postId || postId.length === 0) {
+    throw new Error("Ongeldige post.");
+  }
+
+  const { data, error } = await supabase.rpc("delete_my_post", {
+    p_post_id: postId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const result = (data ?? {}) as DeleteMyPostResult;
+  if (result.success !== true) {
+    if (result.reason === "not_found_or_not_owner") {
+      throw new Error("Post niet gevonden of je bent niet de eigenaar.");
+    }
+    throw new Error("Verwijderen mislukt.");
+  }
 }
 
-const rows = data.posts
-.map((p) => normalizePostRow(p as MaybePostRow))
-.filter((p) => !p.is_deleted)
-.filter((p) => {
-const hasVideoUrl = typeof p.video_url === "string" && p.video_url.length > 0;
-const hasR2Key = typeof p.r2_key === "string" && p.r2_key.length > 0;
-return hasVideoUrl || hasR2Key;
-})
-.sort(
-(a, b) =>
-new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-);
+/** @deprecated Gebruik {@link deleteMyPost} — Worker soft-delete blijft voor legacy scripts. */
+export async function softDeletePost(
+  postId: string,
+  authUserId: string
+): Promise<void> {
+  if (!authUserId || authUserId.length === 0) {
+    return;
+  }
 
-const mapped = rows.map(mapRowToUserVideoPost);
+  const u = new URL(CLOUD_VIDEO_WORKER_BASE);
+  u.searchParams.set("softDelete", "1");
+  u.searchParams.set("postId", postId);
+  u.searchParams.set("userId", authUserId);
 
-if (__DEV__) {
-for (const post of mapped) {
-console.log("[restore post]", {
-id: post.id,
-videoUrl: post.videoUrl,
-thumbnailUrl: post.thumbnailUrl ?? null,
-});
-}
-console.log("[posts after restore]", mapped.length, mapped);
-}
+  const res = await fetch(u.toString(), {
+    method: "GET",
+    headers: {
+      "X-App-User-Id": authUserId,
+    },
+  });
 
-return mapped;
-}
+  let data: { success?: boolean; message?: string } = {};
 
-export function userVideoPostFromPostRow(row: PostRow): UserVideoPost {
-return mapRowToUserVideoPost(row);
-}
+  try {
+    data = await res.json();
+  } catch {
+    /* ignore */
+  }
 
-export async function softDeletePost(postId: string): Promise<void> {
-if (!isAppUserIdConfigured()) {
-return;
-}
-
-const u = new URL(CLOUD_VIDEO_WORKER_BASE);
-u.searchParams.set("softDelete", "1");
-u.searchParams.set("postId", postId);
-u.searchParams.set("userId", env.appUserId);
-
-const res = await fetch(u.toString(), {
-method: "GET",
-headers: {
-"X-App-User-Id": process.env.EXPO_PUBLIC_APP_USER_ID || "1",
-},
-});
-
-let data: { success?: boolean; message?: string } = {};
-
-try {
-data = await res.json();
-} catch {}
-
-if (!res.ok || !data.success) {
-throw new Error(data.message || "Delete failed");
-}
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || "Delete failed");
+  }
 }

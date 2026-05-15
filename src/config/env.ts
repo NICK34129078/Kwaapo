@@ -1,23 +1,8 @@
 /**
- * `EXPO_PUBLIC_APP_USER_ID` (non-secret) is sent to the Cloudflare Worker
- * to scope posts (same ID used when inserting in Worker after upload).
- * Post metadata and Supabase credentials are only on the Worker (secrets),
- * not in the mobile app.
+ * Posts/uploads worden gesorteerd op Supabase Auth `user.id` (UUID-string).
+ * Optioneel: `EXPO_PUBLIC_APP_USER_ID` voor oude tooling — niet meer gebruikt voor ingelogde flows.
+ * Post metadata op de Worker; anon key alleen in de app voor Auth.
  */
-function cleanAppUserId(v: string | undefined): string {
-  if (v == null || typeof v !== "string") {
-    return "";
-  }
-  return v
-    .replace(/^\uFEFF/g, "")
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    .trim();
-}
-
-const appUserId = cleanAppUserId(
-  process.env.EXPO_PUBLIC_APP_USER_ID
-) || "1";
-
 function cleanEnvString(v: string | undefined): string {
   if (v == null || typeof v !== "string") {
     return "";
@@ -26,16 +11,11 @@ function cleanEnvString(v: string | undefined): string {
 }
 
 export const env = {
-  appUserId,
   /** Supabase project URL (Expo: EXPO_PUBLIC_SUPABASE_URL) */
   supabaseUrl: cleanEnvString(process.env.EXPO_PUBLIC_SUPABASE_URL),
   /** Supabase anon/public key (Expo: EXPO_PUBLIC_SUPABASE_ANON_KEY) */
   supabaseAnonKey: cleanEnvString(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY),
 };
-
-export function isAppUserIdConfigured(): boolean {
-  return env.appUserId.length > 0;
-}
 
 /** Veilige diagnostiek (geen secrets): alleen booleans en lengtes. */
 export function getSupabaseEnvDiagnostics() {

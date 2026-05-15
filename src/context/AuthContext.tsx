@@ -10,6 +10,7 @@ import type { Session, User } from "@supabase/supabase-js";
 
 import { isSupabaseClientConfigured } from "../config/env";
 import { supabase } from "../lib/supabase";
+import { formatAuthError } from "../utils/authErrorMessages";
 
 function safeAuthLog(scope: string, message: string): void {
   if (__DEV__) {
@@ -17,14 +18,17 @@ function safeAuthLog(scope: string, message: string): void {
   }
 }
 
+export type SignUpResult = {
+  error: Error | null;
+  /** true als account is aangemaakt maar er nog geen sessie is (e-mailbevestiging nodig). */
+  needsEmailConfirmation?: boolean;
+};
+
 type AuthContextValue = {
   user: User | null;
   session: Session | null;
   loading: boolean;
-  signUp: (
-    email: string,
-    password: string
-  ) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string) => Promise<SignUpResult>;
   signIn: (
     email: string,
     password: string
@@ -118,36 +122,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signUp = useCallback(async (email: string, password: string) => {
+    const trimmed = email.trim();
     if (__DEV__) {
       console.log("[Auth] calling signUp");
     }
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({
+      email: trimmed,
+      password,
+    });
+
     if (__DEV__) {
-      if (error) {
-        console.warn("[Auth] signUp error:", error.message);
-      } else {
-        console.log("[Auth] signUp ok");
-      }
+      console.log("[Auth] signUp result", {
+        hasError: !!error,
+        code: error?.code ?? null,
+        message: error?.message ?? null,
+        hasSession: data.session != null,
+        hasUser: data.user != null,
+      });
     }
-    return { error: error ? new Error(error.message) : null };
+
+    if (error) {
+      return {
+        error: new Error(formatAuthError(error, "signUp")),
+        needsEmailConfirmation: false,
+      };
+    }
+
+    const needsEmailConfirmation = data.session == null && data.user != null;
+
+    if (__DEV__ && needsEmailConfirmation) {
+      console.log(
+        "[Auth] signUp success: session null → e-mailbevestiging verwacht"
+      );
+    }
+
+    return {
+      error: null,
+      needsEmailConfirmation,
+    };
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
+    const trimmed = email.trim();
     if (__DEV__) {
       console.log("[Auth] calling signIn");
     }
     const { error } = await supabase.auth.signInWithPassword({
-      email,
+      email: trimmed,
       password,
     });
     if (__DEV__) {
       if (error) {
-        console.warn("[Auth] signIn error:", error.message);
+        console.warn("[Auth] signIn error:", {
+          code: error.code ?? null,
+          message: error.message ?? null,
+        });
       } else {
         console.log("[Auth] signIn ok");
       }
     }
-    return { error: error ? new Error(error.message) : null };
+    if (error) {
+      return { error: new Error(formatAuthError(error, "signIn")) };
+    }
+    return { error: null };
   }, []);
 
   const signOut = useCallback(async () => {
@@ -156,6 +193,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const user = session?.user ?? null;
+
+  useEffect(() => {
+    if (__DEV__ && session?.user?.id) {
+      console.log("[Auth user] current user.id", session.user.id);
+    }
+  }, [session?.user?.id]);
 
   const value = useMemo(
     () => ({

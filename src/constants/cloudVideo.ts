@@ -1,5 +1,5 @@
 /**
- * Public Worker base URL (Video POST + stream GET with ?file=...).
+ * Public Worker base URL (upload init/complete, direct PUT, stream GET with ?file=<r2_key>).
  * Must match deployment (see wrangler + worker.js).
  */
 export const CLOUD_VIDEO_WORKER_BASE =

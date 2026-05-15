@@ -4,7 +4,17 @@
  */
 export type FeedPost = {
   id: string;
-  type?: "image" | "video";
+  ownerProfileId?: string;
+  ownerUsername?: string | null;
+  ownerDisplayName?: string | null;
+  ownerAvatarUrl?: string | null;
+  type?: "image" | "video" | "image_carousel";
+  /** Carousel slides (eerste url = thumbnail/poster). */
+  mediaItems?: Array<{
+    url: string;
+    mediaType: "image" | "video";
+    sortOrder: number;
+  }>;
   /** Poster/achtergrond: bij video vaak = thumbnail, anders beeld-URL. */
   imageUrl: string;
   /** Afspeel-URL (alleen type video, publieke Worker-URL). */
@@ -28,6 +38,8 @@ export type FeedPost = {
   musicThumbUrl?: string;
   /** Avatar naast naam (optioneel; anders gegenereerde placeholder). */
   avatarUrl?: string;
+  /** Genormaliseerde hashtags (zonder #), uit `public.posts.tags`. */
+  tags?: string[];
 };
 
 /** Wanneer er geen thumbnail is na upload, toch een portret-vriendelijke poster. */
@@ -177,6 +189,7 @@ export function buildUploadedReelFeedPost(input: {
   createdAt: number;
   owner: string;
   caption?: string;
+  tags?: string[];
 }): Omit<FeedPost, "id"> {
   const poster =
     input.thumbnailUrl && input.thumbnailUrl.length > 0
@@ -202,5 +215,6 @@ export function buildUploadedReelFeedPost(input: {
     musicThumbUrl: input.thumbnailUrl && input.thumbnailUrl.length > 0
       ? input.thumbnailUrl
       : undefined,
+    ...(input.tags && input.tags.length > 0 ? { tags: input.tags } : {}),
   };
 }

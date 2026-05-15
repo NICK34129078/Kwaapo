@@ -6,8 +6,10 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import { isAppUserIdConfigured } from "../config/env";
-import { fetchUserVideoPosts, softDeletePost } from "../services/postsService";
+import { useAuth } from "./AuthContext";
+import { useGlobalFeed } from "./GlobalFeedContext";
+import { useLikes } from "./LikesContext";
+import { deleteMyPost, fetchUserPosts } from "../services/postsService";
 import { isUserVideoPost, type UserVideoPost } from "../types/userVideoPost";
 
 export type { UserVideoPost };
@@ -28,12 +30,19 @@ type UserUploadsValue = {
 const UserUploadsContext = createContext<UserUploadsValue | null>(null);
 
 export function UserUploadsProvider({ children }: { children: React.ReactNode }) {
-  const [uploadedVideoPosts, setUploadedVideoPosts] = useState<UserVideoPost[]>([]);
+  const { user } = useAuth();
+  const { syncFeedLikeState } = useLikes();
+  const { refreshGlobalFeed } = useGlobalFeed();
+  const authUserId = user?.id ?? "";
+
+  const [uploadedVideoPosts, setUploadedVideoPosts] = useState<UserVideoPost[]>(
+    []
+  );
   const [remoteLoading, setRemoteLoading] = useState(true);
   const [remoteError, setRemoteError] = useState<string | null>(null);
 
   const refreshUserVideoPosts = useCallback(async () => {
-    if (!isAppUserIdConfigured()) {
+    if (!authUserId) {
       setUploadedVideoPosts([]);
       setRemoteLoading(false);
       setRemoteError(null);
@@ -42,9 +51,12 @@ export function UserUploadsProvider({ children }: { children: React.ReactNode })
     setRemoteLoading(true);
     setRemoteError(null);
     try {
-      const rows = await fetchUserVideoPosts();
-      setUploadedVideoPosts(rows);
-      if (__DEV__) {
+      // Alleen huidige gebruiker (niet de globale feed).
+      const rows = await fetchUserPosts(authUserId, "own_profile");
+      if (rows !== undefined) {
+        setUploadedVideoPosts(rows);
+      }
+      if (__DEV__ && rows !== undefined) {
         console.log("[UserUploads] restored uploads count", rows.length);
       }
     } catch (e) {
@@ -56,11 +68,18 @@ export function UserUploadsProvider({ children }: { children: React.ReactNode })
     } finally {
       setRemoteLoading(false);
     }
-  }, []);
+  }, [authUserId]);
 
   useEffect(() => {
     void refreshUserVideoPosts();
   }, [refreshUserVideoPosts]);
+
+  useEffect(() => {
+    if (!user?.id || uploadedVideoPosts.length === 0) {
+      return;
+    }
+    syncFeedLikeState(uploadedVideoPosts);
+  }, [user?.id, uploadedVideoPosts, syncFeedLikeState]);
 
   const addUserVideoPost = useCallback((post: UserVideoPost) => {
     if (!isUserVideoPost(post)) {
@@ -74,20 +93,14 @@ export function UserUploadsProvider({ children }: { children: React.ReactNode })
 
   const deleteUserVideoPost = useCallback(
     async (id: string) => {
-      if (isAppUserIdConfigured()) {
-        try {
-          await softDeletePost(id);
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "Verwijderen mislukt";
-          if (__DEV__) {
-            console.error("[UserUploads] delete", msg);
-          }
-          throw e;
-        }
+      if (!authUserId) {
+        throw new Error("Log in om een post te verwijderen.");
       }
+      await deleteMyPost(id);
       setUploadedVideoPosts((prev) => prev.filter((p) => p.id !== id));
+      await refreshGlobalFeed();
     },
-    []
+    [authUserId, refreshGlobalFeed]
   );
 
   const value = useMemo(

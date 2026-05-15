@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import type { ViewToken } from "react-native";
 import {
   Dimensions,
@@ -6,18 +7,28 @@ import {
   LayoutChangeEvent,
   ListRenderItem,
   Platform,
+  Pressable,
   StyleSheet,
+  Text,
   View,
 } from "react-native";
 import { Video, ResizeMode } from "expo-av";
-import { FeedItem } from "../components/FeedItem";
-import { useUserUploads } from "../context/UserUploadsContext";
+import { useNavigation } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { FeedItem, type FeedItemPlaybackMetrics } from "../components/FeedItem";
+import { useGlobalFeed } from "../context/GlobalFeedContext";
+import { useLikes } from "../context/LikesContext";
 import {
   REELS_POSTS,
   isVideoReelItem,
   type FeedPost,
 } from "../data/placeholder";
 import { theme } from "../constants/theme";
+import { useAuth } from "../context/AuthContext";
+import { useAuthPrompt } from "../context/AuthPromptContext";
+import { isPersistablePostId } from "../services/postLikesService";
+import { capWatchedMs, recordVideoView } from "../services/videoViewsService";
 
 const INITIAL_H = Dimensions.get("window").height;
 const VISIBLE_PCT = 70;
@@ -28,10 +39,71 @@ type ViewableInfo = {
   changed: Array<ViewToken<FeedPost>>;
 };
 
+type AggregatedPlaybackMetrics = {
+  durationMs: number;
+  maxPositionMs: number;
+  completed: boolean;
+};
+
 /**
  * Bepaalt de actieve reel. Bij ≥70% zichtbaar is er meestal één; bij overlap
  * kiezen we de viewable met de hoogste index (onderste cel in verticale feed).
  */
+function ReelsFeedTopBar() {
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
+  const { user } = useAuth();
+  const { openAuthPrompt } = useAuthPrompt();
+
+  return (
+    <View
+      style={[styles.feedTopBar, { paddingTop: insets.top + 6 }]}
+      pointerEvents="box-none"
+    >
+      <View style={styles.feedTopBarSide} />
+      {user ? (
+        <Pressable
+          style={styles.feedTopBarIconBtn}
+          onPress={() => navigation.navigate("Profile" as never)}
+          accessibilityRole="button"
+          accessibilityLabel="Ga naar profiel"
+        >
+          <Ionicons name="person-circle-outline" size={30} color={theme.text} />
+        </Pressable>
+      ) : (
+        <View style={styles.feedTopBarAuth}>
+          <Pressable
+            style={styles.feedTopBarAuthBtn}
+            onPress={() =>
+              openAuthPrompt({
+                message: "Welkom terug — log hieronder in.",
+              })
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Inloggen"
+          >
+            <Text style={styles.feedTopBarAuthTxt}>Inloggen</Text>
+          </Pressable>
+          <Pressable
+            style={styles.feedTopBarAuthBtn}
+            onPress={() =>
+              openAuthPrompt({
+                message: "Maak een account om te liken, reageren en te uploaden.",
+              })
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Account maken"
+          >
+            <Text style={[styles.feedTopBarAuthTxt, styles.feedTopBarAuthAccent]}>
+              Account maken
+            </Text>
+          </Pressable>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function pickActiveViewable(
   viewableItems: Array<ViewToken<FeedPost>>
 ): ViewToken<FeedPost> | null {
@@ -70,21 +142,170 @@ function ReelNextPreloader({ videoUrl }: { videoUrl: string | undefined | null }
  * Reels: één actieve speler, 70% zichtbaarheid, snap, preload volgende video.
  */
 export function ReelsScreen() {
-  const { uploadedVideoPosts } = useUserUploads();
+  const {
+    globalFeedPosts,
+    refreshGlobalFeed,
+    loadMoreGlobalFeed,
+    isLoadingMoreFeed,
+  } = useGlobalFeed();
+  const { interactionRevision } = useLikes();
   const [pageH, setPageH] = useState(INITIAL_H);
   const [activeReelId, setActiveReelId] = useState<string | null>(null);
+  const isFocused = useIsFocused();
+  const viewTimingRef = useRef<{ postId: string; startedAt: number } | null>(
+    null
+  );
+  const recordedViewPostIdsRef = useRef<Set<string>>(new Set());
+  const playbackMetricsRef = useRef<Map<string, AggregatedPlaybackMetrics>>(
+    new Map()
+  );
 
-  const feedData = useMemo(
-    () => [...uploadedVideoPosts, ...REELS_POSTS] as FeedPost[],
-    [uploadedVideoPosts]
+  const onPlaybackMetrics = useCallback(
+    (postId: string, metrics: FeedItemPlaybackMetrics) => {
+      if (!isPersistablePostId(postId)) {
+        return;
+      }
+      const prev = playbackMetricsRef.current.get(postId) ?? {
+        durationMs: 0,
+        maxPositionMs: 0,
+        completed: false,
+      };
+      const durationMs = Math.max(prev.durationMs, metrics.durationMs ?? 0);
+      const maxPositionMs = Math.max(
+        prev.maxPositionMs,
+        metrics.positionMs ?? 0
+      );
+      const completed =
+        prev.completed || metrics.didJustFinish === true;
+      playbackMetricsRef.current.set(postId, {
+        durationMs,
+        maxPositionMs,
+        completed,
+      });
+    },
+    []
+  );
+
+  const finalizeActiveView = useCallback(() => {
+    const cur = viewTimingRef.current;
+    if (!cur) {
+      return;
+    }
+    viewTimingRef.current = null;
+    const { postId, startedAt } = cur;
+    if (!isPersistablePostId(postId)) {
+      return;
+    }
+    if (recordedViewPostIdsRef.current.has(postId)) {
+      return;
+    }
+    const rawWatchedMs = Date.now() - startedAt;
+
+    const metrics = playbackMetricsRef.current.get(postId) ?? {
+      durationMs: 0,
+      maxPositionMs: 0,
+      completed: false,
+    };
+    playbackMetricsRef.current.delete(postId);
+
+    const durationMs = metrics.durationMs > 0 ? metrics.durationMs : 0;
+    const cappedWatchedMs = capWatchedMs(
+      rawWatchedMs,
+      durationMs > 0 ? durationMs : undefined
+    );
+    if (cappedWatchedMs < 500) {
+      return;
+    }
+    recordedViewPostIdsRef.current.add(postId);
+
+    let watchedPercent: number | undefined;
+    if (durationMs > 0) {
+      const effectiveMs = Math.max(metrics.maxPositionMs, cappedWatchedMs);
+      watchedPercent = Math.min(
+        100,
+        Math.max(0, (effectiveMs / durationMs) * 100)
+      );
+    }
+    const completed =
+      metrics.completed === true ||
+      (typeof watchedPercent === "number" && watchedPercent >= 95);
+
+    void recordVideoView({
+      postId,
+      watchedMs: cappedWatchedMs,
+      durationMs,
+      watchedPercent,
+      completed,
+    });
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshGlobalFeed();
+    }, [refreshGlobalFeed])
   );
 
   useEffect(() => {
-    if (__DEV__) {
-      console.log("[Reels] restored feed posts count", feedData.length);
-      console.log("[Reels] restored uploads in feed", uploadedVideoPosts.length);
+    if (isFocused) {
+      return;
     }
-  }, [feedData.length, uploadedVideoPosts.length]);
+    finalizeActiveView();
+    console.log("[Reels] screen blurred: stopping all videos");
+    setActiveReelId(null);
+  }, [isFocused, finalizeActiveView]);
+
+  useEffect(() => {
+    if (!isFocused) {
+      return;
+    }
+    if (activeReelId == null) {
+      finalizeActiveView();
+      return;
+    }
+    const cur = viewTimingRef.current;
+    if (cur?.postId === activeReelId) {
+      return;
+    }
+    if (cur != null) {
+      finalizeActiveView();
+    }
+    viewTimingRef.current = {
+      postId: activeReelId,
+      startedAt: Date.now(),
+    };
+  }, [activeReelId, isFocused, finalizeActiveView]);
+
+  useEffect(() => {
+    return () => {
+      finalizeActiveView();
+    };
+  }, [finalizeActiveView]);
+
+  const feedData = useMemo(() => {
+    const seen = new Set<string>();
+    const out: FeedPost[] = [];
+    for (const p of globalFeedPosts) {
+      if (!seen.has(p.id)) {
+        seen.add(p.id);
+        out.push(p);
+      }
+    }
+    for (const p of REELS_POSTS) {
+      if (!seen.has(p.id)) {
+        seen.add(p.id);
+        out.push(p);
+      }
+    }
+    return out;
+  }, [globalFeedPosts]);
+
+  useEffect(() => {
+    console.log("[RENDER POSTS]", globalFeedPosts.length);
+    if (__DEV__) {
+      console.log("[Reels] feed posts count", feedData.length);
+      console.log("[Reels] global Supabase posts", globalFeedPosts.length);
+    }
+  }, [feedData.length, globalFeedPosts.length]);
 
   useEffect(() => {
     if (feedData.length === 0) {
@@ -103,6 +324,31 @@ export function ReelsScreen() {
     () => feedData.findIndex((p) => p.id === activeReelId),
     [feedData, activeReelId]
   );
+
+  useEffect(() => {
+    if (!isFocused) {
+      return;
+    }
+    if (activeIndex < 0 || feedData.length === 0) {
+      return;
+    }
+    if (feedData.length < 6) {
+      return;
+    }
+    if (activeIndex < feedData.length - 4) {
+      return;
+    }
+    if (isLoadingMoreFeed) {
+      return;
+    }
+    void loadMoreGlobalFeed();
+  }, [
+    isFocused,
+    activeIndex,
+    feedData.length,
+    isLoadingMoreFeed,
+    loadMoreGlobalFeed,
+  ]);
 
   const nextVideoForPreload = useMemo(() => {
     if (activeIndex < 0 || activeIndex + 1 >= feedData.length) {
@@ -140,10 +386,11 @@ export function ReelsScreen() {
       <FeedItem
         item={item}
         pageHeight={pageH}
-        isActive={activeReelId == null ? item.id === feedData[0]?.id : item.id === activeReelId}
+        isActive={isFocused && activeReelId != null && item.id === activeReelId}
+        onPlaybackMetrics={onPlaybackMetrics}
       />
     ),
-    [pageH, activeReelId, feedData]
+    [pageH, activeReelId, isFocused, onPlaybackMetrics]
   );
 
   const keyExtractor = useCallback((item: FeedPost) => item.id, []);
@@ -159,10 +406,11 @@ export function ReelsScreen() {
 
   return (
     <View style={styles.root} onLayout={onRootLayout}>
+      <ReelsFeedTopBar />
       <ReelNextPreloader videoUrl={nextVideoForPreload} />
       <FlatList
         data={feedData}
-        extraData={activeReelId}
+        extraData={`${activeReelId}:${interactionRevision}`}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
         pagingEnabled
@@ -190,6 +438,49 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
+  },
+  feedTopBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingHorizontal: 14,
+    paddingBottom: 6,
+    pointerEvents: "box-none",
+  },
+  feedTopBarSide: {
+    flex: 1,
+  },
+  feedTopBarAuth: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    maxWidth: "100%",
+    flexShrink: 1,
+  },
+  feedTopBarAuthBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  feedTopBarAuthTxt: {
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: "700",
+    textShadowColor: "rgba(0,0,0,0.55)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  feedTopBarAuthAccent: {
+    color: theme.accent,
+  },
+  feedTopBarIconBtn: {
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.25)",
   },
   preloadBox: {
     position: "absolute",
