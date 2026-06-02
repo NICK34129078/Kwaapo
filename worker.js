@@ -43,6 +43,11 @@ function json(data, status = 200) {
   });
 }
 
+function hasSecret(env, name) {
+  const value = env?.[name];
+  return typeof value === "string" && value.length > 0;
+}
+
 /**
  * Parse an HTTP Range header like `bytes=0-1023`, `bytes=1024-` or `bytes=-1024`.
  * Returns null if absent, and throws on invalid/unsatisfiable format.
@@ -1154,6 +1159,15 @@ export default {
           { status: 500, headers: { "Content-Type": "application/json", ...cors } }
         );
       }
+    }
+
+    if (request.method === "GET" && url.searchParams.get("debugEnv") === "1") {
+      return json({
+        hasStripeSecret: hasSecret(env, "STRIPE_SECRET_KEY"),
+        hasWebhookSecret: hasSecret(env, "STRIPE_WEBHOOK_SECRET"),
+        hasSupabaseUrl: hasSecret(env, "SUPABASE_URL"),
+        hasServiceRole: hasSecret(env, "SUPABASE_SERVICE_ROLE_KEY"),
+      });
     }
 
     if ((request.method === "GET" || request.method === "HEAD") && file) {

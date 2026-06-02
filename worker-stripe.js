@@ -192,15 +192,8 @@ async function markOrderPaymentFailed(env, orderId) {
 }
 
 function webhookSecretBytes(secret) {
-  if (secret.startsWith("whsec_")) {
-    const b64 = secret.slice(6);
-    const binary = atob(b64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes;
-  }
+  // Stripe signs with the endpoint secret string exactly as shown in Dashboard
+  // (including the whsec_ prefix); it is not base64-decoded first.
   return new TextEncoder().encode(secret);
 }
 
