@@ -29,12 +29,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
+import { ResizeMode, Video } from "expo-av";
 import {
   useUserUploads,
   type UserVideoPost,
 } from "../context/UserUploadsContext";
-import type { ProfilePostMediaItem } from "../types/userVideoPost";
-import { FullscreenVideoPlayer } from "../components/FullscreenVideoPlayer";
+import { useLikes } from "../context/LikesContext";
+import { formatGridViewsCount } from "../data/placeholder";
+import {
+  fetchMyPostStats,
+  type PostStats,
+} from "../services/postStatsService";
+import { isPersistablePostId } from "../services/postLikesService";
 import { useCloudImageCarouselUpload } from "../hooks/useCloudImageCarouselUpload";
 import { useCloudVideoUpload } from "../hooks/useCloudVideoUpload";
 import { theme } from "../constants/theme";
@@ -43,10 +49,20 @@ import { useAuthPrompt } from "../context/AuthPromptContext";
 import { EditProfileScreen } from "./EditProfileScreen";
 import { supabase } from "../lib/supabase";
 import { fetchUserPosts } from "../services/postsService";
+import { parseHashtagInput } from "../utils/hashtags";
+import { fetchMyActiveProducts } from "../services/productsService";
+import type { Product } from "../types/product";
+import { formatPriceEur } from "../utils/formatPrice";
 import {
-  fetchMyTagPreferences,
-  type MyTagPreference,
-} from "../services/algorithmInsightsService";
+  normalizeAccountType,
+  updateMyAccountType,
+  type AccountType,
+} from "../services/profileService";
+import {
+  ProfileContentTabs,
+  type ProfileContentTab,
+} from "../components/ProfileContentTabs";
+import { ProfileShopGrid } from "../components/ProfileShopGrid";
 
 const GAP = 2;
 type ProfileRow = {
@@ -54,9 +70,13 @@ type ProfileRow = {
   username: string | null;
   display_name: string | null;
   bio: string | null;
+  account_type: string | null;
 };
 
 type FollowListMode = "followers" | "following";
+type UploadDraftMedia =
+  | { kind: "video"; asset: ImagePicker.ImagePickerAsset }
+  | { kind: "photos"; assets: ImagePicker.ImagePickerAsset[] };
 type FollowListProfile = {
   id: string;
   username: string | null;
@@ -149,7 +169,7 @@ function ProfileAuthenticatedScreen({
 }) {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const cellSize = (width - GAP * 2) / 3;
   const { uploadedVideoPosts, deleteUserVideoPost } = useUserUploads();
   const uploads = uploadedVideoPosts;
@@ -157,59 +177,27 @@ function ProfileAuthenticatedScreen({
     []
   );
   const [otherUploadsLoading, setOtherUploadsLoading] = useState(false);
-  const [activeVideoPost, setActiveVideoPost] = useState<UserVideoPost | null>(
-    null
-  );
-  const [activeCarouselPost, setActiveCarouselPost] = useState<UserVideoPost | null>(
-    null
-  );
-  const [carouselViewerIndex, setCarouselViewerIndex] = useState(0);
-
-  const carouselSlides = useMemo((): ProfilePostMediaItem[] => {
-    if (!activeCarouselPost) {
-      return [];
-    }
-    const items = activeCarouselPost.mediaItems;
-    if (items && items.length > 0) {
-      return [...items].sort((a, b) => a.sortOrder - b.sortOrder);
-    }
-    const url =
-      activeCarouselPost.thumbnailUrl && activeCarouselPost.thumbnailUrl.length > 0
-        ? activeCarouselPost.thumbnailUrl
-        : activeCarouselPost.imageUrl;
-    if (url && url.length > 0) {
-      return [{ url, mediaType: "image", sortOrder: 0 }];
-    }
-    return [];
-  }, [activeCarouselPost]);
-
-  useEffect(() => {
-    if (activeCarouselPost) {
-      setCarouselViewerIndex(0);
-    }
-  }, [activeCarouselPost?.id]);
-
-  const closeVideoViewer = useCallback(() => {
-    setActiveVideoPost(null);
-  }, []);
-  const closeCarouselViewer = useCallback(() => {
-    setActiveCarouselPost(null);
-  }, []);
-
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [editProfileVisible, setEditProfileVisible] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(true);
   const [emailEnabled, setEmailEnabled] = useState(false);
   const [darkModeEnabled, setDarkModeEnabled] = useState(true);
-  const { isUploading, pickAndUploadVideo } = useCloudVideoUpload();
-  const { isUploading: isCarouselUploading, pickAndUploadCarousel } =
+  const { isUploading, uploadVideoAsset } = useCloudVideoUpload();
+  const { isUploading: isCarouselUploading, uploadCarouselAssets } =
     useCloudImageCarouselUpload();
   const [uploadFlowBusy, setUploadFlowBusy] = useState(false);
   const isUploadBusy = isUploading || isCarouselUploading || uploadFlowBusy;
   const { signOut, user } = useAuth();
+  const { syncFeedLikeState } = useLikes();
   const targetProfileId = profileId ?? user?.id ?? null;
   const isOwnProfile = !!user?.id && user.id === targetProfileId;
   const visibleUploads = isOwnProfile ? uploads : otherProfileUploads;
+
+  useEffect(() => {
+    if (visibleUploads.length > 0) {
+      syncFeedLikeState(visibleUploads);
+    }
+  }, [visibleUploads, syncFeedLikeState]);
   const uploadsCount = visibleUploads.length;
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
@@ -227,69 +215,241 @@ function ProfileAuthenticatedScreen({
   const [profileUsername, setProfileUsername] = useState<string>("");
   const [profileDisplayName, setProfileDisplayName] = useState<string>("");
   const [profileBio, setProfileBio] = useState<string>("");
+  const [profileAccountType, setProfileAccountType] =
+    useState<AccountType>("consumer");
+  const [profileContentTab, setProfileContentTab] =
+    useState<ProfileContentTab>("posts");
+  const [accountTypeBusy, setAccountTypeBusy] = useState(false);
+  const isBusinessProfile = profileAccountType === "business";
   const [avatarUploading, setAvatarUploading] = useState(false);
   const plusPulse = useRef(new Animated.Value(1)).current;
 
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
+  const [uploadDraftMedia, setUploadDraftMedia] = useState<UploadDraftMedia | null>(
+    null
+  );
   const [captionDraft, setCaptionDraft] = useState("");
   const [hashtagsDraft, setHashtagsDraft] = useState("");
-  const [myTagPrefs, setMyTagPrefs] = useState<MyTagPreference[]>([]);
-  const [myTagPrefsLoaded, setMyTagPrefsLoaded] = useState(false);
-  const [algoExpanded, setAlgoExpanded] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [productPickerVisible, setProductPickerVisible] = useState(false);
+  const [uploadProducts, setUploadProducts] = useState<Product[]>([]);
+  const [uploadProductsLoading, setUploadProductsLoading] = useState(false);
+  const selectedUploadProduct = useMemo(
+    () => uploadProducts.find((product) => product.id === selectedProductId) ?? null,
+    [selectedProductId, uploadProducts]
+  );
+  const parsedHashtagsPreview = useMemo(
+    () => parseHashtagInput(hashtagsDraft),
+    [hashtagsDraft],
+  );
+  const hashtagInputOverMax = useMemo(() => {
+    const input = hashtagsDraft.trim();
+    if (!input) {
+      return false;
+    }
+    const tokens = input.split(/\s+/).filter(Boolean);
+    const seen = new Set<string>();
+    let count = 0;
+    for (const tok of tokens) {
+      let t = tok.replace(/^#+/, "").trim().toLowerCase();
+      t = t.replace(/[^a-z0-9_]/g, "");
+      if (!t || seen.has(t)) {
+        continue;
+      }
+      seen.add(t);
+      count += 1;
+      if (count > 10) {
+        return true;
+      }
+    }
+    return false;
+  }, [hashtagsDraft]);
+  const [postStatsById, setPostStatsById] = useState<Record<string, PostStats>>(
+    {}
+  );
 
-  const carouselLayout = useMemo(() => {
-    const topChrome = insets.top + 44;
-    const bottomChrome = insets.bottom + 52;
-    const pageHeight = Math.max(240, height - topChrome - bottomChrome);
-    return { topChrome, bottomChrome, pageHeight };
-  }, [height, insets.top, insets.bottom]);
+  useEffect(() => {
+    if (!isOwnProfile) {
+      setPostStatsById({});
+      return;
+    }
+
+    const ids = visibleUploads
+      .map((p) => p.id)
+      .filter(isPersistablePostId);
+    if (ids.length === 0) {
+      setPostStatsById({});
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const map = await fetchMyPostStats(ids);
+      if (!cancelled) {
+        setPostStatsById(map);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOwnProfile, visibleUploads]);
+
+  const openProfileReels = useCallback(
+    (post: UserVideoPost) => {
+      if (!targetProfileId || visibleUploads.length === 0) {
+        return;
+      }
+      navigation.navigate("ProfileReels", {
+        profileId: targetProfileId,
+        initialPostId: post.id,
+        posts: visibleUploads,
+        isOwnProfile,
+      });
+    },
+    [navigation, targetProfileId, visibleUploads, isOwnProfile]
+  );
+
+  const resetUploadDrafts = useCallback(() => {
+    setUploadDraftMedia(null);
+    setCaptionDraft("");
+    setHashtagsDraft("");
+    setSelectedProductId(null);
+    setProductPickerVisible(false);
+  }, []);
+
+  useEffect(() => {
+    if (!productPickerVisible || !isOwnProfile || !isBusinessProfile) {
+      return;
+    }
+    let cancelled = false;
+    setUploadProductsLoading(true);
+    void (async () => {
+      try {
+        const rows = await fetchMyActiveProducts();
+        if (!cancelled) {
+          setUploadProducts(rows);
+        }
+      } catch {
+        if (!cancelled) {
+          setUploadProducts([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setUploadProductsLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isBusinessProfile, isOwnProfile, productPickerVisible]);
 
   const dismissUploadModal = useCallback(() => {
     setUploadModalVisible(false);
-    setCaptionDraft("");
-    setHashtagsDraft("");
+    resetUploadDrafts();
+  }, [resetUploadDrafts]);
+
+  const openProductPicker = useCallback(() => {
+    if (!isBusinessProfile) {
+      return;
+    }
+    setProductPickerVisible(true);
+  }, [isBusinessProfile]);
+
+  const selectUploadProduct = useCallback((product: Product) => {
+    setSelectedProductId(product.id);
+    setProductPickerVisible(false);
   }, []);
 
-  const handleChooseUploadVideo = useCallback(() => {
-    const raw = hashtagsDraft;
-    const cap = captionDraft;
-    Keyboard.dismiss();
-    setUploadModalVisible(false);
+  const buildUploadOptions = useCallback(() => {
+    return {
+      hashtagsRaw: hashtagsDraft,
+      caption: captionDraft,
+      ...(selectedProductId ? { productId: selectedProductId } : {}),
+    };
+  }, [captionDraft, hashtagsDraft, selectedProductId]);
 
-    const delayMs = Platform.OS === "ios" ? 700 : 500;
-    setTimeout(() => {
-      void (async () => {
-        try {
-          setUploadFlowBusy(true);
-          await pickAndUploadVideo({ hashtagsRaw: raw, caption: cap });
-        } finally {
-          setUploadFlowBusy(false);
-          setCaptionDraft("");
-          setHashtagsDraft("");
-        }
-      })();
-    }, delayMs);
-  }, [captionDraft, hashtagsDraft, pickAndUploadVideo]);
+  const handleChooseUploadVideo = useCallback(() => {
+    void (async () => {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Toegang nodig",
+          "Sta toegang tot je fotobibliotheek toe om een video te kiezen."
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        allowsEditing: false,
+        quality: 0.6,
+        videoMaxDuration: 30,
+      });
+      if (result.canceled || !result.assets[0]?.uri) {
+        return;
+      }
+      setUploadDraftMedia({ kind: "video", asset: result.assets[0] });
+    })();
+  }, []);
 
   const handleChooseUploadPhotos = useCallback(() => {
-    const raw = hashtagsDraft;
-    const cap = captionDraft;
+    void (async () => {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Toegang nodig",
+          "Sta toegang tot je fotobibliotheek toe om foto's te kiezen."
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.9,
+      });
+      if (result.canceled) {
+        return;
+      }
+      const assets = (result.assets ?? []).filter((asset) => asset?.uri).slice(0, 10);
+      if (assets.length === 0) {
+        return;
+      }
+      setUploadDraftMedia({ kind: "photos", assets });
+    })();
+  }, []);
+
+  const handlePlacePost = useCallback(() => {
+    if (!uploadDraftMedia) {
+      return;
+    }
+    const opts = buildUploadOptions();
     Keyboard.dismiss();
     setUploadModalVisible(false);
+
     const delayMs = Platform.OS === "ios" ? 700 : 500;
     setTimeout(() => {
       void (async () => {
         try {
           setUploadFlowBusy(true);
-          await pickAndUploadCarousel({ hashtagsRaw: raw, caption: cap });
+          if (uploadDraftMedia.kind === "video") {
+            await uploadVideoAsset(uploadDraftMedia.asset, opts);
+          } else {
+            await uploadCarouselAssets(uploadDraftMedia.assets, opts);
+          }
         } finally {
           setUploadFlowBusy(false);
-          setCaptionDraft("");
-          setHashtagsDraft("");
+          resetUploadDrafts();
         }
       })();
     }, delayMs);
-  }, [captionDraft, hashtagsDraft, pickAndUploadCarousel]);
+  }, [
+    buildUploadOptions,
+    resetUploadDrafts,
+    uploadCarouselAssets,
+    uploadDraftMedia,
+    uploadVideoAsset,
+  ]);
 
   const loadProfile = useCallback(async () => {
     if (!targetProfileId) {
@@ -297,11 +457,12 @@ function ProfileAuthenticatedScreen({
       setProfileUsername("");
       setProfileDisplayName("");
       setProfileBio("");
+      setProfileAccountType("consumer");
       return;
     }
     const { data, error } = await supabase
       .from("profiles")
-      .select("avatar_url, username, display_name, bio")
+      .select("avatar_url, username, display_name, bio, account_type")
       .eq("id", targetProfileId)
       .maybeSingle<ProfileRow>();
     if (error) {
@@ -314,6 +475,7 @@ function ProfileAuthenticatedScreen({
     setProfileUsername((data?.username ?? "").trim());
     setProfileDisplayName((data?.display_name ?? "").trim());
     setProfileBio((data?.bio ?? "").trim());
+    setProfileAccountType(normalizeAccountType(data?.account_type));
   }, [targetProfileId]);
 
   useEffect(() => {
@@ -321,30 +483,8 @@ function ProfileAuthenticatedScreen({
   }, [loadProfile]);
 
   useEffect(() => {
-    if (!isOwnProfile) {
-      setMyTagPrefs([]);
-      setMyTagPrefsLoaded(false);
-      return;
-    }
-    let cancelled = false;
-    setMyTagPrefsLoaded(false);
-    void (async () => {
-      const rows = await fetchMyTagPreferences();
-      if (!cancelled) {
-        setMyTagPrefs(rows);
-        setMyTagPrefsLoaded(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isOwnProfile]);
-
-  useEffect(() => {
-    if (!isOwnProfile) {
-      setAlgoExpanded(false);
-    }
-  }, [isOwnProfile]);
+    setProfileContentTab("posts");
+  }, [targetProfileId]);
 
   useEffect(() => {
     if (!__DEV__) {
@@ -608,12 +748,6 @@ function ProfileAuthenticatedScreen({
             onPress: () => {
               void (async () => {
                 try {
-                  if (activeVideoPost?.id === p.id) {
-                    setActiveVideoPost(null);
-                  }
-                  if (activeCarouselPost?.id === p.id) {
-                    setActiveCarouselPost(null);
-                  }
                   await deleteUserVideoPost(p.id);
                 } catch (e) {
                   const msg = e instanceof Error ? e.message : "Verwijderen mislukt";
@@ -625,7 +759,7 @@ function ProfileAuthenticatedScreen({
         ]
       );
     },
-    [activeVideoPost?.id, activeCarouselPost?.id, deleteUserVideoPost, isOwnProfile]
+    [deleteUserVideoPost, isOwnProfile]
   );
 
   const onToggleFollow = useCallback(async () => {
@@ -747,6 +881,22 @@ function ProfileAuthenticatedScreen({
     [navigation, user?.id]
   );
 
+  const onMakeBusinessAccount = useCallback(async () => {
+    if (!isOwnProfile || profileAccountType === "business") {
+      return;
+    }
+    setAccountTypeBusy(true);
+    try {
+      await updateMyAccountType("business");
+      setProfileAccountType("business");
+    } catch (e) {
+      const msg = getReadableErrorMessage(e, "Accounttype wijzigen mislukt.");
+      Alert.alert("Fout", msg);
+    } finally {
+      setAccountTypeBusy(false);
+    }
+  }, [isOwnProfile, profileAccountType]);
+
   return (
     <>
       {isOwnProfile && isUploadBusy ? (
@@ -863,13 +1013,12 @@ function ProfileAuthenticatedScreen({
               <Text style={styles.statLabel}>volgend</Text>
             </Pressable>
 
-            {isOwnProfile ? (
+            {isOwnProfile && (!isBusinessProfile || profileContentTab === "posts") ? (
               <Pressable
                 style={styles.statsAddButton}
                 onPress={() => {
                   if (isUploadBusy) return;
-                  setCaptionDraft("");
-                  setHashtagsDraft("");
+                  resetUploadDrafts();
                   setUploadModalVisible(true);
                 }}
                 disabled={isUploadBusy}
@@ -908,54 +1057,20 @@ function ProfileAuthenticatedScreen({
           ) : null}
         </View>
 
-        {isOwnProfile && myTagPrefsLoaded ? (
-          <View style={styles.algoCard}>
-            <Pressable
-              style={styles.algoToggleRow}
-              onPress={() => setAlgoExpanded((v) => !v)}
-              accessibilityRole="button"
-              accessibilityLabel={
-                algoExpanded ? "Mijn algoritme inklappen" : "Mijn algoritme bekijken"
-              }
-            >
-              <Text style={styles.algoToggleText}>
-                {algoExpanded ? "Mijn algoritme" : "Mijn algoritme bekijken"}
-              </Text>
-              <Ionicons
-                name={algoExpanded ? "chevron-up" : "chevron-down"}
-                size={18}
-                color={theme.textMuted}
-              />
-            </Pressable>
-            {algoExpanded ? (
-              <View style={styles.algoExpanded}>
-                {myTagPrefs.length === 0 ? (
-                  <Text style={styles.algoEmptyInline}>Nog geen algoritme-data</Text>
-                ) : (
-                  myTagPrefs.slice(0, 5).map((row) => {
-                    const label = row.tag.startsWith("#")
-                      ? row.tag
-                      : `#${row.tag}`;
-                    return (
-                      <Text key={row.tag} style={styles.algoTagLine}>
-                        {label}  score {row.score}
-                      </Text>
-                    );
-                  })
-                )}
-                <Pressable
-                  style={styles.algoHideBtn}
-                  onPress={() => setAlgoExpanded(false)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Verbergen"
-                >
-                  <Text style={styles.algoHideText}>Verbergen</Text>
-                </Pressable>
-              </View>
-            ) : null}
-          </View>
+        {isBusinessProfile ? (
+          <ProfileContentTabs
+            active={profileContentTab}
+            onChange={setProfileContentTab}
+          />
         ) : null}
 
+        {isBusinessProfile && profileContentTab === "shop" && targetProfileId ? (
+          <ProfileShopGrid
+            ownerId={targetProfileId}
+            cellSize={cellSize}
+            isOwnProfile={isOwnProfile}
+          />
+        ) : (
         <View style={styles.grid}>
           {!isOwnProfile && otherUploadsLoading ? (
             <View style={styles.otherUploadsLoadingWrap}>
@@ -965,13 +1080,7 @@ function ProfileAuthenticatedScreen({
           {visibleUploads.map((p, i) => (
             <Pressable
               key={p.id}
-              onPress={() => {
-                if (p.type === "image_carousel") {
-                  setActiveCarouselPost(p);
-                } else {
-                  setActiveVideoPost(p);
-                }
-              }}
+              onPress={() => openProfileReels(p)}
               onLongPress={isOwnProfile ? () => confirmDeleteCloudVideo(p) : undefined}
               accessibilityRole="button"
               accessibilityLabel={
@@ -1017,178 +1126,42 @@ function ProfileAuthenticatedScreen({
                     />
                   </View>
                 )}
+                {isOwnProfile ? (
+                  <View style={styles.gridViewsOverlay} pointerEvents="none">
+                    <Ionicons
+                      name="eye-outline"
+                      size={13}
+                      color="rgba(255,255,255,0.95)"
+                    />
+                    <Text style={styles.gridViewsText}>
+                      {formatGridViewsCount(
+                        postStatsById[p.id]?.viewsCount ?? 0
+                      )}
+                    </Text>
+                    <Ionicons
+                      name="heart-outline"
+                      size={13}
+                      color="rgba(255,255,255,0.95)"
+                    />
+                    <Text style={styles.gridViewsText}>
+                      {formatGridViewsCount(p.likesCount ?? 0)}
+                    </Text>
+                    <Ionicons
+                      name="chatbubble-outline"
+                      size={12}
+                      color="rgba(255,255,255,0.95)"
+                    />
+                    <Text style={styles.gridViewsText}>
+                      {formatGridViewsCount(p.commentsCount ?? 0)}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             </Pressable>
           ))}
         </View>
+        )}
       </ScrollView>
-
-      <Modal
-        visible={activeVideoPost !== null}
-        animationType="fade"
-        presentationStyle="fullScreen"
-        statusBarTranslucent
-        onRequestClose={closeVideoViewer}
-        supportedOrientations={["portrait", "landscape"]}
-      >
-        <View style={styles.videoModalRoot}>
-          <View
-            style={[
-              styles.viewerTopBar,
-              { top: insets.top + 6, left: 12, right: 12 },
-            ]}
-          >
-            {isOwnProfile && activeVideoPost ? (
-              <Pressable
-                onPress={() => confirmDeleteCloudVideo(activeVideoPost)}
-                style={styles.viewerTopBarBtn}
-                accessibilityRole="button"
-                accessibilityLabel="Post verwijderen"
-                hitSlop={12}
-              >
-                <Ionicons name="trash-outline" size={26} color={theme.text} />
-              </Pressable>
-            ) : (
-              <View style={styles.viewerTopBarSpacer} />
-            )}
-            <Pressable
-              onPress={closeVideoViewer}
-              style={styles.viewerTopBarBtn}
-              accessibilityRole="button"
-              accessibilityLabel="Sluit video"
-              hitSlop={12}
-            >
-              <Ionicons name="close" size={30} color={theme.text} />
-            </Pressable>
-          </View>
-          {activeVideoPost ? (
-            <View style={styles.videoStage}>
-              <FullscreenVideoPlayer
-                videoId={activeVideoPost.id}
-                videoUrl={activeVideoPost.videoUrl ?? ""}
-              />
-            </View>
-          ) : null}
-        </View>
-      </Modal>
-
-      <Modal
-        visible={activeCarouselPost !== null}
-        animationType="fade"
-        presentationStyle="fullScreen"
-        statusBarTranslucent
-        onRequestClose={closeCarouselViewer}
-        supportedOrientations={["portrait", "landscape"]}
-      >
-        <View style={styles.carouselModalRoot}>
-          <View
-            style={[
-              styles.carouselTopBar,
-              { height: carouselLayout.topChrome, paddingTop: insets.top + 6 },
-            ]}
-          >
-            {isOwnProfile && activeCarouselPost ? (
-              <Pressable
-                onPress={() => confirmDeleteCloudVideo(activeCarouselPost)}
-                style={styles.carouselTopBarHit}
-                accessibilityRole="button"
-                accessibilityLabel="Post verwijderen"
-                hitSlop={12}
-              >
-                <Ionicons name="trash-outline" size={26} color="#fff" />
-              </Pressable>
-            ) : (
-              <View style={styles.viewerTopBarSpacer} />
-            )}
-            <Pressable
-              onPress={closeCarouselViewer}
-              style={styles.carouselTopBarHit}
-              accessibilityRole="button"
-              accessibilityLabel="Sluit fotoserie"
-              hitSlop={12}
-            >
-              <Ionicons name="close" size={30} color="#fff" />
-            </Pressable>
-          </View>
-
-          {activeCarouselPost && carouselSlides.length > 0 ? (
-            <FlatList
-              key={activeCarouselPost.id}
-              style={{ height: carouselLayout.pageHeight }}
-              data={carouselSlides}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              decelerationRate="fast"
-              bounces={false}
-              removeClippedSubviews={false}
-              keyExtractor={(item) => `${item.url}-${item.sortOrder}`}
-              getItemLayout={(_, index) => ({
-                length: width,
-                offset: width * index,
-                index,
-              })}
-              {...(Platform.OS === "android"
-                ? {
-                    snapToInterval: width,
-                    snapToAlignment: "start" as const,
-                    disableIntervalMomentum: true,
-                  }
-                : {})}
-              onMomentumScrollEnd={(ev) => {
-                const page = Math.round(ev.nativeEvent.contentOffset.x / width);
-                const max = Math.max(0, carouselSlides.length - 1);
-                setCarouselViewerIndex(Math.min(Math.max(0, page), max));
-              }}
-              renderItem={({ item }) => (
-                <View
-                  style={{
-                    width,
-                    height: carouselLayout.pageHeight,
-                    justifyContent: "center",
-                    alignItems: "center",
-                    backgroundColor: "#000",
-                  }}
-                >
-                  <Image
-                    source={{ uri: item.url }}
-                    style={{
-                      width,
-                      height: carouselLayout.pageHeight,
-                    }}
-                    resizeMode="contain"
-                  />
-                </View>
-              )}
-            />
-          ) : null}
-
-          <View
-            style={[
-              styles.carouselBottomBar,
-              {
-                height: carouselLayout.bottomChrome,
-                paddingBottom: insets.bottom,
-              },
-            ]}
-            pointerEvents="box-none"
-          >
-            <Text style={styles.carouselCounterText} accessibilityLiveRegion="polite">
-              {carouselSlides.length > 0
-                ? `${carouselViewerIndex + 1} / ${carouselSlides.length}`
-                : ""}
-            </Text>
-            <Pressable
-              onPress={closeCarouselViewer}
-              style={styles.carouselDismissTextWrap}
-              accessibilityRole="button"
-              accessibilityLabel="Sluiten"
-            >
-              <Text style={styles.carouselDismissText}>Sluiten</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
 
       {isOwnProfile ? (
         <Modal
@@ -1239,6 +1212,60 @@ function ProfileAuthenticatedScreen({
                 <Text style={styles.rowLabel}>Security & login</Text>
                 <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
               </Pressable>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Mijn Winkel</Text>
+              {isBusinessProfile ? (
+                <>
+                  <Pressable
+                    style={styles.rowButton}
+                    onPress={() => {
+                      setSettingsVisible(false);
+                      navigation.navigate("CreatorStats");
+                    }}
+                  >
+                    <Text style={styles.rowLabel}>Shop statistieken</Text>
+                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                  </Pressable>
+                  <Pressable
+                    style={styles.rowButton}
+                    onPress={() => showStubMessage("Verzendinstellingen")}
+                  >
+                    <Text style={styles.rowLabel}>Verzendinstellingen</Text>
+                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                  </Pressable>
+                  <Pressable
+                    style={styles.rowButton}
+                    onPress={() => showStubMessage("Beoordelingen")}
+                  >
+                    <Text style={styles.rowLabel}>Beoordelingen</Text>
+                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                  </Pressable>
+                  <Pressable
+                    style={styles.rowButton}
+                    onPress={() => showStubMessage("Mijn algoritme")}
+                  >
+                    <Text style={styles.rowLabel}>Mijn algoritme</Text>
+                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                  </Pressable>
+                </>
+              ) : (
+                <Pressable
+                  style={styles.rowButton}
+                  onPress={() => void onMakeBusinessAccount()}
+                  disabled={accountTypeBusy}
+                >
+                  <Text style={styles.rowLabel}>
+                    {accountTypeBusy ? "Account wijzigen..." : "Maak business account"}
+                  </Text>
+                  {accountTypeBusy ? (
+                    <ActivityIndicator size="small" color={theme.textMuted} />
+                  ) : (
+                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                  )}
+                </Pressable>
+              )}
             </View>
 
             <View style={styles.section}>
@@ -1335,6 +1362,62 @@ function ProfileAuthenticatedScreen({
                 collapsable={false}
               >
                 <Text style={styles.uploadSheetTitle}>Uploaden</Text>
+                {!uploadDraftMedia ? (
+                  <View style={styles.uploadChoiceStack}>
+                    <Pressable
+                      style={styles.uploadChoiceButton}
+                      onPress={(e) => {
+                        e?.stopPropagation?.();
+                        handleChooseUploadVideo();
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Video kiezen"
+                    >
+                      <Ionicons name="videocam-outline" size={24} color={theme.accent} />
+                      <Text style={styles.uploadChoiceText}>Video kiezen</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.uploadChoiceButton}
+                      onPress={(e) => {
+                        e?.stopPropagation?.();
+                        handleChooseUploadPhotos();
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Foto's kiezen"
+                    >
+                      <Ionicons name="images-outline" size={24} color={theme.accent} />
+                      <Text style={styles.uploadChoiceText}>Foto's kiezen</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={styles.uploadSheetSectionLabel}>
+                      Voorvertoning
+                    </Text>
+                    {uploadDraftMedia.kind === "video" ? (
+                      <Video
+                        source={{ uri: uploadDraftMedia.asset.uri }}
+                        style={styles.uploadPreviewVideo}
+                        resizeMode={ResizeMode.COVER}
+                        shouldPlay={false}
+                        isMuted
+                        useNativeControls
+                      />
+                    ) : (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.uploadPreviewPhotoRow}
+                      >
+                        {uploadDraftMedia.assets.map((asset, index) => (
+                          <Image
+                            key={`${asset.uri}-${index}`}
+                            source={{ uri: asset.uri }}
+                            style={styles.uploadPreviewPhoto}
+                          />
+                        ))}
+                      </ScrollView>
+                    )}
                 <Text style={styles.uploadSheetLabel}>Beschrijving</Text>
                 <TextInput
                   style={[styles.uploadSheetInput, styles.uploadSheetCaptionInput]}
@@ -1346,8 +1429,11 @@ function ProfileAuthenticatedScreen({
                   multiline
                 />
                 <Text style={styles.uploadSheetLabel}>Hashtags</Text>
+                <Text style={styles.uploadSheetHashtagHelp}>
+                  Maximaal 10 hashtags. Gebruik bijvoorbeeld #summer #sport.
+                </Text>
                 <TextInput
-                  style={styles.uploadSheetInput}
+                  style={[styles.uploadSheetInput, styles.uploadSheetHashtagInput]}
                   placeholder="#oldmoney #zomervibe #classy"
                   placeholderTextColor={theme.textMuted}
                   value={hashtagsDraft}
@@ -1356,32 +1442,105 @@ function ProfileAuthenticatedScreen({
                   autoCapitalize="none"
                   multiline
                 />
+                <View style={styles.uploadSheetHashtagMeta}>
+                  {parsedHashtagsPreview.length > 0 ? (
+                    <View style={styles.uploadSheetChipRow}>
+                      {parsedHashtagsPreview.map((tag) => (
+                        <View key={tag} style={styles.uploadSheetChip}>
+                          <Text style={styles.uploadSheetChipText}>#{tag}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : hashtagsDraft.trim().length === 0 ? (
+                    <Text style={styles.uploadSheetHashtagHint}>
+                      Voeg 1–3 hashtags toe voor betere aanbevelingen.
+                    </Text>
+                  ) : null}
+                  {hashtagsDraft.trim().length > 0 &&
+                  parsedHashtagsPreview.length === 0 ? (
+                    <Text style={styles.uploadSheetHashtagWarn}>
+                      Geen geldige hashtags gevonden. Gebruik alleen letters, cijfers
+                      en _.
+                    </Text>
+                  ) : null}
+                  {hashtagInputOverMax ? (
+                    <Text style={styles.uploadSheetHashtagLimit}>
+                      Maximaal 10 hashtags worden opgeslagen.
+                    </Text>
+                  ) : null}
+                </View>
+                {isBusinessProfile ? (
+                  <>
+                    {selectedUploadProduct ? (
+                      <View style={styles.linkedProductCard}>
+                        <View style={styles.linkedProductHeader}>
+                          <Text style={styles.linkedProductEyebrow}>
+                            Gekoppeld product
+                          </Text>
+                          <Ionicons
+                            name="bag-handle-outline"
+                            size={18}
+                            color={theme.accent}
+                          />
+                        </View>
+                        <Text style={styles.linkedProductName} numberOfLines={1}>
+                          {selectedUploadProduct.name}
+                        </Text>
+                        <Text style={styles.linkedProductPrice}>
+                          {formatPriceEur(selectedUploadProduct.price)}
+                        </Text>
+                        <View style={styles.linkedProductActions}>
+                          <Pressable
+                            style={styles.linkedProductAction}
+                            onPress={openProductPicker}
+                            accessibilityRole="button"
+                            accessibilityLabel="Product wijzigen"
+                          >
+                            <Text style={styles.linkedProductActionText}>Wijzigen</Text>
+                          </Pressable>
+                          <Pressable
+                            style={styles.linkedProductAction}
+                            onPress={() => setSelectedProductId(null)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Product verwijderen"
+                          >
+                            <Text style={styles.linkedProductRemoveText}>
+                              Verwijderen
+                            </Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ) : (
+                      <Pressable
+                        style={styles.addProductTagButton}
+                        onPress={openProductPicker}
+                        accessibilityRole="button"
+                        accessibilityLabel="Product toevoegen"
+                      >
+                        <Ionicons name="pricetag-outline" size={18} color={theme.accent} />
+                        <Text style={styles.addProductTagText}>
+                          Product toevoegen
+                        </Text>
+                        <Text style={styles.addProductTagOptional}>optioneel</Text>
+                      </Pressable>
+                    )}
+                  </>
+                ) : null}
                 <View style={styles.uploadSheetStack}>
                   <Pressable
                     style={[styles.uploadSheetBtnPrimary, styles.uploadSheetFullWidth]}
                     onPress={(e) => {
                       e?.stopPropagation?.();
-                      handleChooseUploadVideo();
+                      handlePlacePost();
                     }}
                     accessibilityRole="button"
-                    accessibilityLabel="Video uploaden"
+                    accessibilityLabel="Plaatsen"
                   >
-                    <Text style={styles.uploadSheetBtnPrimaryText}>Video uploaden</Text>
-                  </Pressable>
-                  <Pressable
-                    style={[styles.uploadSheetBtnPrimary, styles.uploadSheetFullWidth]}
-                    onPress={(e) => {
-                      e?.stopPropagation?.();
-                      handleChooseUploadPhotos();
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Foto's uploaden"
-                  >
-                    <Text style={styles.uploadSheetBtnPrimaryText}>
-                      Foto's uploaden (max. 10)
-                    </Text>
+                    <Text style={styles.uploadSheetBtnPrimaryText}>Plaatsen</Text>
                   </Pressable>
                 </View>
+                  </>
+                )}
                 <Pressable
                   style={[styles.uploadSheetBtnSecondary, styles.uploadSheetCancelBelow]}
                   onPress={dismissUploadModal}
@@ -1393,6 +1552,98 @@ function ProfileAuthenticatedScreen({
               </View>
             </View>
           </KeyboardAvoidingView>
+        </Modal>
+      ) : null}
+
+      {isOwnProfile && isBusinessProfile ? (
+        <Modal
+          visible={productPickerVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setProductPickerVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
+              <View style={styles.modalHeader}>
+                <View>
+                  <Text style={styles.modalTitle}>Koppel product</Text>
+                  <Text style={styles.productPickerSubtitle}>Mijn producten</Text>
+                </View>
+                <Pressable
+                  style={styles.iconButton}
+                  onPress={() => setProductPickerVisible(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Sluit productkiezer"
+                >
+                  <Ionicons name="close" size={22} color={theme.text} />
+                </Pressable>
+              </View>
+
+              {uploadProductsLoading ? (
+                <View style={styles.productPickerLoading}>
+                  <ActivityIndicator size="small" color={theme.accent} />
+                </View>
+              ) : (
+                <FlatList
+                  data={uploadProducts}
+                  keyExtractor={(item) => item.id}
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={styles.productPickerList}
+                  renderItem={({ item }) => {
+                    const selected = selectedProductId === item.id;
+                    return (
+                      <Pressable
+                        style={styles.productPickerRow}
+                        onPress={() => selectUploadProduct(item)}
+                        accessibilityRole="button"
+                        accessibilityLabel={item.name}
+                      >
+                        {item.images[0] ? (
+                          <Image
+                            source={{ uri: item.images[0] }}
+                            style={styles.productPickerThumb}
+                          />
+                        ) : (
+                          <View
+                            style={[
+                              styles.productPickerThumb,
+                              styles.productPickerThumbFallback,
+                            ]}
+                          >
+                            <Ionicons
+                              name="image-outline"
+                              size={20}
+                              color={theme.textMuted}
+                            />
+                          </View>
+                        )}
+                        <View style={styles.productPickerTextWrap}>
+                          <Text style={styles.productPickerName} numberOfLines={1}>
+                            {item.name}
+                          </Text>
+                          <Text style={styles.productPickerPrice}>
+                            {formatPriceEur(item.price)}
+                          </Text>
+                        </View>
+                        {selected ? (
+                          <View style={styles.productPickerSelected}>
+                            <Ionicons name="checkmark" size={18} color={theme.bg} />
+                          </View>
+                        ) : null}
+                      </Pressable>
+                    );
+                  }}
+                  ListEmptyComponent={
+                    <View style={styles.productPickerEmpty}>
+                      <Text style={styles.followListEmptyText}>
+                        Voeg eerst producten toe via Mijn Winkel.
+                      </Text>
+                    </View>
+                  }
+                />
+              )}
+            </View>
+          </View>
         </Modal>
       ) : null}
 
@@ -1687,62 +1938,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
-  algoCard: {
-    marginHorizontal: 16,
-    marginTop: 6,
-    marginBottom: 10,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.1)",
-    overflow: "hidden",
-  },
-  algoToggleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    minHeight: 44,
-  },
-  algoToggleText: {
-    color: theme.text,
-    fontSize: 14,
-    fontWeight: "600",
-    flex: 1,
-    paddingRight: 8,
-  },
-  algoExpanded: {
-    paddingHorizontal: 12,
-    paddingBottom: 8,
-    paddingTop: 0,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(255,255,255,0.08)",
-  },
-  algoEmptyInline: {
-    color: theme.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-    paddingBottom: 6,
-  },
-  algoTagLine: {
-    color: "rgba(255,255,255,0.88)",
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "500",
-    fontVariant: ["tabular-nums"],
-  },
-  algoHideBtn: {
-    alignSelf: "flex-start",
-    marginTop: 6,
-    paddingVertical: 4,
-    paddingHorizontal: 0,
-  },
-  algoHideText: {
-    color: theme.textMuted,
-    fontSize: 13,
-    fontWeight: "600",
-  },
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1770,6 +1965,22 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 4,
     bottom: 4,
+  },
+  gridViewsOverlay: {
+    position: "absolute",
+    left: 8,
+    bottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  gridViewsText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+    textShadowColor: "rgba(0,0,0,0.8)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   carouselGridBadge: {
     position: "absolute",
@@ -1968,6 +2179,68 @@ const styles = StyleSheet.create({
     color: theme.textMuted,
     fontSize: 14,
   },
+  productPickerSubtitle: {
+    color: theme.textMuted,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  productPickerLoading: {
+    minHeight: 140,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  productPickerList: {
+    paddingBottom: 8,
+  },
+  productPickerRow: {
+    minHeight: 68,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.border,
+  },
+  productPickerThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: theme.bgElevated,
+  },
+  productPickerThumbFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  productPickerTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  productPickerName: {
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  productPickerPrice: {
+    color: theme.accent,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  productPickerSelected: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.accent,
+  },
+  productPickerEmpty: {
+    minHeight: 120,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   logoutButton: {
     marginTop: 16,
     marginBottom: 4,
@@ -2028,6 +2301,43 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: 14,
   },
+  uploadChoiceStack: {
+    gap: 12,
+    marginBottom: 14,
+  },
+  uploadChoiceButton: {
+    minHeight: 56,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  uploadChoiceText: {
+    color: theme.text,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  uploadPreviewVideo: {
+    height: 220,
+    borderRadius: 14,
+    backgroundColor: "#000",
+    marginBottom: 14,
+    overflow: "hidden",
+  },
+  uploadPreviewPhotoRow: {
+    gap: 8,
+    marginBottom: 14,
+  },
+  uploadPreviewPhoto: {
+    width: 110,
+    height: 140,
+    borderRadius: 12,
+    backgroundColor: theme.bg,
+  },
   uploadSheetLabel: {
     color: theme.textMuted,
     fontSize: 13,
@@ -2049,6 +2359,154 @@ const styles = StyleSheet.create({
   uploadSheetCaptionInput: {
     minHeight: 56,
     marginBottom: 12,
+  },
+  uploadSheetHashtagHelp: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 6,
+    marginTop: -2,
+  },
+  uploadSheetHashtagInput: {
+    minHeight: 48,
+    marginBottom: 8,
+  },
+  uploadSheetHashtagMeta: {
+    marginBottom: 14,
+    gap: 6,
+  },
+  uploadSheetChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  uploadSheetChip: {
+    backgroundColor: theme.accentSoft,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(158, 255, 0, 0.35)",
+  },
+  uploadSheetChipText: {
+    color: theme.accent,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  uploadSheetHashtagHint: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  uploadSheetHashtagWarn: {
+    color: "rgba(255, 160, 140, 0.95)",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  uploadSheetHashtagLimit: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontStyle: "italic",
+  },
+  uploadSheetSectionLabel: {
+    color: theme.textMuted,
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 6,
+    marginTop: 2,
+  },
+  addProductTagButton: {
+    minHeight: 44,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  addProductTagText: {
+    flex: 1,
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  addProductTagOptional: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  linkedProductCard: {
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(158, 255, 0, 0.35)",
+    backgroundColor: "rgba(158, 255, 0, 0.1)",
+  },
+  linkedProductHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  linkedProductEyebrow: {
+    color: theme.accent,
+    fontSize: 12,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  linkedProductName: {
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  linkedProductPrice: {
+    color: theme.accent,
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  linkedProductActions: {
+    flexDirection: "row",
+    gap: 16,
+    marginTop: 10,
+  },
+  linkedProductAction: {
+    paddingVertical: 4,
+  },
+  linkedProductActionText: {
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  linkedProductRemoveText: {
+    color: theme.textMuted,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  uploadSheetProductInput: {
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    color: theme.text,
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  uploadSheetProductRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 6,
+  },
+  uploadSheetProductHalf: {
+    flex: 1,
+    marginBottom: 0,
   },
   uploadSheetActions: {
     flexDirection: "row",

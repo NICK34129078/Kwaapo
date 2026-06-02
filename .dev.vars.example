@@ -2,3 +2,11 @@
 # Production uses `wrangler secret put` instead.
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+
+# Stripe test mode (Dashboard → Developers → API keys / Webhooks)
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# Optional deep links (defaults match app.json scheme lumen-fashion)
+# CHECKOUT_SUCCESS_URL=lumen-fashion://checkout/success?session_id={CHECKOUT_SESSION_ID}
+# CHECKOUT_CANCEL_URL=lumen-fashion://checkout/cancel

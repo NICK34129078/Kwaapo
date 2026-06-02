@@ -2,6 +2,7 @@
   "expo": {
     "name": "Lumen",
     "slug": "lumen-fashion",
+    "scheme": "lumen-fashion",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
@@ -15,6 +16,9 @@
     },
     "android": {
       "package": "com.lumen.fashion"
-    }
+    },
+    "plugins": [
+      "expo-web-browser"
+    ]
   }
 }

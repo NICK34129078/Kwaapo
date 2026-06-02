@@ -1,7 +1,11 @@
 import React, { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image } from "expo-image";
 import {
+  Alert,
+  Animated,
+  Easing,
   FlatList,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -16,11 +20,20 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { FeedPost, formatLikesForDisplay, isVideoReelItem } from "../data/placeholder";
+import {
+  FeedPost,
+  formatLikesForDisplay,
+  isVideoReelItem,
+  resolveCommentsCount,
+} from "../data/placeholder";
+import { CommentsSheet } from "./CommentsSheet";
 import type { ProfilePostMediaItem } from "../types/userVideoPost";
 import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { useReelLike } from "../context/LikesContext";
+import { recordProductClick } from "../services/productClicksService";
+import { isPersistablePostId } from "../services/postLikesService";
+import { formatPriceEur } from "../utils/formatPrice";
 import { PressableScale } from "./PressableScale";
 import { theme } from "../constants/theme";
 
@@ -37,6 +50,8 @@ type Props = {
   /** Alleen het zichtbare snap-item speelt video af. */
   isActive?: boolean;
   onPlaybackMetrics?: (postId: string, metrics: FeedItemPlaybackMetrics) => void;
+  /** Bron voor product-click tracking (feed, shop, profile_reels, …). */
+  clickSource?: string;
 };
 
 /**
@@ -51,12 +66,52 @@ const MUSIC = 42;
 const MUSIC_RADIUS = 7;
 const RAIL_RIGHT = 12;
 const COUNT_FS = 11;
-const AVATAR = 40;
+const BOTTOM_AVATAR = 32;
 const HANDLE_FS = 14;
 const CAPTION_FS = 13;
-const AUDIO_FS = 12;
+const PRODUCT_INFO_FS = 11;
+const CAPTION_COLLAPSE_CHARS = 80;
+const REELS_BOTTOM_CHROME = 72;
+const CAPTION_RAIL_CLEARANCE = 110;
 
 const PLAYBACK_METRICS_EMIT_MS = 500;
+const DOUBLE_TAP_MS = 280;
+const DOUBLE_TAP_HEART_SIZE = 96;
+
+function buildProductInfoLine(item: FeedPost): string {
+  if (item.linkedProduct) {
+    return `${item.linkedProduct.name} · ${formatPriceEur(item.linkedProduct.price)}`;
+  }
+  const parts: string[] = [];
+  const title = (item.productTitle ?? "").trim();
+  const brand = (item.productBrand ?? "").trim();
+  const price = (item.productPriceText ?? "").trim();
+  if (title.length > 0) {
+    parts.push(title);
+  }
+  if (brand.length > 0) {
+    parts.push(brand);
+  }
+  if (price.length > 0) {
+    parts.push(price);
+  }
+  if (parts.length > 0) {
+    return parts.join(" · ");
+  }
+  return "Product gelinkt";
+}
+
+function truncateCaption(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  let cut = text.slice(0, maxChars);
+  const lastSpace = cut.lastIndexOf(" ");
+  if (lastSpace > maxChars * 0.55) {
+    cut = cut.slice(0, lastSpace);
+  }
+  return cut.trimEnd();
+}
 
 /** Zonder `lib: dom` in RN-tsc: minimale shape voor `<video>` events. */
 type WebVideoTarget = {
@@ -95,6 +150,7 @@ type ReelImageCarouselProps = {
   pageWidth: number;
   pageHeight: number;
   dotsBottom: number;
+  onCarouselDraggingChange?: (dragging: boolean) => void;
 };
 
 function ReelImageCarousel({
@@ -103,6 +159,7 @@ function ReelImageCarousel({
   pageWidth,
   pageHeight,
   dotsBottom,
+  onCarouselDraggingChange,
 }: ReelImageCarouselProps) {
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -115,9 +172,18 @@ function ReelImageCarousel({
       const page = Math.round(ev.nativeEvent.contentOffset.x / pageWidth);
       const max = Math.max(0, slides.length - 1);
       setActiveIndex(Math.min(Math.max(0, page), max));
+      onCarouselDraggingChange?.(false);
     },
-    [pageWidth, slides.length]
+    [pageWidth, slides.length, onCarouselDraggingChange]
   );
+
+  const onScrollBeginDrag = useCallback(() => {
+    onCarouselDraggingChange?.(true);
+  }, [onCarouselDraggingChange]);
+
+  const onScrollEndDrag = useCallback(() => {
+    onCarouselDraggingChange?.(false);
+  }, [onCarouselDraggingChange]);
 
   const getItemLayout = useCallback(
     (_: ArrayLike<ProfilePostMediaItem> | null | undefined, index: number) => ({
@@ -144,6 +210,8 @@ function ReelImageCarousel({
         keyExtractor={(slide) => `${slide.url}-${slide.sortOrder}`}
         getItemLayout={getItemLayout}
         onMomentumScrollEnd={onMomentumScrollEnd}
+        onScrollBeginDrag={onScrollBeginDrag}
+        onScrollEndDrag={onScrollEndDrag}
         {...(Platform.OS === "android"
           ? {
               snapToInterval: pageWidth,
@@ -189,6 +257,7 @@ export function FeedItem({
   pageHeight,
   isActive = true,
   onPlaybackMetrics,
+  clickSource = "feed",
 }: Props) {
   const navigation = useNavigation<any>();
   const { user } = useAuth();
@@ -196,8 +265,14 @@ export function FeedItem({
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
   const bottomPad = Math.max(insets.bottom, 12);
-  const topPad = Math.max(insets.top + 12, 40);
-  const carouselDotsBottom = 108 + bottomPad;
+  const reelsBottomInset = REELS_BOTTOM_CHROME + bottomPad;
+  const captionMaxWidth = Math.max(160, screenWidth - CAPTION_RAIL_CLEARANCE);
+  const carouselDotsBottom = reelsBottomInset + 108;
+  const [captionExpanded, setCaptionExpanded] = useState(false);
+  const [commentsVisible, setCommentsVisible] = useState(false);
+  const [commentsCount, setCommentsCount] = useState(() =>
+    resolveCommentsCount(item)
+  );
   const shareCount = item.shares ?? "—";
   const thumbUri = item.musicThumbUrl ?? item.imageUrl;
   const ownerLabel =
@@ -221,6 +296,22 @@ export function FeedItem({
   const activeVideoUri = item.videoUrl ?? "";
   const carouselSlides = useMemo(() => buildCarouselSlides(item), [item]);
   const asCarouselReel = carouselSlides.length > 0 && isCarouselReelItem(item);
+
+  const captionText = (item.caption ?? "").trim();
+  const isLongCaption = captionText.length > CAPTION_COLLAPSE_CHARS;
+
+  useEffect(() => {
+    setCaptionExpanded(false);
+    setCommentsVisible(false);
+    setCommentsCount(resolveCommentsCount(item));
+  }, [item.id, item.commentsCount, item.comments]);
+
+  const onCaptionPress = useCallback(() => {
+    if (!isLongCaption) {
+      return;
+    }
+    setCaptionExpanded((prev) => !prev);
+  }, [isLongCaption]);
 
   const emitPlaybackMetrics = useCallback(
     (
@@ -391,21 +482,15 @@ export function FeedItem({
       openAuthPrompt({
         message: "Log in om te reageren op video’s.",
       });
+      return;
     }
+    setCommentsVisible(true);
   };
 
   const onSharePress = () => {
     if (user == null) {
       openAuthPrompt({
         message: "Log in om te delen.",
-      });
-    }
-  };
-
-  const onFollowPress = () => {
-    if (user == null) {
-      openAuthPrompt({
-        message: "Log in om makers te volgen.",
       });
     }
   };
@@ -417,6 +502,108 @@ export function FeedItem({
     }
     navigation.navigate("PublicProfile", { profileId: ownerProfileId });
   }, [item.ownerProfileId, navigation]);
+
+  const showLinkedProductCta = !!item.linkedProduct;
+  const showLegacyShopCta =
+    !item.linkedProduct &&
+    item.isShopPost === true &&
+    typeof item.productUrl === "string" &&
+    item.productUrl.length > 0;
+  const showShopCta = showLinkedProductCta || showLegacyShopCta;
+
+  const onShopPress = useCallback(() => {
+    if (item.linkedProduct) {
+      navigation.navigate("ProductDetail", {
+        productId: item.linkedProduct.id,
+        canManage: false,
+      });
+      return;
+    }
+
+    const url = item.productUrl;
+    if (!url) {
+      return;
+    }
+
+    void (async () => {
+      if (user != null && isPersistablePostId(item.id)) {
+        await recordProductClick(item.id, clickSource);
+      }
+      try {
+        await Linking.openURL(url);
+      } catch {
+        Alert.alert("Kan link niet openen.");
+      }
+    })();
+  }, [clickSource, item.id, item.linkedProduct, item.productUrl, navigation, user]);
+
+  const lastMediaTapAtRef = useRef(0);
+  const carouselDraggingRef = useRef(false);
+  const heartOpacity = useRef(new Animated.Value(0)).current;
+  const heartScale = useRef(new Animated.Value(0.4)).current;
+
+  const onCarouselDraggingChange = useCallback((dragging: boolean) => {
+    carouselDraggingRef.current = dragging;
+  }, []);
+
+  const playHeartBurst = useCallback(() => {
+    heartOpacity.setValue(0);
+    heartScale.setValue(0.4);
+    Animated.parallel([
+      Animated.timing(heartOpacity, {
+        toValue: 1,
+        duration: 120,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.spring(heartScale, {
+        toValue: 1,
+        friction: 5,
+        tension: 140,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      Animated.timing(heartOpacity, {
+        toValue: 0,
+        duration: 320,
+        delay: 160,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [heartOpacity, heartScale]);
+
+  const onDoubleTapLike = useCallback(() => {
+    if (user == null) {
+      openAuthPrompt({
+        message: "Log in of registreer om een like te plaatsen.",
+      });
+      return;
+    }
+    playHeartBurst();
+    if (!isLikedByCurrentUser) {
+      void onToggleLike();
+    }
+  }, [
+    user,
+    openAuthPrompt,
+    playHeartBurst,
+    isLikedByCurrentUser,
+    onToggleLike,
+  ]);
+
+  const onMediaAreaPress = useCallback(() => {
+    if (carouselDraggingRef.current) {
+      return;
+    }
+    const now = Date.now();
+    if (now - lastMediaTapAtRef.current <= DOUBLE_TAP_MS) {
+      lastMediaTapAtRef.current = 0;
+      onDoubleTapLike();
+      return;
+    }
+    lastMediaTapAtRef.current = now;
+  }, [onDoubleTapLike]);
 
   return (
     <View style={[styles.card, { height: pageHeight }]}>
@@ -484,6 +671,7 @@ export function FeedItem({
             pageWidth={screenWidth}
             pageHeight={pageHeight}
             dotsBottom={carouselDotsBottom}
+            onCarouselDraggingChange={onCarouselDraggingChange}
           />
         </View>
       ) : !asVideo ? (
@@ -497,11 +685,37 @@ export function FeedItem({
       ) : null}
 
       <LinearGradient
-        colors={["rgba(0,0,0,0.12)", "rgba(0,0,0,0.5)", "rgba(0,0,0,0.88)"]}
-        locations={[0, 0.42, 1]}
+        colors={["rgba(0,0,0,0.08)", "rgba(0,0,0,0.35)", "rgba(0,0,0,0.92)"]}
+        locations={[0, 0.5, 1]}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
+
+      <Pressable
+        style={[
+          styles.mediaTapLayer,
+          {
+            bottom: reelsBottomInset + 72,
+            right: 72,
+          },
+        ]}
+        onPress={onMediaAreaPress}
+        accessibilityRole="button"
+        accessibilityLabel="Dubbel tik om te liken"
+      />
+
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.heartBurst,
+          {
+            opacity: heartOpacity,
+            transform: [{ scale: heartScale }],
+          },
+        ]}
+      >
+        <Ionicons name="heart" size={DOUBLE_TAP_HEART_SIZE} color="#ff375f" />
+      </Animated.View>
 
       <View
         style={[styles.rightRail, { bottom: 96 + bottomPad, right: RAIL_RIGHT }]}
@@ -527,7 +741,9 @@ export function FeedItem({
             size={ACTION_ICON}
             color={theme.text}
           />
-          <Text style={styles.railCount}>{item.comments}</Text>
+          <Text style={styles.railCount}>
+            {formatLikesForDisplay(commentsCount)}
+          </Text>
         </PressableScale>
 
         <PressableScale style={styles.railAction} scaleTo={0.9} onPress={onSharePress}>
@@ -557,45 +773,90 @@ export function FeedItem({
         </PressableScale>
       </View>
 
-      <View style={[styles.topLeftOverlay, { top: topPad }]}>
-        <View style={styles.userRow}>
+      <View
+        style={[
+          styles.bottomLeftOverlay,
+          { bottom: reelsBottomInset, maxWidth: captionMaxWidth },
+        ]}
+        pointerEvents="box-none"
+      >
+        <Pressable
+          onPress={onOwnerPress}
+          disabled={!item.ownerProfileId}
+          style={styles.bottomUserRow}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Bekijk profiel"
+        >
+          <Image
+            source={{ uri: avatarUri }}
+            style={styles.bottomAvatar}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+          />
+          <Text style={styles.handle} numberOfLines={1}>
+            {ownerLabel}
+          </Text>
+        </Pressable>
+
+        {captionText.length > 0 ? (
           <Pressable
-            onPress={onOwnerPress}
-            disabled={!item.ownerProfileId}
-            style={styles.ownerGroupPressable}
-            hitSlop={8}
+            onPress={onCaptionPress}
+            disabled={!isLongCaption}
+            hitSlop={6}
             accessibilityRole="button"
-            accessibilityLabel="Bekijk profiel"
+            accessibilityLabel={
+              isLongCaption
+                ? captionExpanded
+                  ? "Caption inklappen"
+                  : "Volledige caption tonen"
+                : undefined
+            }
           >
-            <Image
-              source={{ uri: avatarUri }}
-              style={styles.avatar}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-            />
-            <Text style={styles.handle} numberOfLines={1}>
-              {ownerLabel}
+            <Text
+              style={styles.caption}
+              numberOfLines={captionExpanded ? undefined : 2}
+            >
+              {captionExpanded || !isLongCaption
+                ? captionText
+                : truncateCaption(captionText, CAPTION_COLLAPSE_CHARS)}
+              {isLongCaption && !captionExpanded ? (
+                <Text style={styles.captionToggle}>... meer</Text>
+              ) : null}
+              {isLongCaption && captionExpanded ? (
+                <Text style={styles.captionToggle}> minder</Text>
+              ) : null}
             </Text>
           </Pressable>
-          <PressableScale style={styles.followPill} scaleTo={0.96} onPress={onFollowPress}>
-            <Text style={styles.followText}>Volgen</Text>
-          </PressableScale>
-        </View>
-
-        <Text style={styles.caption} numberOfLines={2}>
-          {item.caption}
-        </Text>
-
-        {item.tags && item.tags.length > 0 ? (
-          <Text style={styles.tagsLine} numberOfLines={2}>
-            {item.tags.map((t) => `#${t}`).join(" ")}
-          </Text>
         ) : null}
 
-        <Text style={styles.audioHint} numberOfLines={1}>
-          ♪ Origineel geluid · {ownerLabel}
-        </Text>
+        {showShopCta ? (
+          <View style={styles.shopBlock}>
+            <Text style={styles.productInfo} numberOfLines={1}>
+              {buildProductInfoLine(item)}
+            </Text>
+            <Pressable
+              onPress={onShopPress}
+              style={styles.shopCta}
+              hitSlop={8}
+              accessibilityRole="link"
+              accessibilityLabel="Bekijk product"
+            >
+              <Text style={styles.shopCtaText}>Bekijk product</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
+
+      <CommentsSheet
+        visible={commentsVisible}
+        postId={item.id}
+        onClose={() => setCommentsVisible(false)}
+        onCommentAdded={() => setCommentsCount((c) => c + 1)}
+        onCommentDeleted={() =>
+          setCommentsCount((c) => Math.max(0, c - 1))
+        }
+      />
     </View>
   );
 }
@@ -666,37 +927,23 @@ const styles = StyleSheet.create({
     width: MUSIC,
     height: MUSIC,
   },
-  topLeftOverlay: {
+  bottomLeftOverlay: {
     position: "absolute",
     left: 16,
-    right: 78,
     zIndex: 20,
     elevation: 20,
-    pointerEvents: "box-none",
-    gap: 8,
-  },
-  bottomLeft: {
-    paddingHorizontal: 16,
-    maxWidth: "68%",
     gap: 6,
   },
-  userRow: {
+  bottomUserRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
     marginBottom: 2,
   },
-  ownerGroupPressable: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    flex: 1,
-    minWidth: 0,
-  },
-  avatar: {
-    width: AVATAR,
-    height: AVATAR,
-    borderRadius: AVATAR / 2,
+  bottomAvatar: {
+    width: BOTTOM_AVATAR,
+    height: BOTTOM_AVATAR,
+    borderRadius: BOTTOM_AVATAR / 2,
     borderWidth: 1.5,
     borderColor: "rgba(255,255,255,0.95)",
   },
@@ -709,20 +956,6 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
-  followPill: {
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    backgroundColor: "rgba(255,255,255,0.22)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.35)",
-  },
-  followText: {
-    color: theme.text,
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
   caption: {
     color: "rgba(255,255,255,0.95)",
     fontSize: CAPTION_FS,
@@ -733,23 +966,54 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
-  tagsLine: {
-    color: theme.accent,
-    fontSize: 12,
-    fontWeight: "600",
-    marginTop: 4,
-    letterSpacing: 0.2,
+  captionToggle: {
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.78)",
+  },
+  shopBlock: {
+    marginTop: 6,
+    gap: 5,
+    alignSelf: "stretch",
+  },
+  productInfo: {
+    color: "rgba(255,255,255,0.72)",
+    fontSize: PRODUCT_INFO_FS,
+    lineHeight: 15,
+    fontWeight: "500",
     textShadowColor: "rgba(0,0,0,0.45)",
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    textShadowRadius: 3,
   },
-  audioHint: {
-    color: "rgba(255,255,255,0.88)",
-    fontSize: AUDIO_FS,
-    fontWeight: "500",
-    marginTop: 2,
-    textShadowColor: "rgba(0,0,0,0.4)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+  shopCta: {
+    alignSelf: "flex-start",
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.38)",
+    backgroundColor: "rgba(255,255,255,0.14)",
+  },
+  shopCtaText: {
+    color: theme.text,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.15,
+  },
+  mediaTapLayer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    zIndex: 8,
+    elevation: 8,
+  },
+  heartBurst: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: "38%",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 15,
+    elevation: 15,
   },
 });

@@ -6,11 +6,15 @@ import { useAuthPrompt } from "../context/AuthPromptContext";
 import { useGlobalFeed } from "../context/GlobalFeedContext";
 import { useUserUploads } from "../context/UserUploadsContext";
 import { CLOUD_VIDEO_WORKER_BASE } from "../constants/cloudVideo";
-import { userVideoPostFromPostRow, type PostRow } from "../services/postsService";
+import { userVideoPostFromPostRow, enrichPostWithLinkedProduct, type PostRow } from "../services/postsService";
 import type { ProfilePostMediaItem } from "../types/userVideoPost";
 import { fetchWithTimeout } from "../utils/fetchWithTimeout";
 import { parseHashtagInput } from "../utils/hashtags";
 import { sanitizeUploadCaption } from "../utils/uploadCaption";
+import {
+  sanitizeUploadProduct,
+  type UploadProductInput,
+} from "../utils/uploadProduct";
 import { createUuidV4 } from "../utils/uuid";
 
 const MAX_IMAGES = 10;
@@ -52,10 +56,12 @@ function uploadErrorMessage(error: unknown): string {
   return "De upload kon niet worden voltooid.";
 }
 
-export type PickCarouselOptions = {
+export type PickCarouselOptions = UploadProductInput & {
   hashtagsRaw?: string;
   caption?: string;
 };
+
+export type PickedCarouselAsset = ImagePicker.ImagePickerAsset;
 
 export function useCloudImageCarouselUpload() {
   const { user } = useAuth();
@@ -64,8 +70,8 @@ export function useCloudImageCarouselUpload() {
   const { addUserVideoPost, refreshUserVideoPosts } = useUserUploads();
   const [isUploading, setIsUploading] = useState(false);
 
-  const pickAndUploadCarousel = useCallback(
-    async (options?: PickCarouselOptions) => {
+  const uploadCarouselAssets = useCallback(
+    async (assets: PickedCarouselAsset[], options?: PickCarouselOptions) => {
       const uploadUserId = user?.id;
       if (!uploadUserId) {
         openAuthPrompt({
@@ -76,25 +82,7 @@ export function useCloudImageCarouselUpload() {
 
       setIsUploading(true);
       try {
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!permission.granted) {
-          Alert.alert(
-            "Toegang nodig",
-            "Sta toegang tot je fotobibliotheek toe om foto’s te selecteren."
-          );
-          return;
-        }
-
-        const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          allowsMultipleSelection: true,
-          quality: 0.9,
-        });
-
-        if (result.canceled) {
-          return;
-        }
-        const picked = (result.assets ?? [])
+        const picked = (assets ?? [])
           .filter((a) => a?.uri)
           .slice(0, MAX_IMAGES);
         if (picked.length === 0) {
@@ -104,11 +92,26 @@ export function useCloudImageCarouselUpload() {
         const clientPostId = createUuidV4();
         const parsedTags = parseHashtagInput(options?.hashtagsRaw ?? "");
         const captionForPost = sanitizeUploadCaption(options?.caption);
+        const product = sanitizeUploadProduct(options);
         const uploadUrl = `${CLOUD_VIDEO_WORKER_BASE}?userId=${encodeURIComponent(uploadUserId)}`;
         const formData = new FormData();
         formData.append("uploadType", "image_carousel");
         formData.append("tags", JSON.stringify(parsedTags));
         formData.append("caption", captionForPost);
+        if (product.productId.length > 0) {
+          formData.append("productId", product.productId);
+        } else if (product.isShopPost) {
+          formData.append("productUrl", product.productUrl);
+          if (product.productTitle.length > 0) {
+            formData.append("productTitle", product.productTitle);
+          }
+          if (product.productBrand.length > 0) {
+            formData.append("productBrand", product.productBrand);
+          }
+          if (product.productPriceText.length > 0) {
+            formData.append("productPriceText", product.productPriceText);
+          }
+        }
         for (let i = 0; i < picked.length; i++) {
           const a = picked[i]!;
           const name =
@@ -170,7 +173,8 @@ export function useCloudImageCarouselUpload() {
         }
 
         const mediaItems = mediaFromWorkerJson(data.media);
-        const final = userVideoPostFromPostRow(serverPost as PostRow, mediaItems);
+        let final = userVideoPostFromPostRow(serverPost as PostRow, mediaItems);
+        final = await enrichPostWithLinkedProduct(final);
 
         addUserVideoPost(final);
         try {
@@ -194,5 +198,39 @@ export function useCloudImageCarouselUpload() {
     [user?.id, openAuthPrompt, refreshGlobalFeed, addUserVideoPost, refreshUserVideoPosts]
   );
 
-  return { isUploading, pickAndUploadCarousel };
+  const pickAndUploadCarousel = useCallback(
+    async (options?: PickCarouselOptions) => {
+      const uploadUserId = user?.id;
+      if (!uploadUserId) {
+        openAuthPrompt({
+          message: "Log in of registreer om foto’s te uploaden.",
+        });
+        return;
+      }
+
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Toegang nodig",
+          "Sta toegang tot je fotobibliotheek toe om foto’s te selecteren."
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.9,
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      await uploadCarouselAssets(result.assets ?? [], options);
+    },
+    [openAuthPrompt, uploadCarouselAssets, user?.id]
+  );
+
+  return { isUploading, pickAndUploadCarousel, uploadCarouselAssets };
 }

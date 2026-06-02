@@ -6,6 +6,8 @@ import {
 } from "../constants/cloudVideo";
 import { supabase } from "../lib/supabase";
 import type { ProfilePostMediaItem, UserVideoPost } from "../types/userVideoPost";
+import type { Product } from "../types/product";
+import { fetchProductsByIds } from "./productsService";
 
 /** Profiel (mijn uploads): vaste owner-handle. Globale feed: afgeleid van `user_id`. */
 export type UserVideoPostMappingScope = "own_profile" | "global";
@@ -21,6 +23,12 @@ export type PostRow = {
   caption: string | null;
   /** Hashtags uit `public.posts.tags` (text[]). */
   tags?: string[];
+  product_title?: string | null;
+  product_url?: string | null;
+  product_brand?: string | null;
+  product_price_text?: string | null;
+  product_id?: string | null;
+  is_shop_post?: boolean;
   likes_count: number;
   comments_count: number;
   created_at: string;
@@ -37,6 +45,12 @@ type MaybePostRow = PostRow & {
   captionText?: string | null;
   createdAt?: string;
   isDeleted?: boolean;
+  productTitle?: string | null;
+  productUrl?: string | null;
+  productBrand?: string | null;
+  productPriceText?: string | null;
+  productId?: string | null;
+  isShopPost?: boolean;
 };
 
 function normalizeTagsFromApi(v: unknown): string[] | undefined {
@@ -70,6 +84,75 @@ function isUuid(value: string): boolean {
   );
 }
 
+function shopFieldsFromRow(row: MaybePostRow): Pick<
+  UserVideoPost,
+  | "isShopPost"
+  | "productId"
+  | "productTitle"
+  | "productUrl"
+  | "productBrand"
+  | "productPriceText"
+> {
+  const productIdRaw =
+    (typeof row.product_id === "string" && row.product_id.length > 0
+      ? row.product_id
+      : typeof row.productId === "string" && row.productId.length > 0
+        ? row.productId
+        : "") || "";
+  const productUrl =
+    (typeof row.product_url === "string" && row.product_url.length > 0
+      ? row.product_url
+      : typeof row.productUrl === "string" && row.productUrl.length > 0
+        ? row.productUrl
+        : "") || "";
+  const isShop =
+    row.is_shop_post === true ||
+    row.isShopPost === true ||
+    productUrl.length > 0 ||
+    productIdRaw.length > 0;
+
+  const base: Pick<
+    UserVideoPost,
+    "isShopPost" | "productId" | "productTitle" | "productUrl" | "productBrand" | "productPriceText"
+  > = {};
+
+  if (productIdRaw.length > 0) {
+    base.productId = productIdRaw;
+  }
+  if (isShop) {
+    base.isShopPost = true;
+  }
+
+  if (productUrl.length === 0 && productIdRaw.length === 0) {
+    return base;
+  }
+
+  if (productUrl.length > 0) {
+    const productTitle =
+      row.product_title ?? row.productTitle ?? undefined;
+    const productBrand =
+      row.product_brand ?? row.productBrand ?? undefined;
+    const productPriceText =
+      row.product_price_text ?? row.productPriceText ?? undefined;
+    return {
+      ...base,
+      isShopPost: true,
+      productUrl,
+      ...(typeof productTitle === "string" && productTitle.length > 0
+        ? { productTitle }
+        : {}),
+      ...(typeof productBrand === "string" && productBrand.length > 0
+        ? { productBrand }
+        : {}),
+      ...(typeof productPriceText === "string" && productPriceText.length > 0
+        ? { productPriceText }
+        : {}),
+    };
+  }
+
+  return base;
+}
+
 function normalizePostRow(row: MaybePostRow): PostRow {
   const rawVideo = row.video_url ?? row.videoUrl;
   const videoNorm =
@@ -98,6 +181,27 @@ function normalizePostRow(row: MaybePostRow): PostRow {
       const t = normalizeTagsFromApi(row.tags);
       return t ? { tags: t } : {};
     })(),
+    product_title:
+      typeof row.product_title !== "undefined"
+        ? row.product_title
+        : row.productTitle ?? null,
+    product_url:
+      typeof row.product_url !== "undefined"
+        ? row.product_url
+        : row.productUrl ?? null,
+    product_brand:
+      typeof row.product_brand !== "undefined"
+        ? row.product_brand
+        : row.productBrand ?? null,
+    product_price_text:
+      typeof row.product_price_text !== "undefined"
+        ? row.product_price_text
+        : row.productPriceText ?? null,
+    product_id:
+      typeof row.product_id !== "undefined"
+        ? row.product_id
+        : row.productId ?? null,
+    is_shop_post: row.is_shop_post ?? row.isShopPost ?? false,
   };
 }
 
@@ -170,11 +274,13 @@ function mapRowToUserVideoPost(
       caption: baseCaption,
       price: "—",
       likesCount: row.likes_count,
+      commentsCount: row.comments_count,
       comments: String(row.comments_count),
       shares: "0",
       musicThumbUrl: row.thumbnail_url ?? undefined,
       mediaItems,
       ...(row.tags && row.tags.length > 0 ? { tags: row.tags } : {}),
+      ...shopFieldsFromRow(row),
     };
   }
 
@@ -200,10 +306,12 @@ function mapRowToUserVideoPost(
     caption: baseCaption,
     price: "—",
     likesCount: row.likes_count,
+    commentsCount: row.comments_count,
     comments: String(row.comments_count),
     shares: "0",
     musicThumbUrl: row.thumbnail_url ?? undefined,
     ...(row.tags && row.tags.length > 0 ? { tags: row.tags } : {}),
+    ...shopFieldsFromRow(row),
   };
 }
 
@@ -261,6 +369,43 @@ async function fetchPostMediaByPostIds(
   return map;
 }
 
+async function attachLinkedProductsToPosts(
+  posts: UserVideoPost[]
+): Promise<UserVideoPost[]> {
+  const productIds = posts
+    .map((post) => post.productId)
+    .filter((id): id is string => typeof id === "string" && isUuid(id));
+  if (productIds.length === 0) {
+    return posts;
+  }
+
+  let products: Product[] = [];
+  try {
+    products = await fetchProductsByIds(productIds);
+  } catch {
+    return posts;
+  }
+
+  const activeById = new Map(
+    products.filter((product) => product.isActive).map((product) => [product.id, product])
+  );
+
+  return posts.map((post) => {
+    if (!post.productId) {
+      return post;
+    }
+    const linkedProduct = activeById.get(post.productId);
+    if (!linkedProduct) {
+      return post;
+    }
+    return {
+      ...post,
+      linkedProduct,
+      isShopPost: true,
+    };
+  });
+}
+
 async function mapWorkerPostsToUserVideoPosts(
   rows: PostRow[],
   scope: UserVideoPostMappingScope,
@@ -277,9 +422,10 @@ async function mapWorkerPostsToUserVideoPosts(
     .filter((p) => p.type === "image_carousel")
     .map((p) => p.id);
   const mediaByPostId = await fetchPostMediaByPostIds(carouselIds);
-  return normalized.map((row) =>
+  const mapped = normalized.map((row) =>
     mapRowToUserVideoPost(row, scope, ownerProfilesById.get(row.user_id), mediaByPostId)
   );
+  return attachLinkedProductsToPosts(mapped);
 }
 
 async function fetchOwnerProfilesByIds(
@@ -356,6 +502,13 @@ export function userVideoPostFromPostRow(
   return mapRowToUserVideoPost(row, "own_profile", undefined, map);
 }
 
+export async function enrichPostWithLinkedProduct(
+  post: UserVideoPost
+): Promise<UserVideoPost> {
+  const [enriched] = await attachLinkedProductsToPosts([post]);
+  return enriched;
+}
+
 /**
  * Zelfde mapping als de globale Worker-feed, voor RPC-rows (bijv. `get_personalized_feed`).
  * Extra velden op de row (zoals `ranking_score`) vallen buiten `UserVideoPost` en worden niet in de UI gezet.
@@ -378,9 +531,10 @@ export async function mapSupabasePostRowsToGlobalUserVideoPosts(
     .filter((p) => p.type === "image_carousel")
     .map((p) => p.id);
   const mediaByPostId = await fetchPostMediaByPostIds(carouselIds);
-  return normalized.map((row) =>
+  const mapped = normalized.map((row) =>
     mapRowToUserVideoPost(row, "global", ownerProfilesById.get(row.user_id), mediaByPostId)
   );
+  return attachLinkedProductsToPosts(mapped);
 }
 
 /**
@@ -409,6 +563,49 @@ export async function fetchGlobalPosts(): Promise<UserVideoPost[] | undefined> {
 
 export const fetchGlobalVideoPosts = fetchGlobalPosts;
 export const fetchUserVideoPosts = fetchUserPosts;
+
+/**
+ * Shop-feed: alleen posts met productlink (`is_shop_post`), nieuwste eerst.
+ */
+export async function fetchShopPosts(limit = 50): Promise<UserVideoPost[]> {
+  const cap = Math.min(Math.max(1, limit), 100);
+  const { data, error } = await supabase
+    .from("posts")
+    .select("*")
+    .eq("is_deleted", false)
+    .eq("is_shop_post", true)
+    .order("created_at", { ascending: false })
+    .limit(cap);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return mapSupabasePostRowsToGlobalUserVideoPosts(data ?? []);
+}
+
+export async function fetchPostsByProductId(
+  productId: string,
+  limit = 24
+): Promise<UserVideoPost[]> {
+  if (!isUuid(productId)) {
+    return [];
+  }
+  const cap = Math.min(Math.max(1, limit), 60);
+  const { data, error } = await supabase
+    .from("posts")
+    .select("*")
+    .eq("is_deleted", false)
+    .eq("product_id", productId)
+    .order("created_at", { ascending: false })
+    .limit(cap);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return mapSupabasePostRowsToGlobalUserVideoPosts(data ?? []);
+}
 
 export type DeleteMyPostResult = {
   success?: boolean;

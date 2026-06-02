@@ -8,11 +8,16 @@ import { useAuthPrompt } from "../context/AuthPromptContext";
 import { useGlobalFeed } from "../context/GlobalFeedContext";
 import { useUserUploads } from "../context/UserUploadsContext";
 import { CLOUD_VIDEO_WORKER_BASE, UPLOADED_VIDEO_OWNER } from "../constants/cloudVideo";
-import { userVideoPostFromPostRow, type PostRow } from "../services/postsService";
+import { userVideoPostFromPostRow, enrichPostWithLinkedProduct, type PostRow } from "../services/postsService";
 import type { UserVideoPost } from "../types/userVideoPost";
 import { fetchWithTimeout } from "../utils/fetchWithTimeout";
 import { parseHashtagInput } from "../utils/hashtags";
 import { sanitizeUploadCaption } from "../utils/uploadCaption";
+import {
+  productFieldsForWorkerPayload,
+  sanitizeUploadProduct,
+  type UploadProductInput,
+} from "../utils/uploadProduct";
 import { createUuidV4 } from "../utils/uuid";
 
 /** Waarschuwing bij zeer grote bestanden; geen harde blokkade (direct PUT naar R2). */
@@ -82,7 +87,7 @@ function videoMimeType(asset: PickedVideoAsset): string {
   return "video/mp4";
 }
 
-export type PickUploadOptions = {
+export type PickUploadOptions = UploadProductInput & {
   hashtagsRaw?: string;
   caption?: string;
 };
@@ -270,7 +275,10 @@ export function useCloudVideoUpload() {
   const { addUserVideoPost, refreshUserVideoPosts } = useUserUploads();
   const [isUploading, setIsUploading] = useState(false);
 
-  const pickAndUploadVideo = useCallback(async (options?: PickUploadOptions) => {
+  const uploadVideoAsset = useCallback(async (
+    asset: PickedVideoAsset,
+    options?: PickUploadOptions
+  ) => {
     const uploadUserId = user?.id;
     if (!uploadUserId) {
       openAuthPrompt({
@@ -281,21 +289,6 @@ export function useCloudVideoUpload() {
 
     setIsUploading(true);
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert(
-          "Toegang nodig",
-          "Sta toegang tot je fotobibliotheek toe om een video te uploaden."
-        );
-        return;
-      }
-
-      const result = await launchVideoImagePickerAsync();
-      if (result.canceled) {
-        return;
-      }
-
-      const asset = result.assets[0];
       if (!asset?.uri) {
         Alert.alert("Geen video", "Kon de geselecteerde video niet lezen.");
         return;
@@ -312,6 +305,8 @@ export function useCloudVideoUpload() {
       const videoMime = videoMimeType(asset);
       const parsedTags = parseHashtagInput(options?.hashtagsRaw ?? "");
       const captionForPost = sanitizeUploadCaption(options?.caption);
+      const product = sanitizeUploadProduct(options);
+      const productPayload = productFieldsForWorkerPayload(product);
       const clientPostId = createUuidV4();
 
       const initData = await postWorkerJson<UploadInitJson>(
@@ -323,6 +318,7 @@ export function useCloudVideoUpload() {
           contentType: videoMime,
           tags: parsedTags,
           caption: captionForPost,
+          ...productPayload,
         },
         uploadUserId,
         UPLOAD_INIT_TIMEOUT_MS,
@@ -369,6 +365,7 @@ export function useCloudVideoUpload() {
           thumbnailUrl,
           tags: parsedTags,
           caption: captionForPost,
+          ...productPayload,
         },
         uploadUserId,
         UPLOAD_COMPLETE_TIMEOUT_MS,
@@ -400,9 +397,12 @@ export function useCloudVideoUpload() {
           created_at: new Date().toISOString(),
           is_deleted: false,
           ...(parsedTags.length > 0 ? { tags: parsedTags } : {}),
+          ...(product.productId.length > 0 ? { product_id: product.productId, is_shop_post: true } : {}),
         };
         final = userVideoPostFromPostRow(fallbackRow);
       }
+
+      final = await enrichPostWithLinkedProduct(final);
 
       addUserVideoPost(final);
       try {
@@ -433,5 +433,37 @@ export function useCloudVideoUpload() {
     refreshUserVideoPosts,
   ]);
 
-  return { isUploading, pickAndUploadVideo };
+  const pickAndUploadVideo = useCallback(async (options?: PickUploadOptions) => {
+    const uploadUserId = user?.id;
+    if (!uploadUserId) {
+      openAuthPrompt({
+        message: "Log in of registreer om een video te uploaden.",
+      });
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        "Toegang nodig",
+        "Sta toegang tot je fotobibliotheek toe om een video te uploaden."
+      );
+      return;
+    }
+
+    const result = await launchVideoImagePickerAsync();
+    if (result.canceled) {
+      return;
+    }
+
+    const asset = result.assets[0];
+    if (!asset?.uri) {
+      Alert.alert("Geen video", "Kon de geselecteerde video niet lezen.");
+      return;
+    }
+
+    await uploadVideoAsset(asset, options);
+  }, [openAuthPrompt, uploadVideoAsset, user?.id]);
+
+  return { isUploading, pickAndUploadVideo, uploadVideoAsset };
 }

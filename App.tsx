@@ -8,10 +8,18 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { ReelsScreen } from "./src/screens/ReelsScreen";
+import { ShopScreen } from "./src/screens/ShopScreen";
 import { SearchScreen } from "./src/screens/SearchScreen";
 import { ActivityTabScreen } from "./src/screens/TabScreens";
 import { ProfileScreen } from "./src/screens/ProfileScreen";
 import { PublicProfileScreen } from "./src/screens/PublicProfileScreen";
+import { ProfileReelsScreen } from "./src/screens/ProfileReelsScreen";
+import { CreatorStatsScreen } from "./src/screens/CreatorStatsScreen";
+import { MyShopScreen } from "./src/screens/MyShopScreen";
+import { ProductFormScreen } from "./src/screens/ProductFormScreen";
+import { ProductDetailScreen } from "./src/screens/ProductDetailScreen";
+import { OrderDetailScreen } from "./src/screens/OrderDetailScreen";
+import { CheckoutInfoScreen } from "./src/screens/CheckoutInfoScreen";
 import { BottomNavbar } from "./src/components/BottomNavbar";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { AuthPromptProvider } from "./src/context/AuthPromptContext";
@@ -47,6 +55,7 @@ function MainTabs() {
         }}
       >
         <Tab.Screen name="Home" component={ReelsScreen} />
+        <Tab.Screen name="Shop" component={ShopScreen} />
         <Tab.Screen name="Search" component={SearchScreen} />
         <Tab.Screen name="Activity" component={ActivityTabScreen} />
         <Tab.Screen name="Profile" component={ProfileScreen} />
@@ -81,6 +90,39 @@ function AppGate() {
                 <RootStack.Screen
                   name="PublicProfile"
                   component={PublicProfileScreen}
+                />
+                <RootStack.Screen
+                  name="ProfileReels"
+                  component={ProfileReelsScreen}
+                  options={{
+                    animation: "fade",
+                    presentation: "fullScreenModal",
+                  }}
+                />
+                <RootStack.Screen
+                  name="CreatorStats"
+                  component={CreatorStatsScreen}
+                />
+                <RootStack.Screen name="MyShop" component={MyShopScreen} />
+                <RootStack.Screen
+                  name="ProductForm"
+                  component={ProductFormScreen}
+                  options={{ presentation: "modal", animation: "slide_from_bottom" }}
+                />
+                <RootStack.Screen
+                  name="ProductDetail"
+                  component={ProductDetailScreen}
+                  options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="CheckoutInfo"
+                  component={CheckoutInfoScreen}
+                  options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="OrderDetail"
+                  component={OrderDetailScreen}
+                  options={{ animation: "slide_from_right" }}
                 />
               </RootStack.Navigator>
             </NavigationContainer>

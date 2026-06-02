@@ -1,12 +1,22 @@
 /**
- * Cloudflare Worker: R2 video + Supabase post metadata.
+ * Cloudflare Worker: R2 video + Supabase post metadata + Stripe Checkout.
  *
  * Secrets (set with `wrangler secret put <NAME>`; never in the app bundle):
  *   - SUPABASE_URL   e.g. https://xxxx.supabase.co
  *   - SUPABASE_SERVICE_ROLE_KEY
+ *   - STRIPE_SECRET_KEY          sk_test_...
+ *   - STRIPE_WEBHOOK_SECRET      whsec_...
+ *   - CHECKOUT_SUCCESS_URL       optional (default lumen-fashion://checkout/success?session_id={CHECKOUT_SESSION_ID})
+ *   - CHECKOUT_CANCEL_URL        optional (default lumen-fashion://checkout/cancel)
  *
  * Local dev: .dev.vars with the same names (not committed; see .dev.vars.example)
  */
+
+import {
+  handleStripeCheckout,
+  handleStripeConfirm,
+  handleStripeWebhook,
+} from "./worker-stripe.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -330,6 +340,13 @@ async function handleUploadComplete(request, env) {
           }
         })()
       : [];
+  const productRaw = {
+    productId: body.productId ?? body.product_id,
+    productTitle: body.productTitle,
+    productUrl: body.productUrl,
+    productBrand: body.productBrand,
+    productPriceText: body.productPriceText,
+  };
   try {
     const post = await insertPostRow(
       env,
@@ -339,7 +356,8 @@ async function handleUploadComplete(request, env) {
       thumbnailUrl,
       caption,
       postId,
-      tagsArray
+      tagsArray,
+      productRaw
     );
     return json({
       success: true,
@@ -351,13 +369,19 @@ async function handleUploadComplete(request, env) {
       r2Key,
     });
   } catch (e) {
+    const msg = (e && e.message) || String(e);
+    const status =
+      typeof msg === "string" && msg.includes("Product URL") ? 400 : 500;
     return json(
       {
         success: false,
-        message: (e && e.message) || String(e),
-        hint: "R2 object exists; Supabase insert failed.",
+        message: msg,
+        hint:
+          status === 500
+            ? "R2 object exists; Supabase insert failed."
+            : undefined,
       },
-      500
+      status
     );
   }
 }
@@ -510,6 +534,142 @@ function sanitizeWorkerTags(arr) {
   return out;
 }
 
+const MAX_PRODUCT_TITLE = 80;
+const MAX_PRODUCT_URL = 500;
+const MAX_PRODUCT_BRAND = 60;
+const MAX_PRODUCT_PRICE = 40;
+
+/**
+ * @param {unknown} v
+ * @returns {string}
+ */
+function trimProductField(v) {
+  if (v == null) {
+    return "";
+  }
+  return String(v).trim();
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} raw
+ * @returns {{ fields: Record<string, unknown> } | { error: string }}
+ */
+function sanitizeProductFields(raw) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  const title = trimProductField(src.productTitle ?? src.product_title).slice(
+    0,
+    MAX_PRODUCT_TITLE
+  );
+  const brand = trimProductField(src.productBrand ?? src.product_brand).slice(
+    0,
+    MAX_PRODUCT_BRAND
+  );
+  const price = trimProductField(
+    src.productPriceText ?? src.product_price_text
+  ).slice(0, MAX_PRODUCT_PRICE);
+  let url = trimProductField(src.productUrl ?? src.product_url).slice(
+    0,
+    MAX_PRODUCT_URL
+  );
+
+  if (url.length > 0 && !/^https?:\/\//i.test(url)) {
+    return { error: "Product URL must start with http:// or https://" };
+  }
+
+  if (url.length === 0) {
+    return {
+      fields: {
+        product_title: null,
+        product_url: null,
+        product_brand: null,
+        product_price_text: null,
+        is_shop_post: false,
+      },
+    };
+  }
+
+  return {
+    fields: {
+      product_title: title.length > 0 ? title : null,
+      product_url: url,
+      product_brand: brand.length > 0 ? brand : null,
+      product_price_text: price.length > 0 ? price : null,
+      is_shop_post: true,
+    },
+  };
+}
+
+/**
+ * @param {any} env
+ * @param {string} userId
+ * @param {string} productId
+ * @returns {Promise<{ productId: string } | { error: string }>}
+ */
+async function validateOwnedActiveProduct(env, userId, productId) {
+  if (!isStandardUuid(productId)) {
+    return { error: "invalid productId (UUID required)" };
+  }
+  if (!isStandardUuid(userId)) {
+    return { error: "invalid userId for product validation" };
+  }
+  const path =
+    `/products?id=eq.${encodeURIComponent(productId)}` +
+    `&owner_id=eq.${encodeURIComponent(userId)}` +
+    `&is_active=eq.true&select=id&limit=1`;
+  const rows = await supabaseRequest(env, "GET", path);
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return {
+      error: "Product not found, inactive, or not owned by uploader",
+    };
+  }
+  return { productId };
+}
+
+/**
+ * Catalog product_id takes precedence over legacy product_url fields.
+ * @param {any} env
+ * @param {string} userId
+ * @param {Record<string, unknown> | null | undefined} raw
+ * @returns {Promise<{ fields: Record<string, unknown> } | { error: string }>}
+ */
+async function resolveProductFieldsForInsert(env, userId, raw) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  const productId = trimProductField(src.productId ?? src.product_id);
+
+  if (productId.length > 0) {
+    const validated = await validateOwnedActiveProduct(env, userId, productId);
+    if ("error" in validated) {
+      return validated;
+    }
+    return {
+      fields: {
+        product_id: validated.productId,
+        is_shop_post: true,
+      },
+    };
+  }
+
+  const urlSanitized = sanitizeProductFields(raw);
+  if ("error" in urlSanitized) {
+    return urlSanitized;
+  }
+  return urlSanitized;
+}
+
+/**
+ * @param {FormData} fd
+ * @returns {Record<string, unknown>}
+ */
+function productRawFromFormData(fd) {
+  return {
+    productId: fd.get("productId"),
+    productTitle: fd.get("productTitle"),
+    productUrl: fd.get("productUrl"),
+    productBrand: fd.get("productBrand"),
+    productPriceText: fd.get("productPriceText"),
+  };
+}
+
 /**
  * @param {Request} request
  * @param {string} fileName
@@ -606,6 +766,7 @@ async function supabaseRequest(env, method, pathWithQuery, jsonBody, opts) {
  * @param {string} [caption]
  * @param {string | null} [explicitPostId] — optioneel door client (header X-Post-Id); zelfde id als in public.posts.
  * @param {string[]} [tagsArray] — text[] in public.posts.tags
+ * @param {Record<string, unknown> | null} [productRaw]
  */
 async function insertPostRow(
   env,
@@ -615,9 +776,14 @@ async function insertPostRow(
   thumbnailUrl,
   caption,
   explicitPostId,
-  tagsArray
+  tagsArray,
+  productRaw
 ) {
   const tagsClean = sanitizeWorkerTags(tagsArray || []);
+  const productResolved = await resolveProductFieldsForInsert(env, userId, productRaw);
+  if ("error" in productResolved) {
+    throw new Error(productResolved.error);
+  }
   const row = {
     user_id: userId,
     type: "video",
@@ -629,6 +795,7 @@ async function insertPostRow(
     likes_count: 0,
     comments_count: 0,
     tags: tagsClean.length > 0 ? tagsClean : [],
+    ...productResolved.fields,
   };
   if (explicitPostId && isStandardUuid(explicitPostId)) {
     row.id = explicitPostId;
@@ -680,6 +847,7 @@ function imageContentTypeForExt(ext) {
  * @param {string} caption
  * @param {string | null} explicitPostId
  * @param {string[]} tagsArray
+ * @param {Record<string, unknown> | null} [productRaw]
  */
 async function insertCarouselPostRow(
   env,
@@ -688,9 +856,14 @@ async function insertCarouselPostRow(
   thumbnailUrl,
   caption,
   explicitPostId,
-  tagsArray
+  tagsArray,
+  productRaw
 ) {
   const tagsClean = sanitizeWorkerTags(tagsArray || []);
+  const productResolved = await resolveProductFieldsForInsert(env, userId, productRaw);
+  if ("error" in productResolved) {
+    throw new Error(productResolved.error);
+  }
   const row = {
     user_id: userId,
     type: "image_carousel",
@@ -702,6 +875,7 @@ async function insertCarouselPostRow(
     likes_count: 0,
     comments_count: 0,
     tags: tagsClean.length > 0 ? tagsClean : [],
+    ...productResolved.fields,
   };
   if (explicitPostId && isStandardUuid(explicitPostId)) {
     row.id = explicitPostId;
@@ -1067,7 +1241,17 @@ export default {
       return new Response(object.body, { status, headers });
     }
 
+    if (request.method === "GET" && url.searchParams.get("stripeConfirm") === "1") {
+      return handleStripeConfirm(request, url, env, cors);
+    }
+
     if (request.method === "POST") {
+      if (url.searchParams.get("stripeCheckout") === "1") {
+        return handleStripeCheckout(request, env, cors);
+      }
+      if (url.searchParams.get("stripeWebhook") === "1") {
+        return handleStripeWebhook(request, env);
+      }
       if (url.searchParams.get("uploadInit") === "1") {
         return handleUploadInit(request, url, env);
       }
@@ -1122,8 +1306,11 @@ export default {
       let thumbnailContentType = null;
       /** @type {string[]} */
       let tagsPayload = [];
+      /** @type {Record<string, unknown> | null} */
+      let multipartProductRaw = null;
       if (contentType.toLowerCase().includes("multipart/form-data")) {
         const fd = await request.formData();
+        multipartProductRaw = productRawFromFormData(fd);
         const tagsField = fd.get("tags");
         if (typeof tagsField === "string" && tagsField.length > 0) {
           try {
@@ -1229,6 +1416,7 @@ export default {
             keys.push(key);
             urls.push(getPublicPostImageUrl(request, key));
           }
+          const carouselProductRaw = productRawFromFormData(fd);
           try {
             const post = await insertCarouselPostRow(
               env,
@@ -1237,7 +1425,8 @@ export default {
               urls[0],
               carouselCaptionRaw,
               explicitPostId,
-              tagsPayload
+              tagsPayload,
+              carouselProductRaw
             );
             const postId = post && post.id;
             if (!postId) {
@@ -1365,7 +1554,8 @@ export default {
           thumbnailUrl,
           caption,
           explicitPostId,
-          tagsPayload
+          tagsPayload,
+          multipartProductRaw
         );
         console.log("[PostCreate] saved public.posts row", {
           id: post?.id ?? null,

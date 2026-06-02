@@ -16,6 +16,8 @@ import { theme } from "../constants/theme";
 import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { supabase } from "../lib/supabase";
+import { fetchProfileById } from "../services/profileService";
+import { fetchSellerOrders } from "../services/ordersService";
 
 type ProfileRow = {
   id: string;
@@ -24,16 +26,48 @@ type ProfileRow = {
   avatar_url: string | null;
 };
 
-type ActivityKind = "follow" | "like";
+type ActivityKind = "follow" | "like" | "comment" | "order";
 
 export type ActivityFeedItem = {
   kind: ActivityKind;
   created_at: string;
   actorId: string;
   profile: ProfileRow;
-  /** Alleen bij like; post staat in public.posts */
   postId?: string;
+  postThumbnailUrl?: string;
+  /** Alleen bij comment */
+  commentBody?: string;
+  /** Alleen bij order (verkoper) */
+  orderId?: string;
+  orderProductName?: string;
+  orderAmountLabel?: string;
 };
+
+function truncateCommentPreview(body: string, maxLen = 80): string {
+  const trimmed = body.trim();
+  if (trimmed.length <= maxLen) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, maxLen).trimEnd()}…`;
+}
+
+async function fetchOwnPostIds(userId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("posts")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("is_deleted", false);
+
+  if (error) {
+    throw error;
+  }
+
+  return [
+    ...new Set(
+      ((data ?? []) as { id: string }[]).map((p) => p.id).filter(Boolean)
+    ),
+  ];
+}
 
 function formatRelativeTimeNl(iso: string): string {
   const then = new Date(iso).getTime();
@@ -114,21 +148,7 @@ async function fetchFollowActivities(
 async function fetchLikeActivities(
   userId: string
 ): Promise<Omit<ActivityFeedItem, "profile">[]> {
-  const { data: postsRows, error: postsError } = await supabase
-    .from("posts")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("is_deleted", false);
-
-  if (postsError) {
-    throw postsError;
-  }
-
-  const postIds = [
-    ...new Set(
-      ((postsRows ?? []) as { id: string }[]).map((p) => p.id).filter(Boolean)
-    ),
-  ];
+  const postIds = await fetchOwnPostIds(userId);
   if (postIds.length === 0) {
     return [];
   }
@@ -169,15 +189,148 @@ async function fetchLikeActivities(
   }));
 }
 
+/**
+ * Reacties op eigen posts; eigen comments uitgesloten.
+ */
+async function fetchCommentActivities(
+  userId: string
+): Promise<Omit<ActivityFeedItem, "profile">[]> {
+  try {
+    const postIds = await fetchOwnPostIds(userId);
+    if (postIds.length === 0) {
+      return [];
+    }
+
+    type CommentRow = {
+      id: string;
+      post_id: string;
+      user_id: string;
+      body: string;
+      created_at: string;
+    };
+    const collected: CommentRow[] = [];
+
+    for (let i = 0; i < postIds.length; i += ID_BATCH) {
+      const slice = postIds.slice(i, i + ID_BATCH);
+      const { data, error } = await supabase
+        .from("post_comments")
+        .select("id, post_id, user_id, body, created_at")
+        .in("post_id", slice)
+        .eq("is_deleted", false)
+        .neq("user_id", userId);
+
+      if (error) {
+        throw error;
+      }
+
+      for (const row of (data ?? []) as CommentRow[]) {
+        if (row.user_id !== userId) {
+          collected.push(row);
+        }
+      }
+    }
+
+    collected.sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+
+    return collected.slice(0, 50).map((r) => ({
+      kind: "comment" as const,
+      created_at: r.created_at,
+      actorId: r.user_id,
+      postId: r.post_id,
+      commentBody: r.body,
+    }));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[Activity] comments fetch failed:", msg);
+    return [];
+  }
+}
+
+async function fetchPostThumbnailsByIds(
+  postIds: string[]
+): Promise<Map<string, string>> {
+  const unique = [...new Set(postIds.filter((id) => id.length > 0))];
+  const map = new Map<string, string>();
+  if (unique.length === 0) {
+    return map;
+  }
+
+  for (let i = 0; i < unique.length; i += ID_BATCH) {
+    const slice = unique.slice(i, i + ID_BATCH);
+    const { data, error } = await supabase
+      .from("posts")
+      .select("id, thumbnail_url")
+      .in("id", slice)
+      .eq("is_deleted", false);
+
+    if (error) {
+      throw error;
+    }
+
+    for (const row of (data ?? []) as {
+      id: string;
+      thumbnail_url: string | null;
+    }[]) {
+      const url = row.thumbnail_url?.trim();
+      if (url && url.length > 0) {
+        map.set(row.id, url);
+      }
+    }
+  }
+
+  return map;
+}
+
+async function fetchSellerOrderActivityParts(
+  userId: string
+): Promise<Omit<ActivityFeedItem, "profile">[]> {
+  try {
+    const profile = await fetchProfileById(userId);
+    if (profile?.accountType !== "business") {
+      return [];
+    }
+
+    const rows = await fetchSellerOrders();
+    return rows.slice(0, 30).map((row) => {
+      const first = row.items[0];
+      return {
+        kind: "order" as const,
+        created_at: row.order.createdAt,
+        actorId: row.order.buyerId,
+        orderId: row.order.id,
+        orderProductName: first?.product?.name ?? "Product",
+        postThumbnailUrl: first?.product?.images[0],
+      };
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[Activity] seller orders fetch failed:", msg);
+    return [];
+  }
+}
+
 async function fetchActivityFeed(userId: string): Promise<ActivityFeedItem[]> {
-  const [followParts, likeParts] = await Promise.all([
+  const [followParts, likeParts, commentParts, orderParts] = await Promise.all([
     fetchFollowActivities(userId),
     fetchLikeActivities(userId),
+    fetchCommentActivities(userId),
+    fetchSellerOrderActivityParts(userId),
   ]);
 
-  const raw = [...followParts, ...likeParts];
+  const raw = [...followParts, ...likeParts, ...commentParts, ...orderParts];
   const actorIds = raw.map((r) => r.actorId);
-  const profiles = await fetchProfilesByIds(actorIds);
+  const thumbPostIds = raw
+    .filter((r) => r.kind === "like" || r.kind === "comment")
+    .map((r) => r.postId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+
+  const [profiles, postThumbnails] = await Promise.all([
+    fetchProfilesByIds(actorIds),
+    fetchPostThumbnailsByIds(thumbPostIds),
+  ]);
 
   const items: ActivityFeedItem[] = [];
   for (const part of raw) {
@@ -185,9 +338,14 @@ async function fetchActivityFeed(userId: string): Promise<ActivityFeedItem[]> {
     if (!profile) {
       continue;
     }
+    const thumb =
+      (part.kind === "like" || part.kind === "comment") && part.postId
+        ? postThumbnails.get(part.postId)
+        : undefined;
     items.push({
       ...part,
       profile,
+      ...(thumb ? { postThumbnailUrl: thumb } : {}),
     });
   }
 
@@ -261,18 +419,32 @@ export function ActivityScreen() {
       const actionLabel =
         item.kind === "follow"
           ? "volgt je nu"
-          : "heeft je video geliket";
+          : item.kind === "like"
+            ? "vindt je post leuk"
+            : item.kind === "order"
+              ? "Nieuwe bestelling ontvangen"
+              : "reageerde op je post";
+      const commentPreview =
+        item.kind === "comment" && item.commentBody
+          ? `“${truncateCommentPreview(item.commentBody)}”`
+          : null;
 
       return (
         <Pressable
           style={styles.row}
-          onPress={() =>
+          onPress={() => {
+            if (item.kind === "order" && item.orderId) {
+              navigation.navigate("OrderDetail", { orderId: item.orderId });
+              return;
+            }
             navigation.navigate("PublicProfile", {
               profileId: item.actorId,
-            })
-          }
+            });
+          }}
           accessibilityRole="button"
-          accessibilityLabel={`Profiel ${uname}`}
+          accessibilityLabel={
+            item.kind === "order" ? "Open bestelling" : `Profiel ${uname}`
+          }
         >
           {item.profile.avatar_url ? (
             <Image
@@ -302,7 +474,27 @@ export function ActivityScreen() {
               </Text>
             ) : null}
             <Text style={styles.action}>{actionLabel}</Text>
+            {commentPreview ? (
+              <Text style={styles.commentPreview} numberOfLines={2}>
+                {commentPreview}
+              </Text>
+            ) : null}
+            {item.kind === "order" && item.orderProductName ? (
+              <Text style={styles.commentPreview} numberOfLines={2}>
+                {item.orderProductName}
+              </Text>
+            ) : null}
           </View>
+
+          {(item.kind === "like" ||
+            item.kind === "comment" ||
+            item.kind === "order") &&
+          item.postThumbnailUrl ? (
+            <Image
+              source={{ uri: item.postThumbnailUrl }}
+              style={styles.postThumb}
+            />
+          ) : null}
         </Pressable>
       );
     },
@@ -311,8 +503,8 @@ export function ActivityScreen() {
 
   const keyExtractor = useCallback((item: ActivityFeedItem) => {
     return `${item.kind}-${item.actorId}-${item.created_at}-${
-      item.postId ?? ""
-    }`;
+      item.postId ?? item.orderId ?? ""
+    }-${item.commentBody?.slice(0, 24) ?? ""}`;
   }, []);
 
   if (!user) {
@@ -451,6 +643,18 @@ const styles = StyleSheet.create({
     color: theme.textMuted,
     fontSize: 13,
     marginTop: 4,
+  },
+  commentPreview: {
+    color: theme.text,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  postThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 6,
+    backgroundColor: theme.bgElevated,
   },
   centerState: {
     paddingVertical: 32,

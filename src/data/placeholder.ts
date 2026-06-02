@@ -1,3 +1,5 @@
+import type { Product } from "../types/product";
+
 /**
  * Eén shape voor deels én Reels. Image-posts: geen `type` of `type: "image"`.
  * Video (uploads): `type: "video"` + `videoUrl` + `filename`, `owner`, `createdAt`.
@@ -31,6 +33,8 @@ export type FeedPost = {
   price: string;
   /** Numeriek voor like-logica; weergave met `formatLikesForDisplay`. */
   likesCount: number;
+  /** Numeriek reactieteller; fallback via `comments` string in placeholders. */
+  commentsCount?: number;
   comments: string;
   /** Deel-teller (paper plane). */
   shares?: string;
@@ -40,6 +44,15 @@ export type FeedPost = {
   avatarUrl?: string;
   /** Genormaliseerde hashtags (zonder #), uit `public.posts.tags`. */
   tags?: string[];
+  /** Shop-post met productlink (fase 1 — extern openen, geen betaling). */
+  isShopPost?: boolean;
+  /** Gekoppeld catalogproduct (public.products). */
+  productId?: string;
+  linkedProduct?: Product;
+  productTitle?: string;
+  productUrl?: string;
+  productBrand?: string;
+  productPriceText?: string;
 };
 
 /** Wanneer er geen thumbnail is na upload, toch een portret-vriendelijke poster. */
@@ -50,6 +63,56 @@ export function isVideoReelItem(
   item: FeedPost
 ): item is FeedPost & { type: "video"; videoUrl: string } {
   return item.type === "video" && typeof item.videoUrl === "string" && item.videoUrl.length > 0;
+}
+
+/** Profiel-grid weergaven: floor, max ~3 cijfers vóór k/m (geen afronden omhoog). */
+export function resolveCommentsCount(item: FeedPost): number {
+  if (
+    typeof item.commentsCount === "number" &&
+    Number.isFinite(item.commentsCount)
+  ) {
+    return Math.max(0, Math.floor(item.commentsCount));
+  }
+  const digits = item.comments.replace(/[^\d]/g, "");
+  const parsed = parseInt(digits, 10);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+export function formatGridViewsCount(n: number): string {
+  const v = Math.max(0, Math.floor(n));
+  if (v < 1000) {
+    return String(v);
+  }
+
+  const trimTenth = (s: string) => (s.endsWith(".0") ? s.slice(0, -2) : s);
+
+  if (v < 1_000_000) {
+    if (v < 10_000) {
+      const whole = Math.floor(v / 1000);
+      const tenth = Math.floor((v % 1000) / 100);
+      if (tenth === 0) {
+        return `${whole}k`;
+      }
+      return `${whole}.${tenth}k`;
+    }
+    if (v < 100_000) {
+      return `${trimTenth((Math.floor(v / 100) / 10).toFixed(1))}k`;
+    }
+    return `${Math.floor(v / 1000)}k`;
+  }
+
+  if (v < 10_000_000) {
+    const whole = Math.floor(v / 1_000_000);
+    const tenth = Math.floor((v % 1_000_000) / 100_000);
+    if (tenth === 0) {
+      return `${whole}m`;
+    }
+    return `${whole}.${tenth}m`;
+  }
+  if (v < 100_000_000) {
+    return `${trimTenth((Math.floor(v / 100_000) / 10).toFixed(1))}m`;
+  }
+  return `${Math.floor(v / 1_000_000)}m`;
 }
 
 /** Likes in dezelfde stijl als bestaande placeholders (bv. 14k, 5,6k). */
