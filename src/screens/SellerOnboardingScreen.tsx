@@ -49,7 +49,7 @@ function FormField({
   onChangeText: (text: string) => void;
   placeholder?: string;
   required?: boolean;
-  keyboardType?: "default" | "email-address" | "phone-pad";
+  keyboardType?: "default" | "email-address" | "phone-pad" | "number-pad";
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
   editable?: boolean;
 }) {
@@ -370,8 +370,13 @@ export function SellerOnboardingScreen() {
                     onChangeText={setKvkNumber}
                     placeholder="12345678"
                     required
-                    autoCapitalize="characters"
+                    keyboardType="number-pad"
+                    autoCapitalize="none"
                   />
+                  <Text style={styles.fieldHint}>
+                    We controleren je KVK-nummer bij opslaan tegen het
+                    Handelsregister.
+                  </Text>
                   <FormField
                     label="BTW-nummer"
                     value={vatNumber}
@@ -721,6 +726,13 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   field: {
+    marginBottom: 12,
+  },
+  fieldHint: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: -6,
     marginBottom: 12,
   },
   label: {

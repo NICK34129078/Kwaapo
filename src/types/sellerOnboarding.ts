@@ -28,6 +28,8 @@ export type SellerOnboardingRow = {
   seller_verified_at: string | null;
   seller_rejection_reason: string | null;
   display_name: string | null;
+  kvk_verified_at: string | null;
+  kvk_verification_source: string | null;
 };
 
 export type SellerOnboarding = {
@@ -51,6 +53,8 @@ export type SellerOnboarding = {
   sellerVerifiedAt: string | null;
   sellerRejectionReason: string | null;
   displayName: string | null;
+  kvkVerifiedAt: string | null;
+  kvkVerificationSource: string | null;
 };
 
 export type BusinessInfoPayload = {
@@ -112,5 +116,7 @@ export function mapSellerOnboardingRow(row: SellerOnboardingRow): SellerOnboardi
     sellerVerifiedAt: row.seller_verified_at,
     sellerRejectionReason: row.seller_rejection_reason,
     displayName: row.display_name,
+    kvkVerifiedAt: row.kvk_verified_at ?? null,
+    kvkVerificationSource: row.kvk_verification_source ?? null,
   };
 }

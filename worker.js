@@ -8,6 +8,8 @@
  *   - STRIPE_WEBHOOK_SECRET      whsec_...
  *   - CHECKOUT_SUCCESS_URL       optional (default lumen-fashion://checkout/success?session_id={CHECKOUT_SESSION_ID})
  *   - CHECKOUT_CANCEL_URL        optional (default lumen-fashion://checkout/cancel)
+ *   - KVK_API_KEY                KVK Handelsregister API key (test key ok for KVK_API_BASE test URL)
+ *   - KVK_API_BASE               optional (default https://api.kvk.nl/api/v1; test: https://api.kvk.nl/test/api/v1)
  *
  * Local dev: .dev.vars with the same names (not committed; see .dev.vars.example)
  */
@@ -19,6 +21,7 @@ import {
   handleStripeConfirm,
   handleStripeWebhook,
 } from "./worker-stripe.js";
+import { handleKvkVerify } from "./worker-kvk.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -1272,6 +1275,9 @@ export default {
     if (request.method === "POST") {
       if (url.searchParams.get("stripeCheckout") === "1") {
         return handleStripeCheckout(request, env, cors);
+      }
+      if (url.searchParams.get("kvkVerify") === "1") {
+        return handleKvkVerify(request, env, cors);
       }
       if (url.searchParams.get("stripeWebhook") === "1") {
         return handleStripeWebhook(request, env);

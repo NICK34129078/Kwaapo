@@ -1,5 +1,9 @@
 import { supabase } from "../lib/supabase";
 import {
+  normalizeKvkNumberInput,
+  verifyKvkBusinessDetails,
+} from "./kvkVerifyService";
+import {
   isSellerType,
   mapSellerOnboardingRow,
   type BusinessInfoPayload,
@@ -9,7 +13,7 @@ import {
 } from "../types/sellerOnboarding";
 
 const SELLER_ONBOARDING_COLUMNS =
-  "id, seller_onboarding_status, seller_type, business_name, kvk_number, vat_number, business_email, business_phone, business_country, business_city, business_postal_code, business_street, business_house_number, stripe_connect_account_id, stripe_connect_onboarding_complete, stripe_charges_enabled, stripe_payouts_enabled, seller_verified_at, seller_rejection_reason, display_name";
+  "id, seller_onboarding_status, seller_type, business_name, kvk_number, vat_number, business_email, business_phone, business_country, business_city, business_postal_code, business_street, business_house_number, stripe_connect_account_id, stripe_connect_onboarding_complete, stripe_charges_enabled, stripe_payouts_enabled, seller_verified_at, seller_rejection_reason, display_name, kvk_verified_at, kvk_verification_source";
 
 function clean(value: string | null | undefined): string {
   return value?.trim() ?? "";
@@ -57,9 +61,9 @@ function validateBusinessPayload(payload: BusinessInfoPayload): BusinessInfoPayl
   }
 
   if (payload.sellerType === "business") {
-    const kvkNumber = clean(payload.kvkNumber);
+    const kvkNumber = normalizeKvkNumberInput(clean(payload.kvkNumber));
     if (!kvkNumber) {
-      throw new Error("Vul je KVK-nummer in.");
+      throw new Error("Vul een geldig KVK-nummer in (8 cijfers).");
     }
     return {
       ...payload,
@@ -288,6 +292,21 @@ export async function updateMyBusinessInfo(
   const userId = await getCurrentUserId();
   const validated = validateBusinessPayload(payload);
 
+  let kvkVerifiedAt: string | null = null;
+  let kvkVerificationSource: string | null = null;
+
+  if (validated.sellerType === "business" && validated.kvkNumber) {
+    await verifyKvkBusinessDetails({
+      ...validated,
+      kvkNumber: validated.kvkNumber,
+    });
+    kvkVerifiedAt = new Date().toISOString();
+    kvkVerificationSource = "kvk_basisprofiel";
+  } else if (validated.sellerType === "individual") {
+    kvkVerifiedAt = null;
+    kvkVerificationSource = null;
+  }
+
   const { data, error } = await supabase
     .from("profiles")
     .update({
@@ -304,6 +323,8 @@ export async function updateMyBusinessInfo(
       business_house_number: validated.businessHouseNumber,
       seller_onboarding_status: "needs_business_info",
       seller_rejection_reason: null,
+      kvk_verified_at: kvkVerifiedAt,
+      kvk_verification_source: kvkVerificationSource,
     })
     .eq("id", userId)
     .select(SELLER_ONBOARDING_COLUMNS)
