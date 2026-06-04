@@ -8,5 +8,6 @@ STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 
 # Optional deep links (defaults match app.json scheme lumen-fashion)
+# Optional deep link for "Terug naar app" on Worker checkout pages (app sends HTTPS success/cancel URLs by default)
 # CHECKOUT_SUCCESS_URL=lumen-fashion://checkout/success?session_id={CHECKOUT_SESSION_ID}
 # CHECKOUT_CANCEL_URL=lumen-fashion://checkout/cancel

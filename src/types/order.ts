@@ -100,6 +100,12 @@ export type SellerOrder = {
   buyer: OrderParticipant | null;
 };
 
+export type BuyerOrder = {
+  order: Order;
+  items: Array<OrderItem & { product?: Product }>;
+  seller: OrderParticipant | null;
+};
+
 const ORDER_STATUSES: OrderStatus[] = [
   "pending_payment",
   "paid",

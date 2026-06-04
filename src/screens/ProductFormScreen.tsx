@@ -18,6 +18,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
 import { useAuth } from "../context/AuthContext";
 import {
+  canSellerManageProducts,
+  fetchMySellerOnboarding,
+} from "../services/sellerOnboardingService";
+import {
   createProduct,
   fetchProductById,
   updateProduct,
@@ -57,6 +61,38 @@ export function ProductFormScreen() {
   const [sizesText, setSizesText] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [images, setImages] = useState<ImageDraft[]>([]);
+
+  useEffect(() => {
+    if (productId) {
+      return;
+    }
+    void (async () => {
+      try {
+        const onboarding = await fetchMySellerOnboarding();
+        if (!canSellerManageProducts(onboarding)) {
+          Alert.alert(
+            "Verificatie nodig",
+            "Je kunt producten toevoegen zodra je verkoopaccount is goedgekeurd.",
+            [
+              {
+                text: "Verkoopaccount",
+                onPress: () => {
+                  navigation.replace("SellerOnboarding");
+                },
+              },
+              {
+                text: "Terug",
+                style: "cancel",
+                onPress: () => navigation.goBack(),
+              },
+            ]
+          );
+        }
+      } catch {
+        navigation.goBack();
+      }
+    })();
+  }, [navigation, productId]);
 
   useEffect(() => {
     if (!productId) {

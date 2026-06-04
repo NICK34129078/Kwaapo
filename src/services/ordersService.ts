@@ -8,6 +8,7 @@ import {
   type OrderItemRow,
   type OrderParticipant,
   type OrderRow,
+  type BuyerOrder,
   type OrderStatus,
   type PaymentStatus,
   type SellerOrder,
@@ -390,6 +391,62 @@ export async function fetchSellerOrders(): Promise<SellerOrder[]> {
   }));
 }
 
+export async function fetchBuyerOrders(): Promise<BuyerOrder[]> {
+  const buyerId = await getCurrentUserId();
+  const { data, error } = await supabase
+    .from("orders")
+    .select(ORDER_COLUMNS)
+    .eq("buyer_id", buyerId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  const orders = ((data ?? []) as OrderRow[]).map(mapOrderRow);
+  const [itemsByOrderId, sellersById] = await Promise.all([
+    fetchItemsForOrders(orders.map((order) => order.id)),
+    fetchProfilesByIds(orders.map((order) => order.sellerId)),
+  ]);
+
+  return orders.map((order) => ({
+    order,
+    items: itemsByOrderId.get(order.id) ?? [],
+    seller: sellersById.get(order.sellerId) ?? null,
+  }));
+}
+
+export async function fetchBuyerOrderById(
+  orderId: string
+): Promise<BuyerOrder | null> {
+  const buyerId = await getCurrentUserId();
+  const { data, error } = await supabase
+    .from("orders")
+    .select(ORDER_COLUMNS)
+    .eq("id", orderId)
+    .eq("buyer_id", buyerId)
+    .maybeSingle<OrderRow>();
+
+  if (error) {
+    throw error;
+  }
+  if (!data) {
+    return null;
+  }
+
+  const order = mapOrderRow(data);
+  const [itemsByOrderId, sellersById] = await Promise.all([
+    fetchItemsForOrders([order.id]),
+    fetchProfilesByIds([order.sellerId]),
+  ]);
+
+  return {
+    order,
+    items: itemsByOrderId.get(order.id) ?? [],
+    seller: sellersById.get(order.sellerId) ?? null,
+  };
+}
+
 export async function fetchSellerOrderById(
   orderId: string
 ): Promise<SellerOrder | null> {
@@ -468,4 +525,4 @@ export async function updateSellerOrderStatus(
   return mapOrderRow(data);
 }
 
-export type { OrderStatus, PaymentStatus, SellerOrder };
+export type { BuyerOrder, OrderStatus, PaymentStatus, SellerOrder };

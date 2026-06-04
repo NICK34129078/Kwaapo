@@ -19,7 +19,10 @@ import { MyShopScreen } from "./src/screens/MyShopScreen";
 import { ProductFormScreen } from "./src/screens/ProductFormScreen";
 import { ProductDetailScreen } from "./src/screens/ProductDetailScreen";
 import { OrderDetailScreen } from "./src/screens/OrderDetailScreen";
+import { OrderSuccessScreen } from "./src/screens/OrderSuccessScreen";
+import { MyOrdersScreen } from "./src/screens/MyOrdersScreen";
 import { CheckoutInfoScreen } from "./src/screens/CheckoutInfoScreen";
+import { SellerOnboardingScreen } from "./src/screens/SellerOnboardingScreen";
 import { BottomNavbar } from "./src/components/BottomNavbar";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { AuthPromptProvider } from "./src/context/AuthPromptContext";
@@ -122,6 +125,21 @@ function AppGate() {
                 <RootStack.Screen
                   name="OrderDetail"
                   component={OrderDetailScreen}
+                  options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="OrderSuccess"
+                  component={OrderSuccessScreen}
+                  options={{ animation: "fade" }}
+                />
+                <RootStack.Screen
+                  name="MyOrders"
+                  component={MyOrdersScreen}
+                  options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="SellerOnboarding"
+                  component={SellerOnboardingScreen}
                   options={{ animation: "slide_from_right" }}
                 />
               </RootStack.Navigator>

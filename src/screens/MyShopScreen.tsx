@@ -24,6 +24,12 @@ import {
   setProductActive,
 } from "../services/productsService";
 import { fetchSellerOrders } from "../services/ordersService";
+import {
+  canSellerManageProducts,
+  fetchMySellerOnboarding,
+} from "../services/sellerOnboardingService";
+import { SellerOnboardingStatusCard } from "../components/SellerOnboardingStatusCard";
+import type { SellerOnboarding } from "../types/sellerOnboarding";
 import type { Product } from "../types/product";
 import type { SellerOrder } from "../types/order";
 import { formatPriceEur } from "../utils/formatPrice";
@@ -196,26 +202,33 @@ export function MyShopScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [toggleBusyId, setToggleBusyId] = useState<string | null>(null);
   const [accessDenied, setAccessDenied] = useState(false);
+  const [sellerOnboarding, setSellerOnboarding] = useState<SellerOnboarding | null>(
+    null
+  );
 
   const load = useCallback(async () => {
     if (!user?.id) {
       setAccessDenied(true);
       setProducts([]);
+      setSellerOnboarding(null);
       return;
     }
     const profile = await fetchProfileById(user.id);
     if (profile?.accountType !== "business") {
       setAccessDenied(true);
       setProducts([]);
+      setSellerOnboarding(null);
       return;
     }
     setAccessDenied(false);
-    const [productRows, orderRows] = await Promise.all([
+    const [productRows, orderRows, onboardingRow] = await Promise.all([
       fetchMyProducts(true),
       fetchSellerOrders(),
+      fetchMySellerOnboarding(),
     ]);
     setProducts(productRows);
     setOrders(orderRows);
+    setSellerOnboarding(onboardingRow);
   }, [user?.id]);
 
   useFocusEffect(
@@ -321,6 +334,27 @@ export function MyShopScreen() {
     [activeTab, filteredOrders, products]
   );
 
+  const canManageProducts = canSellerManageProducts(sellerOnboarding);
+
+  const openOnboarding = useCallback(() => {
+    navigation.navigate("SellerOnboarding");
+  }, [navigation]);
+
+  const tryOpenProductForm = useCallback(() => {
+    if (!canManageProducts) {
+      Alert.alert(
+        "Verificatie nodig",
+        "Rond je verkoopaccount af en wacht op goedkeuring voordat je producten toevoegt.",
+        [
+          { text: "Annuleren", style: "cancel" },
+          { text: "Verkoopaccount", onPress: openOnboarding },
+        ]
+      );
+      return;
+    }
+    navigation.navigate("ProductForm", {});
+  }, [canManageProducts, navigation, openOnboarding]);
+
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
       <View style={styles.topBar}>
@@ -335,7 +369,7 @@ export function MyShopScreen() {
         </Pressable>
         <Text style={styles.screenTitle}>Mijn Winkel</Text>
         <Pressable
-          onPress={() => navigation.navigate("ProductForm", {})}
+          onPress={tryOpenProductForm}
           style={styles.addBtn}
           hitSlop={10}
           accessibilityRole="button"
@@ -385,6 +419,30 @@ export function MyShopScreen() {
           }
           ListHeaderComponent={
             <View>
+              {sellerOnboarding ? (
+                <SellerOnboardingStatusCard
+                  onboarding={sellerOnboarding}
+                  onPress={openOnboarding}
+                />
+              ) : null}
+              {!canManageProducts && activeTab === "products" ? (
+                <View style={styles.productsGate}>
+                  <Ionicons name="shield-checkmark-outline" size={36} color={theme.textMuted} />
+                  <Text style={styles.productsGateTitle}>Eerst verkoopaccount afronden</Text>
+                  <Text style={styles.productsGateText}>
+                    Na goedkeuring van je KVK- en bedrijfsgegevens kun je producten toevoegen
+                    en officiële verkopen ontvangen.
+                  </Text>
+                  <Pressable
+                    style={styles.primaryBtn}
+                    onPress={openOnboarding}
+                    accessibilityRole="button"
+                    accessibilityLabel="Verkoopaccount instellen"
+                  >
+                    <Text style={styles.primaryBtnText}>Verkoopaccount instellen</Text>
+                  </Pressable>
+                </View>
+              ) : null}
               <View style={styles.shopTabs}>
                 <Pressable
                   style={[
@@ -466,7 +524,9 @@ export function MyShopScreen() {
               ) : null}
               <Text style={styles.subtitle}>
                 {activeTab === "products"
-                  ? "Beheer je producten. Lang indrukken om te verwijderen."
+                  ? canManageProducts
+                    ? "Beheer je producten. Lang indrukken om te verwijderen."
+                    : "Producten toevoegen is beschikbaar na goedkeuring van je verkoopaccount."
                   : "Filter op status en tik een bestelling voor verzendgegevens."}
               </Text>
             </View>
@@ -492,10 +552,10 @@ export function MyShopScreen() {
                     ? "Nieuwe bestellingen verschijnen hier."
                     : "Kies een ander filter om meer orders te zien."}
               </Text>
-              {activeTab === "products" ? (
+              {activeTab === "products" && canManageProducts ? (
                 <Pressable
                   style={styles.primaryBtn}
-                  onPress={() => navigation.navigate("ProductForm", {})}
+                  onPress={tryOpenProductForm}
                   accessibilityRole="button"
                   accessibilityLabel="Product toevoegen"
                 >
@@ -802,6 +862,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
+  },
+  productsGate: {
+    alignItems: "center",
+    padding: 16,
+    marginBottom: 12,
+    borderRadius: 16,
+    backgroundColor: theme.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    gap: 8,
+  },
+  productsGateTitle: {
+    color: theme.text,
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  productsGateText: {
+    color: theme.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+    marginBottom: 4,
   },
   primaryBtn: {
     marginTop: 8,

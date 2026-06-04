@@ -15,16 +15,22 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
 import {
+  fetchBuyerOrderById,
   fetchSellerOrderById,
   markSellerOrderAsShipped,
   type SellerOrder,
 } from "../services/ordersService";
+import type { BuyerOrder } from "../types/order";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
   buyerDisplayName,
+  formatOrderShortAddress,
   paymentStatusLabel,
+  sellerDisplayName,
   shippingStatusLabel,
 } from "../utils/orderDashboard";
+
+type OrderDetailMode = "buyer" | "seller" | null;
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -44,18 +50,37 @@ export function OrderDetailScreen() {
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
   const orderId: string | undefined = route.params?.orderId;
+  const [mode, setMode] = useState<OrderDetailMode>(null);
   const [sellerOrder, setSellerOrder] = useState<SellerOrder | null>(null);
+  const [buyerOrder, setBuyerOrder] = useState<BuyerOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [shipBusy, setShipBusy] = useState(false);
   const [trackingCode, setTrackingCode] = useState("");
 
   const load = useCallback(async () => {
     if (!orderId) {
+      setMode(null);
+      setSellerOrder(null);
+      setBuyerOrder(null);
+      return;
+    }
+    const buyer = await fetchBuyerOrderById(orderId);
+    if (buyer) {
+      setMode("buyer");
+      setBuyerOrder(buyer);
       setSellerOrder(null);
       return;
     }
-    const row = await fetchSellerOrderById(orderId);
-    setSellerOrder(row);
+    const seller = await fetchSellerOrderById(orderId);
+    if (seller) {
+      setMode("seller");
+      setSellerOrder(seller);
+      setBuyerOrder(null);
+      return;
+    }
+    setMode(null);
+    setSellerOrder(null);
+    setBuyerOrder(null);
   }, [orderId]);
 
   useFocusEffect(
@@ -65,9 +90,26 @@ export function OrderDetailScreen() {
     }, [load])
   );
 
-  const order = sellerOrder?.order ?? null;
-  const firstItem = sellerOrder?.items[0] ?? null;
-  const buyerName = sellerOrder ? buyerDisplayName(sellerOrder) : "Koper";
+  const order = useMemo(() => {
+    if (mode === "buyer") {
+      return buyerOrder?.order ?? null;
+    }
+    if (mode === "seller") {
+      return sellerOrder?.order ?? null;
+    }
+    return null;
+  }, [buyerOrder, mode, sellerOrder]);
+
+  const firstItem = useMemo(() => {
+    if (mode === "buyer") {
+      return buyerOrder?.items[0] ?? null;
+    }
+    if (mode === "seller") {
+      return sellerOrder?.items[0] ?? null;
+    }
+    return null;
+  }, [buyerOrder, mode, sellerOrder]);
+
   const needsPayment = order?.paymentStatus === "unpaid";
   const readyToShip =
     order?.paymentStatus === "paid" && order.shippingStatus === "not_shipped";
@@ -75,7 +117,7 @@ export function OrderDetailScreen() {
     order?.shippingStatus === "shipped" || order?.shippingStatus === "delivered";
 
   const markAsShipped = useCallback(async () => {
-    if (!order) {
+    if (!order || mode !== "seller") {
       return;
     }
     setShipBusy(true);
@@ -90,7 +132,10 @@ export function OrderDetailScreen() {
     } finally {
       setShipBusy(false);
     }
-  }, [order, trackingCode]);
+  }, [mode, order, trackingCode]);
+
+  const screenTitle =
+    mode === "buyer" ? "Mijn bestelling" : mode === "seller" ? "Bestelling" : "Bestelling";
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
@@ -104,7 +149,7 @@ export function OrderDetailScreen() {
         >
           <Ionicons name="chevron-back" size={26} color={theme.text} />
         </Pressable>
-        <Text style={styles.screenTitle}>Bestelling</Text>
+        <Text style={styles.screenTitle}>{screenTitle}</Text>
         <View style={styles.topBarSide} />
       </View>
 
@@ -112,7 +157,7 @@ export function OrderDetailScreen() {
         <View style={styles.centerState}>
           <ActivityIndicator size="small" color={theme.accent} />
         </View>
-      ) : !sellerOrder || !order ? (
+      ) : !order || !mode ? (
         <View style={styles.centerState}>
           <Text style={styles.emptyText}>Bestelling niet gevonden.</Text>
         </View>
@@ -123,13 +168,15 @@ export function OrderDetailScreen() {
         >
           <View style={styles.heroCard}>
             <Text style={styles.kicker}>
-              {needsPayment
-                ? "Nieuwe bestelling"
-                : readyToShip
-                  ? "Klaar om te verzenden"
-                  : isShipped
-                    ? "Verzonden"
-                    : "Bestelling"}
+              {mode === "buyer"
+                ? "Jouw bestelling"
+                : needsPayment
+                  ? "Nieuwe bestelling"
+                  : readyToShip
+                    ? "Klaar om te verzenden"
+                    : isShipped
+                      ? "Verzonden"
+                      : "Bestelling"}
             </Text>
             <Text style={styles.orderNumber}>#{order.id.slice(0, 8)}</Text>
             <Text style={styles.dateText}>{formatDate(order.createdAt)}</Text>
@@ -189,135 +236,200 @@ export function OrderDetailScreen() {
             </View>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Koper</Text>
-            <View style={styles.buyerRow}>
-              {sellerOrder.buyer?.avatarUrl ? (
-                <Image
-                  source={{ uri: sellerOrder.buyer.avatarUrl }}
-                  style={styles.buyerAvatar}
-                />
-              ) : (
-                <View style={[styles.buyerAvatar, styles.productThumbFallback]}>
-                  <Ionicons name="person-outline" size={22} color={theme.textMuted} />
+          {mode === "buyer" && buyerOrder ? (
+            <>
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Verkoper</Text>
+                <View style={styles.buyerRow}>
+                  {buyerOrder.seller?.avatarUrl ? (
+                    <Image
+                      source={{ uri: buyerOrder.seller.avatarUrl }}
+                      style={styles.buyerAvatar}
+                    />
+                  ) : (
+                    <View style={[styles.buyerAvatar, styles.productThumbFallback]}>
+                      <Ionicons name="storefront-outline" size={22} color={theme.textMuted} />
+                    </View>
+                  )}
+                  <View style={styles.productMain}>
+                    <Text style={styles.productName}>
+                      {sellerDisplayName(buyerOrder)}
+                    </Text>
+                    {buyerOrder.seller?.username ? (
+                      <Text style={styles.productMeta}>
+                        @{buyerOrder.seller.username}
+                      </Text>
+                    ) : null}
+                  </View>
                 </View>
-              )}
-              <View style={styles.productMain}>
-                <Text style={styles.productName}>
-                  {order.buyerFullName || buyerName}
-                </Text>
+              </View>
+
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Verzendadres</Text>
+                <Text style={styles.addressLine}>{formatOrderShortAddress(order)}</Text>
+              </View>
+
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Betaling</Text>
                 <Text style={styles.productMeta}>
-                  {order.buyerEmail || "Geen email"}
-                </Text>
-                <Text style={styles.productMeta}>
-                  {order.shippingPhone || "Geen telefoon"}
+                  {paymentStatusLabel(order.paymentStatus)}
+                  {order.paidAt
+                    ? ` — betaald op ${formatDate(order.paidAt)}`
+                    : ""}
                 </Text>
               </View>
-            </View>
-          </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Verzendadres</Text>
-            <Text style={styles.addressLine}>
-              {order.shippingStreet || "-"} {order.shippingHouseNumber || ""}
-            </Text>
-            <Text style={styles.addressLine}>
-              {order.shippingPostalCode || "-"} {order.shippingCity || ""}
-            </Text>
-            <Text style={styles.addressLine}>{order.shippingCountry || "-"}</Text>
-            <View style={styles.instructionBox}>
-              <Ionicons name="cube-outline" size={18} color={theme.accent} />
-              <Text style={styles.instructionText}>
-                Verzend dit pakket naar bovenstaand adres. Werk de status bij zodra
-                het pakket is verzonden.
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Betaling</Text>
-            <Text style={styles.productMeta}>
-              {paymentStatusLabel(order.paymentStatus)}
-              {needsPayment
-                ? " — wacht op Stripe-betaling van de koper."
-                : order.paidAt
-                  ? ` — betaald op ${formatDate(order.paidAt)}`
-                  : ""}
-            </Text>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Verzending</Text>
-            {order.trackingCode ? (
-              <Text style={styles.productMeta}>Tracking: {order.trackingCode}</Text>
-            ) : null}
-            {order.shippedAt ? (
-              <Text style={styles.productMeta}>
-                Verzonden op {formatDate(order.shippedAt)}
-              </Text>
-            ) : null}
-            {!isShipped ? (
-              <>
-                {!readyToShip ? (
-                  <Text style={styles.productMeta}>
-                    Markeer eerst de betaling als ontvangen voordat je verzendt.
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Verzending</Text>
+                <Text style={styles.productMeta}>
+                  {shippingStatusLabel(order.shippingStatus)}
+                </Text>
+                {order.trackingCode ? (
+                  <Text style={[styles.productMeta, styles.trackingCode]}>
+                    Tracking: {order.trackingCode}
                   </Text>
                 ) : null}
-                <TextInput
-                  value={trackingCode}
-                  onChangeText={setTrackingCode}
-                  placeholder="Tracking code optioneel"
-                  placeholderTextColor={theme.textMuted}
-                  style={styles.input}
-                  autoCapitalize="characters"
-                  editable={readyToShip}
-                />
-                <Pressable
-                  style={[
-                    styles.primaryBtn,
-                    !readyToShip && styles.primaryBtnDisabled,
-                  ]}
-                  onPress={() => void markAsShipped()}
-                  disabled={shipBusy || !readyToShip}
-                  accessibilityRole="button"
-                  accessibilityLabel="Markeer als verzonden"
-                >
-                  {shipBusy ? (
-                    <ActivityIndicator size="small" color={theme.bg} />
+                {order.shippedAt ? (
+                  <Text style={styles.productMeta}>
+                    Verzonden op {formatDate(order.shippedAt)}
+                  </Text>
+                ) : null}
+              </View>
+            </>
+          ) : null}
+
+          {mode === "seller" && sellerOrder ? (
+            <>
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Koper</Text>
+                <View style={styles.buyerRow}>
+                  {sellerOrder.buyer?.avatarUrl ? (
+                    <Image
+                      source={{ uri: sellerOrder.buyer.avatarUrl }}
+                      style={styles.buyerAvatar}
+                    />
                   ) : (
-                    <Text style={styles.primaryBtnText}>Markeer als verzonden</Text>
+                    <View style={[styles.buyerAvatar, styles.productThumbFallback]}>
+                      <Ionicons name="person-outline" size={22} color={theme.textMuted} />
+                    </View>
                   )}
-                </Pressable>
-              </>
-            ) : (
-              <Text style={styles.productMeta}>
-                Deze bestelling is al gemarkeerd als verzonden.
-              </Text>
-            )}
-          </View>
+                  <View style={styles.productMain}>
+                    <Text style={styles.productName}>
+                      {order.buyerFullName || buyerDisplayName(sellerOrder)}
+                    </Text>
+                    <Text style={styles.productMeta}>
+                      {order.buyerEmail || "Geen email"}
+                    </Text>
+                    <Text style={styles.productMeta}>
+                      {order.shippingPhone || "Geen telefoon"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Bedragen</Text>
-            <View style={styles.amountRow}>
-              <Text style={styles.amountLabel}>Subtotaal</Text>
-              <Text style={styles.amountValue}>
-                {formatPriceEur(order.subtotalAmount)}
-              </Text>
-            </View>
-            <View style={styles.amountRow}>
-              <Text style={styles.amountLabel}>Platform fee (10%)</Text>
-              <Text style={styles.amountValue}>
-                {formatPriceEur(order.platformFeeAmount)}
-              </Text>
-            </View>
-            <View style={styles.amountRow}>
-              <Text style={styles.amountLabel}>Voor verkoper</Text>
-              <Text style={styles.amountValueAccent}>
-                {formatPriceEur(order.sellerAmount)}
-              </Text>
-            </View>
-          </View>
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Verzendadres</Text>
+                <Text style={styles.addressLine}>
+                  {order.shippingStreet || "-"} {order.shippingHouseNumber || ""}
+                </Text>
+                <Text style={styles.addressLine}>
+                  {order.shippingPostalCode || "-"} {order.shippingCity || ""}
+                </Text>
+                <Text style={styles.addressLine}>{order.shippingCountry || "-"}</Text>
+                <View style={styles.instructionBox}>
+                  <Ionicons name="cube-outline" size={18} color={theme.accent} />
+                  <Text style={styles.instructionText}>
+                    Verzend dit pakket naar bovenstaand adres. Werk de status bij zodra
+                    het pakket is verzonden.
+                  </Text>
+                </View>
+              </View>
 
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Betaling</Text>
+                <Text style={styles.productMeta}>
+                  {paymentStatusLabel(order.paymentStatus)}
+                  {needsPayment
+                    ? " — wacht op betaling van de koper."
+                    : order.paidAt
+                      ? ` — betaald op ${formatDate(order.paidAt)}`
+                      : ""}
+                </Text>
+              </View>
+
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Verzending</Text>
+                {order.trackingCode ? (
+                  <Text style={styles.productMeta}>Tracking: {order.trackingCode}</Text>
+                ) : null}
+                {order.shippedAt ? (
+                  <Text style={styles.productMeta}>
+                    Verzonden op {formatDate(order.shippedAt)}
+                  </Text>
+                ) : null}
+                {!isShipped ? (
+                  <>
+                    {!readyToShip ? (
+                      <Text style={styles.productMeta}>
+                        Wacht tot de betaling is voltooid voordat je verzendt.
+                      </Text>
+                    ) : null}
+                    <TextInput
+                      value={trackingCode}
+                      onChangeText={setTrackingCode}
+                      placeholder="Trackingcode (optioneel)"
+                      placeholderTextColor={theme.textMuted}
+                      style={styles.input}
+                      autoCapitalize="characters"
+                      editable={readyToShip}
+                    />
+                    <Pressable
+                      style={[
+                        styles.primaryBtn,
+                        !readyToShip && styles.primaryBtnDisabled,
+                      ]}
+                      onPress={() => void markAsShipped()}
+                      disabled={shipBusy || !readyToShip}
+                      accessibilityRole="button"
+                      accessibilityLabel="Markeer als verzonden"
+                    >
+                      {shipBusy ? (
+                        <ActivityIndicator size="small" color={theme.bg} />
+                      ) : (
+                        <Text style={styles.primaryBtnText}>Markeer als verzonden</Text>
+                      )}
+                    </Pressable>
+                  </>
+                ) : (
+                  <Text style={styles.productMeta}>
+                    Deze bestelling is al gemarkeerd als verzonden.
+                  </Text>
+                )}
+              </View>
+
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Bedragen</Text>
+                <View style={styles.amountRow}>
+                  <Text style={styles.amountLabel}>Subtotaal</Text>
+                  <Text style={styles.amountValue}>
+                    {formatPriceEur(order.subtotalAmount)}
+                  </Text>
+                </View>
+                <View style={styles.amountRow}>
+                  <Text style={styles.amountLabel}>Platform fee (10%)</Text>
+                  <Text style={styles.amountValue}>
+                    {formatPriceEur(order.platformFeeAmount)}
+                  </Text>
+                </View>
+                <View style={styles.amountRow}>
+                  <Text style={styles.amountLabel}>Voor verkoper</Text>
+                  <Text style={styles.amountValueAccent}>
+                    {formatPriceEur(order.sellerAmount)}
+                  </Text>
+                </View>
+              </View>
+            </>
+          ) : null}
         </ScrollView>
       )}
     </View>
@@ -418,12 +530,6 @@ const styles = StyleSheet.create({
   paymentUnpaidText: {
     color: theme.textMuted,
   },
-  statusHelp: {
-    color: theme.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 10,
-  },
   dateText: {
     color: theme.textMuted,
     fontSize: 13,
@@ -443,14 +549,15 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginBottom: 12,
   },
-  productRow: {
+  productHeroRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 14,
+    alignItems: "center",
   },
-  productThumb: {
-    width: 66,
-    height: 66,
-    borderRadius: 12,
+  productHeroImage: {
+    width: 96,
+    height: 96,
+    borderRadius: 14,
     backgroundColor: theme.bgElevated,
   },
   productThumbFallback: {
@@ -473,46 +580,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 4,
   },
-  productPrice: {
-    color: theme.accent,
-    fontSize: 14,
-    fontWeight: "800",
-    marginTop: 6,
-  },
-  productHeroRow: {
-    flexDirection: "row",
-    gap: 14,
-    alignItems: "center",
-  },
-  productHeroImage: {
-    width: 96,
-    height: 96,
-    borderRadius: 14,
-    backgroundColor: theme.bgElevated,
+  trackingCode: {
+    marginTop: 8,
+    fontWeight: "700",
+    color: theme.text,
   },
   productPriceLarge: {
     color: theme.accent,
     fontSize: 22,
     fontWeight: "900",
     marginTop: 8,
-  },
-  secondaryBtn: {
-    minHeight: 46,
-    borderRadius: 12,
-    marginTop: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(158, 255, 0, 0.45)",
-    backgroundColor: theme.accentSoft,
-  },
-  secondaryBtnText: {
-    color: theme.accent,
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  primaryBtnDisabled: {
-    opacity: 0.45,
   },
   addressLine: {
     color: theme.text,
@@ -586,6 +663,9 @@ const styles = StyleSheet.create({
     backgroundColor: theme.accent,
     alignItems: "center",
     justifyContent: "center",
+  },
+  primaryBtnDisabled: {
+    opacity: 0.45,
   },
   primaryBtnText: {
     color: theme.bg,

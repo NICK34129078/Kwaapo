@@ -1,4 +1,9 @@
-import type { Order, PaymentStatus, ShippingStatus } from "../types/order";
+import type {
+  BuyerOrder,
+  Order,
+  PaymentStatus,
+  ShippingStatus,
+} from "../types/order";
 import type { SellerOrder } from "../types/order";
 
 export type SellerOrderFilter =
@@ -35,13 +40,75 @@ export function paymentStatusLabel(status: PaymentStatus): string {
 
 export function shippingStatusLabel(status: ShippingStatus): string {
   switch (status) {
+    case "not_shipped":
+      return "Wacht op verzending";
     case "shipped":
       return "Verzonden";
     case "delivered":
       return "Afgeleverd";
     default:
-      return "Nog niet verzonden";
+      return "Wacht op verzending";
   }
+}
+
+export type BuyerOrderFilter = "all" | "waiting_ship" | "shipped" | "completed";
+
+export const BUYER_ORDER_FILTERS: Array<{
+  id: BuyerOrderFilter;
+  label: string;
+}> = [
+  { id: "all", label: "Alle" },
+  { id: "waiting_ship", label: "Wacht op verzending" },
+  { id: "shipped", label: "Verzonden" },
+  { id: "completed", label: "Afgerond" },
+];
+
+export function matchesBuyerOrderFilter(
+  order: Order,
+  filter: BuyerOrderFilter
+): boolean {
+  switch (filter) {
+    case "all":
+      return true;
+    case "waiting_ship":
+      return (
+        order.paymentStatus === "paid" && order.shippingStatus === "not_shipped"
+      );
+    case "shipped":
+      return order.shippingStatus === "shipped";
+    case "completed":
+      return (
+        order.shippingStatus === "delivered" || order.status === "completed"
+      );
+    default:
+      return true;
+  }
+}
+
+export function sellerDisplayName(
+  buyerOrder: BuyerOrder,
+  fallback = "Verkoper"
+): string {
+  return (
+    buyerOrder.seller?.displayName?.trim() ||
+    buyerOrder.seller?.username?.trim() ||
+    fallback
+  );
+}
+
+export function formatOrderShortAddress(order: Order): string {
+  const line1 = [order.shippingStreet, order.shippingHouseNumber]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const line2 = [order.shippingPostalCode, order.shippingCity]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const parts = [line1, line2, order.shippingCountry].filter(
+    (part) => part && part.length > 0
+  );
+  return parts.length > 0 ? parts.join(", ") : "Adres onbekend";
 }
 
 export function matchesSellerOrderFilter(

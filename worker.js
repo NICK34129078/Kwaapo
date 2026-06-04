@@ -13,6 +13,8 @@
  */
 
 import {
+  handleCheckoutCancel,
+  handleCheckoutReturn,
   handleStripeCheckout,
   handleStripeConfirm,
   handleStripeWebhook,
@@ -1253,6 +1255,14 @@ export default {
         return new Response(null, { status, headers });
       }
       return new Response(object.body, { status, headers });
+    }
+
+    if (request.method === "GET" && url.searchParams.get("checkoutReturn") === "1") {
+      return handleCheckoutReturn(request, url, env, cors);
+    }
+
+    if (request.method === "GET" && url.searchParams.get("checkoutCancel") === "1") {
+      return handleCheckoutCancel(request, url, env, cors);
     }
 
     if (request.method === "GET" && url.searchParams.get("stripeConfirm") === "1") {

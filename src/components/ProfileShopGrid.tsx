@@ -13,6 +13,10 @@ import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../constants/theme";
 import { fetchActiveProductsByOwner } from "../services/productsService";
+import {
+  canSellerManageProducts,
+  fetchMySellerOnboarding,
+} from "../services/sellerOnboardingService";
 import type { Product } from "../types/product";
 import { formatPriceEur } from "../utils/formatPrice";
 
@@ -100,6 +104,7 @@ export function ProfileShopGrid({
 }: Props) {
   const navigation = useNavigation<any>();
   const { width } = useWindowDimensions();
+  const [canAddProducts, setCanAddProducts] = useState(!isOwnProfile);
   const cardWidth = (width - 16 * 2 - GAP) / 2;
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,6 +126,24 @@ export function ProfileShopGrid({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!isOwnProfile) {
+      setCanAddProducts(false);
+      return;
+    }
+    void fetchMySellerOnboarding()
+      .then((row) => setCanAddProducts(canSellerManageProducts(row)))
+      .catch(() => setCanAddProducts(false));
+  }, [isOwnProfile]);
+
+  const openAddProduct = useCallback(() => {
+    if (!canAddProducts) {
+      navigation.navigate("SellerOnboarding");
+      return;
+    }
+    navigation.navigate("ProductForm", {});
+  }, [canAddProducts, navigation]);
 
   const openProduct = useCallback(
     (product: Product) => {
@@ -144,13 +167,20 @@ export function ProfileShopGrid({
     <View style={styles.root}>
       {isOwnProfile ? (
         <Pressable
-          style={styles.addProductButton}
-          onPress={() => navigation.navigate("ProductForm", {})}
+          style={[
+            styles.addProductButton,
+            !canAddProducts && styles.addProductButtonMuted,
+          ]}
+          onPress={openAddProduct}
           accessibilityRole="button"
-          accessibilityLabel="Product toevoegen"
+          accessibilityLabel={
+            canAddProducts ? "Product toevoegen" : "Verkoopaccount instellen"
+          }
         >
           <Ionicons name="add" size={22} color={theme.bg} />
-          <Text style={styles.addProductButtonText}>Product toevoegen</Text>
+          <Text style={styles.addProductButtonText}>
+            {canAddProducts ? "Product toevoegen" : "Verkoopaccount instellen"}
+          </Text>
         </Pressable>
       ) : null}
 
@@ -200,6 +230,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+  },
+  addProductButtonMuted: {
+    backgroundColor: theme.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
   },
   addProductButtonText: {
     color: theme.bg,

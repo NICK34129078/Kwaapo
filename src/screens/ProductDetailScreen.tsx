@@ -28,6 +28,10 @@ import { fetchPostsByProductId } from "../services/postsService";
 import type { Product } from "../types/product";
 import type { UserVideoPost } from "../types/userVideoPost";
 import { formatPriceEur } from "../utils/formatPrice";
+import {
+  canSellerAcceptSales,
+  shouldWarnUnverifiedSeller,
+} from "../services/sellerOnboardingService";
 
 export function ProductDetailScreen() {
   const navigation = useNavigation<any>();
@@ -92,6 +96,15 @@ export function ProductDetailScreen() {
 
   const sellerUsername = seller?.username ? `@${seller.username}` : "@business";
 
+  const showSellerVerificationWarning = useMemo(() => {
+    if (!seller || canManage) {
+      return false;
+    }
+    return shouldWarnUnverifiedSeller({
+      status: seller.sellerOnboardingStatus,
+    });
+  }, [canManage, seller]);
+
   const onEdit = useCallback(() => {
     if (!product) {
       return;
@@ -147,8 +160,23 @@ export function ProductDetailScreen() {
     );
   }, [navigation, product]);
 
+  const sellerSalesActive = useMemo(
+    () =>
+      seller
+        ? canSellerAcceptSales({ status: seller.sellerOnboardingStatus })
+        : false,
+    [seller]
+  );
+
   const onBuyNow = useCallback(() => {
     if (!product) {
+      return;
+    }
+    if (!sellerSalesActive) {
+      Alert.alert(
+        "Verkoper niet actief",
+        "Deze verkoper is nog niet goedgekeurd. Kopen is nog niet mogelijk."
+      );
       return;
     }
     if (product.sizes.length > 0 && !selectedSize) {
@@ -160,7 +188,7 @@ export function ProductDetailScreen() {
       quantity: 1,
       size: selectedSize,
     });
-  }, [navigation, product, selectedSize]);
+  }, [navigation, product, selectedSize, sellerSalesActive]);
 
   const onSellerPress = useCallback(() => {
     if (!seller?.id) {
@@ -373,6 +401,16 @@ export function ProductDetailScreen() {
                 )}
               </View>
 
+              {showSellerVerificationWarning ? (
+                <View style={styles.verifyWarning}>
+                  <Ionicons name="information-circle-outline" size={20} color="#f5c542" />
+                  <Text style={styles.verifyWarningText}>
+                    Deze verkoper is nog niet volledig geverifieerd. Kopen is nog niet
+                    mogelijk tot het verkoopaccount is goedgekeurd.
+                  </Text>
+                </View>
+              ) : null}
+
               <View style={styles.sellerBlock}>
                 <Text style={styles.sectionLabel}>Verkocht door</Text>
                 <View style={styles.sellerRow}>
@@ -440,16 +478,24 @@ export function ProductDetailScreen() {
             </View>
           </ScrollView>
 
-          <View style={[styles.stickyBar, { paddingBottom: insets.bottom + 10 }]}>
-            <Pressable
-              style={styles.buyBtn}
-              onPress={onBuyNow}
-              accessibilityRole="button"
-              accessibilityLabel="Koop nu"
-            >
-              <Text style={styles.buyBtnText}>Koop nu</Text>
-            </Pressable>
-          </View>
+          {!canManage ? (
+            <View style={[styles.stickyBar, { paddingBottom: insets.bottom + 10 }]}>
+              <Pressable
+                style={[
+                  styles.buyBtn,
+                  !sellerSalesActive && styles.buyBtnDisabled,
+                ]}
+                onPress={onBuyNow}
+                disabled={!sellerSalesActive}
+                accessibilityRole="button"
+                accessibilityLabel={sellerSalesActive ? "Koop nu" : "Kopen niet beschikbaar"}
+              >
+                <Text style={styles.buyBtnText}>
+                  {sellerSalesActive ? "Koop nu" : "Nog niet te koop"}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
         </>
       )}
     </View>
@@ -669,6 +715,24 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.65)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  verifyWarning: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginTop: 20,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(255, 193, 7, 0.1)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255, 193, 7, 0.35)",
+  },
+  verifyWarningText: {
+    flex: 1,
+    color: theme.text,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "700",
   },
   sellerBlock: {
     marginTop: 26,

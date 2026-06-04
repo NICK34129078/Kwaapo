@@ -17,6 +17,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
 import { createTestOrderFromProduct } from "../services/ordersService";
+import {
+  canSellerAcceptSales,
+  fetchSellerOnboardingByProfileId,
+} from "../services/sellerOnboardingService";
 import { fetchProductById } from "../services/productsService";
 import {
   createStripeCheckoutSession,
@@ -118,8 +122,17 @@ export function CheckoutInfoScreen() {
     if (!product) {
       return;
     }
-    if (product.sizes.length > 0 && !selectedSize) {
+      if (product.sizes.length > 0 && !selectedSize) {
       Alert.alert("Maat kiezen", "Kies eerst een maat.");
+      return;
+    }
+
+    const sellerOnboarding = await fetchSellerOnboardingByProfileId(product.ownerId);
+    if (!canSellerAcceptSales(sellerOnboarding)) {
+      Alert.alert(
+        "Verkoper niet actief",
+        "Deze verkoper is nog niet goedgekeurd. Betalen is nog niet mogelijk."
+      );
       return;
     }
 
@@ -145,25 +158,40 @@ export function CheckoutInfoScreen() {
         sessionId
       );
 
+      console.log("[Checkout] payment result", {
+        ok: payment.ok,
+        reason: payment.ok ? "paid" : payment.reason,
+        orderId: order.id,
+      });
+
       if (payment.ok) {
-        Alert.alert(
-          "Betaling gelukt",
-          `Bestelling #${payment.order.id.slice(0, 8)} is betaald. De verkoper kan je pakket nu verzenden.`,
-          [{ text: "OK", onPress: () => navigation.goBack() }]
-        );
+        navigation.reset({
+          index: 1,
+          routes: [
+            { name: "MainTabs", params: { screen: "Shop" } },
+            {
+              name: "OrderSuccess",
+              params: { orderId: payment.order.id },
+            },
+          ],
+        });
         return;
       }
 
       if (payment.reason === "cancelled") {
         Alert.alert(
           "Betaling geannuleerd",
-          "Je bestelling staat nog open. Je kunt later opnieuw betalen via je bestellingen."
+          "Je bestelling staat nog open. Je kunt later opnieuw betalen via Mijn bestellingen."
         );
         navigation.goBack();
         return;
       }
 
-      Alert.alert("Betaling mislukt", payment.message);
+      Alert.alert(
+        "Betaling mislukt",
+        payment.message ??
+          "De betaling is niet afgerond. Controleer Mijn bestellingen of probeer het opnieuw."
+      );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Order aanmaken mislukt.";
       Alert.alert("Fout", msg);

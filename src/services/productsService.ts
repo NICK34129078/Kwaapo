@@ -1,5 +1,9 @@
 import { supabase } from "../lib/supabase";
 import {
+  isSellerOnboardingStatus,
+  type SellerOnboardingStatus,
+} from "../types/sellerOnboarding";
+import {
   mapProductRow,
   type Product,
   type ProductInput,
@@ -14,6 +18,7 @@ export type ProductSeller = {
   username: string | null;
   displayName: string | null;
   avatarUrl: string | null;
+  sellerOnboardingStatus: SellerOnboardingStatus;
 };
 
 function isUuid(value: string): boolean {
@@ -73,13 +78,14 @@ export async function fetchProductSeller(
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, username, display_name, avatar_url")
+    .select("id, username, display_name, avatar_url, seller_onboarding_status")
     .eq("id", ownerId)
     .maybeSingle<{
       id: string;
       username: string | null;
       display_name: string | null;
       avatar_url: string | null;
+      seller_onboarding_status: string | null;
     }>();
 
   if (error) {
@@ -94,6 +100,9 @@ export async function fetchProductSeller(
     username: data.username,
     displayName: data.display_name,
     avatarUrl: data.avatar_url,
+    sellerOnboardingStatus: isSellerOnboardingStatus(data.seller_onboarding_status)
+      ? data.seller_onboarding_status
+      : "not_started",
   };
 }
 

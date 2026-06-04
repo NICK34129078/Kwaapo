@@ -889,13 +889,15 @@ function ProfileAuthenticatedScreen({
     try {
       await updateMyAccountType("business");
       setProfileAccountType("business");
+      setSettingsVisible(false);
+      navigation.navigate("SellerOnboarding");
     } catch (e) {
       const msg = getReadableErrorMessage(e, "Accounttype wijzigen mislukt.");
       Alert.alert("Fout", msg);
     } finally {
       setAccountTypeBusy(false);
     }
-  }, [isOwnProfile, profileAccountType]);
+  }, [isOwnProfile, navigation, profileAccountType]);
 
   return (
     <>
@@ -1192,6 +1194,16 @@ function ProfileAuthenticatedScreen({
                 style={styles.rowButton}
                 onPress={() => {
                   setSettingsVisible(false);
+                  navigation.navigate("MyOrders");
+                }}
+              >
+                <Text style={styles.rowLabel}>Mijn bestellingen</Text>
+                <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+              </Pressable>
+              <Pressable
+                style={styles.rowButton}
+                onPress={() => {
+                  setSettingsVisible(false);
                   setEditProfileVisible(true);
                 }}
               >
@@ -1218,6 +1230,16 @@ function ProfileAuthenticatedScreen({
               <Text style={styles.sectionTitle}>Mijn Winkel</Text>
               {isBusinessProfile ? (
                 <>
+                  <Pressable
+                    style={styles.rowButton}
+                    onPress={() => {
+                      setSettingsVisible(false);
+                      navigation.navigate("SellerOnboarding");
+                    }}
+                  >
+                    <Text style={styles.rowLabel}>Verkoopaccount</Text>
+                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                  </Pressable>
                   <Pressable
                     style={styles.rowButton}
                     onPress={() => {

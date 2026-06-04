@@ -5,8 +5,16 @@ import { supabase } from "../lib/supabase";
 import type { Order } from "../types/order";
 import { mapOrderRow, type OrderRow } from "../types/order";
 
-const CHECKOUT_RETURN_PREFIX = Linking.createURL("checkout/success");
-const CHECKOUT_CANCEL_PREFIX = Linking.createURL("checkout/cancel");
+/** HTTPS return pages — reliable in Expo Go / Safari (custom scheme often fails). */
+const WORKER_CHECKOUT_SUCCESS_URL = `${CLOUD_VIDEO_WORKER_BASE}?checkoutReturn=1&session_id={CHECKOUT_SESSION_ID}`;
+const WORKER_CHECKOUT_CANCEL_URL = `${CLOUD_VIDEO_WORKER_BASE}?checkoutCancel=1`;
+
+/** App deep links (production / dev client). */
+const APP_CHECKOUT_SUCCESS_PREFIX = Linking.createURL("checkout/success");
+const APP_CHECKOUT_CANCEL_PREFIX = Linking.createURL("checkout/cancel");
+
+/** Prefix for WebBrowser.openAuthSessionAsync — matches Worker HTTPS returns. */
+const BROWSER_AUTH_RETURN_PREFIX = CLOUD_VIDEO_WORKER_BASE;
 
 export type StripeCheckoutSessionResponse = {
   checkoutUrl: string;
@@ -20,6 +28,24 @@ export type StripeCheckoutConfirmResponse = {
   status: string;
   paid: boolean;
 };
+
+export type CheckoutReturnUrls = {
+  stripeSuccessUrl: string;
+  stripeCancelUrl: string;
+  appSuccessPrefix: string;
+  appCancelPrefix: string;
+  browserReturnPrefix: string;
+};
+
+export function buildCheckoutReturnUrls(): CheckoutReturnUrls {
+  return {
+    stripeSuccessUrl: WORKER_CHECKOUT_SUCCESS_URL,
+    stripeCancelUrl: WORKER_CHECKOUT_CANCEL_URL,
+    appSuccessPrefix: APP_CHECKOUT_SUCCESS_PREFIX,
+    appCancelPrefix: APP_CHECKOUT_CANCEL_PREFIX,
+    browserReturnPrefix: BROWSER_AUTH_RETURN_PREFIX,
+  };
+}
 
 async function getAuthUserId(): Promise<string> {
   const {
@@ -74,7 +100,7 @@ async function workerPost<T>(
 ): Promise<T> {
   const userId = await getAuthUserId();
   const url = `${CLOUD_VIDEO_WORKER_BASE}?${query}`;
-  console.log("[Stripe] POST", url, { orderId: body.orderId });
+  console.log("[Stripe] POST", url, body);
 
   const res = await fetch(url, {
     method: "POST",
@@ -122,7 +148,14 @@ function normalizeCheckoutPayload(json: WorkerJson): StripeCheckoutSessionRespon
 export async function createStripeCheckoutSession(
   orderId: string
 ): Promise<StripeCheckoutSessionResponse> {
-  const json = await workerPost<WorkerJson>("stripeCheckout=1", { orderId });
+  const returnUrls = buildCheckoutReturnUrls();
+  console.log("[Stripe] checkout return URLs", returnUrls);
+
+  const json = await workerPost<WorkerJson>("stripeCheckout=1", {
+    orderId,
+    successUrl: returnUrls.stripeSuccessUrl,
+    cancelUrl: returnUrls.stripeCancelUrl,
+  });
   return normalizeCheckoutPayload(json);
 }
 
@@ -134,6 +167,8 @@ export async function confirmStripeCheckoutSession(
   url.searchParams.set("stripeConfirm", "1");
   url.searchParams.set("session_id", sessionId);
 
+  console.log("[Stripe] stripeConfirm", { sessionId, orderId: null });
+
   const res = await fetch(url.toString(), {
     method: "GET",
     headers: { "X-App-User-Id": userId },
@@ -142,6 +177,7 @@ export async function confirmStripeCheckoutSession(
   if (!res.ok || typeof json.error === "string") {
     throw new Error(formatWorkerError(json, res.status));
   }
+  console.log("[Stripe] stripeConfirm response", json);
   return json as StripeCheckoutConfirmResponse;
 }
 
@@ -166,12 +202,20 @@ async function fetchOrderById(orderId: string): Promise<Order | null> {
 /** Wacht kort op webhook/sync na terugkeer uit Stripe Checkout. */
 export async function waitForOrderPaid(
   orderId: string,
-  attempts = 8,
+  attempts = 10,
   delayMs = 1200
 ): Promise<Order | null> {
   for (let i = 0; i < attempts; i++) {
     const order = await fetchOrderById(orderId);
+    console.log("[Stripe] poll order", {
+      orderId,
+      attempt: i + 1,
+      payment_status: order?.paymentStatus ?? null,
+    });
     if (order?.paymentStatus === "paid") {
+      return order;
+    }
+    if (order?.paymentStatus === "failed") {
       return order;
     }
     await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -180,15 +224,27 @@ export async function waitForOrderPaid(
 }
 
 function parseSessionIdFromUrl(returnUrl: string): string | null {
-  const parsed = Linking.parse(returnUrl);
-  const raw = parsed.queryParams?.session_id;
-  if (typeof raw === "string" && raw.length > 0) {
-    return raw;
+  try {
+    const parsed = Linking.parse(returnUrl);
+    const raw = parsed.queryParams?.session_id;
+    if (typeof raw === "string" && raw.length > 0) {
+      return raw;
+    }
+    if (Array.isArray(raw) && typeof raw[0] === "string") {
+      return raw[0];
+    }
+  } catch {
+    // fall through to regex
   }
-  if (Array.isArray(raw) && typeof raw[0] === "string") {
-    return raw[0];
-  }
-  return null;
+  const match = returnUrl.match(/[?&]session_id=(cs_[^&]+)/i);
+  return match?.[1] ?? null;
+}
+
+function isAppCancelReturnUrl(returnUrl: string): boolean {
+  return (
+    returnUrl.startsWith(APP_CHECKOUT_CANCEL_PREFIX) ||
+    returnUrl.includes("checkoutCancel=1")
+  );
 }
 
 export type OpenStripeCheckoutResult =
@@ -197,45 +253,44 @@ export type OpenStripeCheckoutResult =
   | { ok: false; reason: "failed"; message: string };
 
 /**
- * Opent Stripe Checkout in de browser en bevestigt betaling na terugkeer.
+ * Bevestigt betaling via stripeConfirm + order-refetch (webhook is leidend).
  */
-export async function openStripeCheckoutAndConfirm(
-  checkoutUrl: string,
+async function resolveOrderAfterCheckout(
   orderId: string,
-  sessionId: string
+  sessionId: string | null
 ): Promise<OpenStripeCheckoutResult> {
-  const result = await WebBrowser.openAuthSessionAsync(
-    checkoutUrl,
-    CHECKOUT_RETURN_PREFIX
-  );
+  console.log("[Stripe] resolveOrderAfterCheckout", { orderId, sessionId });
 
-  if (result.type === "cancel" || result.type === "dismiss") {
-    return { ok: false, reason: "cancelled" };
-  }
-
-  if (result.type !== "success" || !result.url) {
-    return { ok: false, reason: "failed", message: "Betaling niet afgerond." };
-  }
-
-  if (result.url.startsWith(CHECKOUT_CANCEL_PREFIX)) {
-    return { ok: false, reason: "cancelled" };
-  }
-
-  const sessionFromUrl = parseSessionIdFromUrl(result.url) ?? sessionId;
-
-  try {
-    const confirm = await confirmStripeCheckoutSession(sessionFromUrl);
-    if (confirm.paid) {
-      const order = await fetchOrderById(confirm.orderId || orderId);
-      if (order) {
-        return { ok: true, order };
+  if (sessionId) {
+    try {
+      const confirm = await confirmStripeCheckoutSession(sessionId);
+      console.log("[Stripe] confirm result", {
+        orderId,
+        sessionId,
+        paid: confirm.paid,
+        paymentStatus: confirm.paymentStatus,
+      });
+      if (confirm.paid) {
+        const order = await fetchOrderById(confirm.orderId || orderId);
+        if (order?.paymentStatus === "paid") {
+          console.log("[Stripe] order paid after confirm", {
+            orderId: order.id,
+            payment_status: order.paymentStatus,
+          });
+          return { ok: true, order };
+        }
       }
+    } catch (e) {
+      console.warn("[Stripe] confirm failed, falling back to poll:", e);
     }
-  } catch (e) {
-    console.warn("[Stripe] confirm failed, polling order:", e);
   }
 
   const polled = await waitForOrderPaid(orderId);
+  console.log("[Stripe] final order status", {
+    orderId,
+    payment_status: polled?.paymentStatus ?? null,
+  });
+
   if (polled?.paymentStatus === "paid") {
     return { ok: true, order: polled };
   }
@@ -248,10 +303,57 @@ export async function openStripeCheckoutAndConfirm(
     };
   }
 
-  return {
-    ok: false,
-    reason: "failed",
-    message:
-      "Betaling nog niet bevestigd. Controleer je e-mail of probeer het later opnieuw.",
-  };
+  return { ok: false, reason: "cancelled" };
+}
+
+/**
+ * Opent Stripe Checkout en bepaalt uitkomst via orderstatus (niet alleen deep link).
+ */
+export async function openStripeCheckoutAndConfirm(
+  checkoutUrl: string,
+  orderId: string,
+  sessionId: string
+): Promise<OpenStripeCheckoutResult> {
+  const returnUrls = buildCheckoutReturnUrls();
+  console.log("[Stripe] openAuthSession", {
+    orderId,
+    sessionId,
+    browserReturnPrefix: returnUrls.browserReturnPrefix,
+    appSuccessPrefix: returnUrls.appSuccessPrefix,
+  });
+
+  const result = await WebBrowser.openAuthSessionAsync(
+    checkoutUrl,
+    returnUrls.browserReturnPrefix
+  );
+
+  console.log("[Stripe] WebBrowser result", {
+    type: result.type,
+    url: "url" in result && result.url ? result.url.slice(0, 200) : null,
+    orderId,
+    sessionId,
+  });
+
+  const sessionFromUrl =
+    result.type === "success" && "url" in result && result.url
+      ? parseSessionIdFromUrl(result.url)
+      : null;
+  const sessionIdToUse = sessionFromUrl ?? sessionId;
+
+  if (sessionFromUrl) {
+    console.log("[Stripe] session_id from return URL", sessionFromUrl);
+  }
+
+  if (
+    result.type === "success" &&
+    "url" in result &&
+    result.url &&
+    isAppCancelReturnUrl(result.url)
+  ) {
+    console.log("[Stripe] explicit cancel return URL, still checking order status");
+    return resolveOrderAfterCheckout(orderId, sessionIdToUse);
+  }
+
+  // Altijd orderstatus controleren — ook bij dismiss/cancel (Expo Go / Safari scheme-fouten).
+  return resolveOrderAfterCheckout(orderId, sessionIdToUse);
 }

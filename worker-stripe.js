@@ -139,13 +139,40 @@ async function stripeRequest(env, method, path, params) {
   return data;
 }
 
-function checkoutReturnUrls(env) {
+function checkoutReturnUrls(env, overrides = {}) {
   const success =
+    overrides.successUrl ||
     env.CHECKOUT_SUCCESS_URL ||
     "lumen-fashion://checkout/success?session_id={CHECKOUT_SESSION_ID}";
   const cancel =
-    env.CHECKOUT_CANCEL_URL || "lumen-fashion://checkout/cancel";
+    overrides.cancelUrl ||
+    env.CHECKOUT_CANCEL_URL ||
+    "lumen-fashion://checkout/cancel";
   return { success, cancel };
+}
+
+function htmlPage(title, bodyHtml, cors = {}) {
+  const html = `<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${title}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #f5f5f5; margin: 0; padding: 32px 20px; text-align: center; }
+    h1 { font-size: 1.35rem; margin-bottom: 12px; }
+    p { color: #a8a8a8; line-height: 1.5; max-width: 360px; margin: 0 auto 20px; }
+    a { color: #9eff00; font-weight: 700; text-decoration: none; }
+  </style>
+</head>
+<body>
+  ${bodyHtml}
+</body>
+</html>`;
+  return new Response(html, {
+    status: 200,
+    headers: { "Content-Type": "text/html; charset=utf-8", ...cors },
+  });
 }
 
 function amountToCents(amount) {
@@ -378,11 +405,20 @@ export async function handleStripeCheckout(request, env, cors = {}) {
       return jsonStripe({ error: "Order amount too low for Stripe" }, 400, cors);
     }
 
-    const urls = checkoutReturnUrls(env);
+    const urls = checkoutReturnUrls(env, {
+      successUrl:
+        typeof body?.successUrl === "string" ? body.successUrl.trim() : undefined,
+      cancelUrl:
+        typeof body?.cancelUrl === "string" ? body.cancelUrl.trim() : undefined,
+    });
+    console.log(logPrefix, "return URLs", {
+      success: urls.success.slice(0, 120),
+      cancel: urls.cancel.slice(0, 120),
+    });
     const params = {
       mode: "payment",
       success_url: urls.success,
-      cancel_url: `${urls.cancel}?order_id=${encodeURIComponent(orderId)}`,
+      cancel_url: `${urls.cancel}${urls.cancel.includes("?") ? "&" : "?"}order_id=${encodeURIComponent(orderId)}`,
       customer_email: order.buyer_email || undefined,
       "metadata[order_id]": orderId,
       "metadata[buyer_id]": userId,
@@ -510,6 +546,67 @@ export async function handleStripeWebhook(request, env) {
       headers: { "Content-Type": "application/json" },
     });
   }
+}
+
+/**
+ * GET ?checkoutReturn=1&session_id=cs_...
+ * HTTPS landing page after Stripe Checkout (works in Expo Go / Safari).
+ */
+export async function handleCheckoutReturn(request, url, env, cors = {}) {
+  const logPrefix = "[checkoutReturn]";
+  const sessionId = (url.searchParams.get("session_id") || "").trim();
+  let paid = false;
+
+  if (sessionId.startsWith("cs_")) {
+    try {
+      const session = await stripeRequest(
+        env,
+        "GET",
+        `/checkout/sessions/${encodeURIComponent(sessionId)}`,
+        null
+      );
+      const result = await syncOrderFromStripeSession(env, session);
+      paid = !!result.paid;
+      console.log(logPrefix, "sync", { sessionId, paid, result });
+    } catch (e) {
+      console.error(logPrefix, "sync failed", (e && e.message) || String(e));
+    }
+  } else {
+    console.warn(logPrefix, "missing session_id");
+  }
+
+  const appDeepLink = (
+    env.CHECKOUT_SUCCESS_URL ||
+    "lumen-fashion://checkout/success?session_id={CHECKOUT_SESSION_ID}"
+  ).replace("{CHECKOUT_SESSION_ID}", encodeURIComponent(sessionId));
+
+  const title = paid ? "Betaling gelukt" : "Betaling wordt verwerkt";
+  const message = paid
+    ? "Je betaling is ontvangen. Sluit dit venster en ga terug naar de app."
+    : "Je betaling wordt nog verwerkt. Sluit dit venster en ga terug naar de app.";
+
+  return htmlPage(
+    title,
+    `<h1>${title}</h1><p>${message}</p><p><a href="${appDeepLink}">Terug naar de app</a></p>`,
+    cors
+  );
+}
+
+/**
+ * GET ?checkoutCancel=1&order_id=...
+ */
+export async function handleCheckoutCancel(request, url, env, cors = {}) {
+  const orderId = (url.searchParams.get("order_id") || "").trim();
+  console.log("[checkoutCancel]", { orderId });
+  const appDeepLink = (
+    env.CHECKOUT_CANCEL_URL || "lumen-fashion://checkout/cancel"
+  ) + (orderId ? `?order_id=${encodeURIComponent(orderId)}` : "");
+
+  return htmlPage(
+    "Betaling geannuleerd",
+    `<h1>Betaling geannuleerd</h1><p>Je kunt dit venster sluiten en teruggaan naar de app.</p><p><a href="${appDeepLink}">Terug naar de app</a></p>`,
+    cors
+  );
 }
 
 /**
