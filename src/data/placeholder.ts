@@ -1,5 +1,11 @@
 import type { Product } from "../types/product";
 
+export type PostAudioSource =
+  | "none"
+  | "user_upload"
+  | "app_library"
+  | "external";
+
 /**
  * Eén shape voor deels én Reels. Image-posts: geen `type` of `type: "image"`.
  * Video (uploads): `type: "video"` + `videoUrl` + `filename`, `owner`, `createdAt`.
@@ -40,6 +46,14 @@ export type FeedPost = {
   shares?: string;
   /** Klein vierkantje voor audio / track art. */
   musicThumbUrl?: string;
+  /** Optionele slideshow-audio (carousel). */
+  audioUrl?: string | null;
+  audioTitle?: string | null;
+  audioArtist?: string | null;
+  audioSource?: PostAudioSource;
+  audioStartMs?: number;
+  audioVolume?: number;
+  audioDurationMs?: number | null;
   /** Avatar naast naam (optioneel; anders gegenereerde placeholder). */
   avatarUrl?: string;
   /** Genormaliseerde hashtags (zonder #), uit `public.posts.tags`. */

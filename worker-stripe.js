@@ -86,6 +86,43 @@ async function fetchFirstOrderItem(env, orderId) {
   return rows[0];
 }
 
+const PLATFORM_FEE_RATE = 0.125;
+
+const SELLER_CHECKOUT_COLUMNS =
+  "id,seller_onboarding_status,stripe_connect_account_id,stripe_charges_enabled,stripe_payouts_enabled";
+
+async function fetchSellerProfileForCheckout(env, sellerId) {
+  const rows = await supabaseRequest(
+    env,
+    "GET",
+    `/profiles?id=eq.${encodeURIComponent(sellerId)}&select=${SELLER_CHECKOUT_COLUMNS}&limit=1`
+  );
+  if (Array.isArray(rows) && rows.length > 0) {
+    return rows[0];
+  }
+  return null;
+}
+
+function isSellerReadyForDestinationCharge(profile) {
+  if (!profile) {
+    return false;
+  }
+  const accountId = String(profile.stripe_connect_account_id || "").trim();
+  return (
+    profile.seller_onboarding_status === "verified" &&
+    accountId.startsWith("acct_") &&
+    profile.stripe_charges_enabled === true &&
+    profile.stripe_payouts_enabled === true
+  );
+}
+
+/** Platform fee in cents; min 1 cent naar connected account. */
+function applicationFeeCents(subtotalCents) {
+  const raw = Math.round(subtotalCents * PLATFORM_FEE_RATE);
+  const capped = Math.min(raw, Math.max(0, subtotalCents - 1));
+  return Math.max(0, capped);
+}
+
 async function fetchProductName(env, productId) {
   if (!isStandardUuid(productId)) {
     return "Bestelling";
@@ -162,7 +199,7 @@ function htmlPage(title, bodyHtml, cors = {}) {
     body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #f5f5f5; margin: 0; padding: 32px 20px; text-align: center; }
     h1 { font-size: 1.35rem; margin-bottom: 12px; }
     p { color: #a8a8a8; line-height: 1.5; max-width: 360px; margin: 0 auto 20px; }
-    a { color: #9eff00; font-weight: 700; text-decoration: none; }
+    a { color: #b9d9f7; font-weight: 700; text-decoration: none; }
   </style>
 </head>
 <body>
@@ -405,6 +442,34 @@ export async function handleStripeCheckout(request, env, cors = {}) {
       return jsonStripe({ error: "Order amount too low for Stripe" }, 400, cors);
     }
 
+    const sellerProfile = await fetchSellerProfileForCheckout(env, order.seller_id);
+    if (!isSellerReadyForDestinationCharge(sellerProfile)) {
+      console.log(logPrefix, "seller not ready for destination charge", {
+        sellerId: order.seller_id,
+        status: sellerProfile?.seller_onboarding_status,
+        charges: sellerProfile?.stripe_charges_enabled,
+        payouts: sellerProfile?.stripe_payouts_enabled,
+        account: sellerProfile?.stripe_connect_account_id
+          ? "present"
+          : "missing",
+      });
+      return jsonStripe(
+        {
+          error: "Seller payouts are not ready",
+          step: "seller_connect_not_ready",
+          message:
+            "Deze verkoper kan nog geen betalingen ontvangen. Stripe-uitbetalingen moeten eerst actief zijn.",
+        },
+        400,
+        cors
+      );
+    }
+
+    const destinationAccountId = String(
+      sellerProfile.stripe_connect_account_id
+    ).trim();
+    const feeCents = applicationFeeCents(subtotalCents);
+
     const urls = checkoutReturnUrls(env, {
       successUrl:
         typeof body?.successUrl === "string" ? body.successUrl.trim() : undefined,
@@ -423,15 +488,23 @@ export async function handleStripeCheckout(request, env, cors = {}) {
       "metadata[order_id]": orderId,
       "metadata[buyer_id]": userId,
       "metadata[seller_id]": order.seller_id,
+      "metadata[platform_fee_rate]": String(PLATFORM_FEE_RATE),
       "line_items[0][quantity]": "1",
       "line_items[0][price_data][currency]": "eur",
       "line_items[0][price_data][unit_amount]": String(subtotalCents),
       "line_items[0][price_data][product_data][name]": productName.slice(0, 120),
+      "payment_intent_data[application_fee_amount]": String(feeCents),
+      "payment_intent_data[transfer_data][destination]": destinationAccountId,
     };
+    if (first?.product_id && isStandardUuid(first.product_id)) {
+      params["metadata[product_id]"] = first.product_id;
+    }
 
-    console.log(logPrefix, "creating Stripe session", {
+    console.log(logPrefix, "creating Stripe session (destination charge)", {
       orderId,
       subtotalCents,
+      feeCents,
+      destinationAccountId,
       productName: productName.slice(0, 40),
     });
 

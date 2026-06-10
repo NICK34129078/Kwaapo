@@ -15,7 +15,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
+import { Audio, Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -27,6 +27,7 @@ import {
   resolveCommentsCount,
 } from "../data/placeholder";
 import { CommentsSheet } from "./CommentsSheet";
+import { AvatarImage } from "./AvatarImage";
 import type { ProfilePostMediaItem } from "../types/userVideoPost";
 import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
@@ -296,6 +297,30 @@ export function FeedItem({
   const activeVideoUri = item.videoUrl ?? "";
   const carouselSlides = useMemo(() => buildCarouselSlides(item), [item]);
   const asCarouselReel = carouselSlides.length > 0 && isCarouselReelItem(item);
+  const postAudioUrl =
+    typeof item.audioUrl === "string" && item.audioUrl.length > 0
+      ? item.audioUrl
+      : null;
+  const hasPostAudio = postAudioUrl != null && (asCarouselReel || asVideo);
+  // Video met eigen audio-overlay: video dempen zodat er geen dubbele audio is.
+  // Op web spelen we de overlay-track niet af, dus daar houden we het videogeluid.
+  const muteVideoForOverlay =
+    asVideo && postAudioUrl != null && Platform.OS !== "web";
+  const postAudioLabel =
+    (item.audioTitle && item.audioTitle.length > 0
+      ? item.audioTitle
+      : item.audioArtist && item.audioArtist.length > 0
+        ? item.audioArtist
+        : "Eigen audio") ?? "Eigen audio";
+  const postAudioVolume =
+    typeof item.audioVolume === "number" && Number.isFinite(item.audioVolume)
+      ? Math.min(1, Math.max(0, item.audioVolume))
+      : 1;
+  const postAudioStartMs =
+    typeof item.audioStartMs === "number" && Number.isFinite(item.audioStartMs)
+      ? Math.max(0, Math.floor(item.audioStartMs))
+      : 0;
+  const carouselAudioRef = useRef<Audio.Sound | null>(null);
 
   const captionText = (item.caption ?? "").trim();
   const isLongCaption = captionText.length > CAPTION_COLLAPSE_CHARS;
@@ -455,11 +480,109 @@ export function FeedItem({
     };
   }, [asVideo, stopNativePlayback, stopWebPlayback]);
 
-  const avatarUri = useMemo(() => {
-    if (item.ownerAvatarUrl) return item.ownerAvatarUrl;
-    if (item.avatarUrl) return item.avatarUrl;
-    return `https://i.pravatar.cc/128?u=${encodeURIComponent(item.id + item.username)}`;
-  }, [item.ownerAvatarUrl, item.avatarUrl, item.id, item.username]);
+  const stopCarouselAudio = useCallback(async () => {
+    const sound = carouselAudioRef.current;
+    if (!sound) {
+      return;
+    }
+    try {
+      await sound.pauseAsync();
+    } catch {
+      /* sound nog niet geladen */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasPostAudio || !postAudioUrl || Platform.OS === "web") {
+      return;
+    }
+
+    let cancelled = false;
+    let sound: Audio.Sound | null = null;
+
+    void (async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+        });
+        const created = await Audio.Sound.createAsync(
+          { uri: postAudioUrl },
+          {
+            shouldPlay: false,
+            isLooping: true,
+            volume: postAudioVolume,
+          }
+        );
+        if (cancelled) {
+          await created.sound.unloadAsync();
+          return;
+        }
+        sound = created.sound;
+        carouselAudioRef.current = sound;
+        if (postAudioStartMs > 0) {
+          await sound.setPositionAsync(postAudioStartMs);
+        }
+        if (isActive) {
+          await sound.playAsync();
+        }
+      } catch (error) {
+        if (__DEV__) {
+          console.warn("[FeedItem] carousel audio load failed", {
+            id: item.id,
+            error,
+          });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      carouselAudioRef.current = null;
+      if (sound) {
+        void sound.unloadAsync();
+      }
+    };
+  }, [
+    hasPostAudio,
+    postAudioUrl,
+    postAudioVolume,
+    postAudioStartMs,
+    item.id,
+  ]);
+
+  useEffect(() => {
+    if (!hasPostAudio || Platform.OS === "web") {
+      return;
+    }
+    const sound = carouselAudioRef.current;
+    if (!sound) {
+      return;
+    }
+    void (async () => {
+      try {
+        if (isActive) {
+          await sound.playAsync();
+        } else {
+          await sound.pauseAsync();
+        }
+      } catch {
+        /* playback state nog niet klaar */
+      }
+    })();
+  }, [hasPostAudio, isActive]);
+
+  useEffect(() => {
+    if (!hasPostAudio) {
+      return;
+    }
+    return () => {
+      carouselAudioRef.current = null;
+      void stopCarouselAudio();
+    };
+  }, [hasPostAudio, stopCarouselAudio]);
+
+  const avatarUri = item.ownerAvatarUrl ?? item.avatarUrl ?? null;
 
   const {
     likesCount,
@@ -622,7 +745,7 @@ export function FeedItem({
               objectFit: "cover",
             } as const,
             src: activeVideoUri,
-            muted: !isActive,
+            muted: !isActive || muteVideoForOverlay,
             loop: true,
             playsInline: true,
             autoPlay: false,
@@ -650,7 +773,7 @@ export function FeedItem({
           resizeMode={ResizeMode.COVER}
           shouldPlay={isActive}
           isLooping
-          isMuted={!isActive}
+          isMuted={!isActive || muteVideoForOverlay}
           useNativeControls={false}
           onPlaybackStatusUpdate={onNativePlaybackStatusUpdate}
           onError={(error) => {
@@ -788,11 +911,11 @@ export function FeedItem({
           accessibilityRole="button"
           accessibilityLabel="Bekijk profiel"
         >
-          <Image
-            source={{ uri: avatarUri }}
+          <AvatarImage
+            uri={avatarUri}
             style={styles.bottomAvatar}
+            variant="expo"
             contentFit="cover"
-            cachePolicy="memory-disk"
           />
           <Text style={styles.handle} numberOfLines={1}>
             {ownerLabel}
@@ -828,6 +951,12 @@ export function FeedItem({
               ) : null}
             </Text>
           </Pressable>
+        ) : null}
+
+        {hasPostAudio ? (
+          <Text style={styles.audioBadge} numberOfLines={1}>
+            🎵 {postAudioLabel}
+          </Text>
         ) : null}
 
         {showShopCta ? (
@@ -969,6 +1098,15 @@ const styles = StyleSheet.create({
   captionToggle: {
     fontWeight: "700",
     color: "rgba(255,255,255,0.78)",
+  },
+  audioBadge: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 6,
+    textShadowColor: "rgba(0,0,0,0.45)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   shopBlock: {
     marginTop: 6,

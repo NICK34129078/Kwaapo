@@ -47,6 +47,8 @@ import { theme } from "../constants/theme";
 import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { EditProfileScreen } from "./EditProfileScreen";
+import { useAvatarPicker } from "../hooks/useAvatarPicker";
+import { getReadableErrorMessage } from "../utils/getReadableErrorMessage";
 import { supabase } from "../lib/supabase";
 import { fetchUserPosts } from "../services/postsService";
 import { parseHashtagInput } from "../utils/hashtags";
@@ -63,6 +65,11 @@ import {
   type ProfileContentTab,
 } from "../components/ProfileContentTabs";
 import { ProfileShopGrid } from "../components/ProfileShopGrid";
+import { AvatarImage } from "../components/AvatarImage";
+import {
+  AudioPickerCard,
+  AUDIO_VOLUME_NORMAL,
+} from "../components/AudioPickerCard";
 
 const GAP = 2;
 type ProfileRow = {
@@ -83,27 +90,6 @@ type FollowListProfile = {
   display_name: string | null;
   avatar_url: string | null;
 };
-
-function getReadableErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-  if (typeof error === "string" && error.trim().length > 0) {
-    return error;
-  }
-  if (error && typeof error === "object") {
-    const maybeMessage = (error as { message?: unknown }).message;
-    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
-      return maybeMessage;
-    }
-    try {
-      return JSON.stringify(error);
-    } catch {
-      return fallback;
-    }
-  }
-  return fallback;
-}
 
 function GuestProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -169,7 +155,7 @@ function ProfileAuthenticatedScreen({
 }) {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, height: windowHeight } = useWindowDimensions();
   const cellSize = (width - GAP * 2) / 3;
   const { uploadedVideoPosts, deleteUserVideoPost } = useUserUploads();
   const uploads = uploadedVideoPosts;
@@ -221,7 +207,6 @@ function ProfileAuthenticatedScreen({
     useState<ProfileContentTab>("posts");
   const [accountTypeBusy, setAccountTypeBusy] = useState(false);
   const isBusinessProfile = profileAccountType === "business";
-  const [avatarUploading, setAvatarUploading] = useState(false);
   const plusPulse = useRef(new Animated.Value(1)).current;
 
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
@@ -231,6 +216,9 @@ function ProfileAuthenticatedScreen({
   const [captionDraft, setCaptionDraft] = useState("");
   const [hashtagsDraft, setHashtagsDraft] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [selectedAudioUri, setSelectedAudioUri] = useState<string | null>(null);
+  const [selectedAudioName, setSelectedAudioName] = useState<string | null>(null);
+  const [selectedAudioVolume, setSelectedAudioVolume] = useState(AUDIO_VOLUME_NORMAL);
   const [productPickerVisible, setProductPickerVisible] = useState(false);
   const [uploadProducts, setUploadProducts] = useState<Product[]>([]);
   const [uploadProductsLoading, setUploadProductsLoading] = useState(false);
@@ -315,6 +303,9 @@ function ProfileAuthenticatedScreen({
     setCaptionDraft("");
     setHashtagsDraft("");
     setSelectedProductId(null);
+    setSelectedAudioUri(null);
+    setSelectedAudioName(null);
+    setSelectedAudioVolume(AUDIO_VOLUME_NORMAL);
     setProductPickerVisible(false);
   }, []);
 
@@ -432,10 +423,25 @@ function ProfileAuthenticatedScreen({
       void (async () => {
         try {
           setUploadFlowBusy(true);
+          const audioOption = selectedAudioUri
+            ? {
+                audio: {
+                  localUri: selectedAudioUri,
+                  displayName: selectedAudioName ?? "Eigen audio",
+                  volume: selectedAudioVolume,
+                },
+              }
+            : {};
           if (uploadDraftMedia.kind === "video") {
-            await uploadVideoAsset(uploadDraftMedia.asset, opts);
+            await uploadVideoAsset(uploadDraftMedia.asset, {
+              ...opts,
+              ...audioOption,
+            });
           } else {
-            await uploadCarouselAssets(uploadDraftMedia.assets, opts);
+            await uploadCarouselAssets(uploadDraftMedia.assets, {
+              ...opts,
+              ...audioOption,
+            });
           }
         } finally {
           setUploadFlowBusy(false);
@@ -447,6 +453,9 @@ function ProfileAuthenticatedScreen({
     buildUploadOptions,
     resetUploadDrafts,
     uploadCarouselAssets,
+    selectedAudioName,
+    selectedAudioUri,
+    selectedAudioVolume,
     uploadDraftMedia,
     uploadVideoAsset,
   ]);
@@ -477,6 +486,18 @@ function ProfileAuthenticatedScreen({
     setProfileBio((data?.bio ?? "").trim());
     setProfileAccountType(normalizeAccountType(data?.account_type));
   }, [targetProfileId]);
+
+  const {
+    uploading: avatarUploading,
+    showPicker: onAvatarPress,
+    cropModal: avatarCropModal,
+  } = useAvatarPicker({
+    userId: isOwnProfile ? user?.id : undefined,
+    onSuccess: (publicUrl) => {
+      setProfileAvatarUrl(publicUrl);
+      void loadProfile();
+    },
+  });
 
   useEffect(() => {
     void loadProfile();
@@ -597,122 +618,6 @@ function ProfileAuthenticatedScreen({
       loop.stop();
     };
   }, [plusPulse]);
-
-  const uploadAvatarAsset = useCallback(
-    async (asset: ImagePicker.ImagePickerAsset) => {
-      if (!isOwnProfile || !user?.id || !asset.uri) {
-        return;
-      }
-      try {
-        setAvatarUploading(true);
-        const response = await fetch(asset.uri);
-        if (!response.ok) {
-          throw new Error("Kon het geselecteerde bestand niet lezen.");
-        }
-        const fileBuffer = await response.arrayBuffer();
-        const ext =
-          asset.fileName?.split(".").pop()?.toLowerCase() ||
-          asset.mimeType?.split("/").pop()?.toLowerCase() ||
-          "jpg";
-        const path = `${user.id}/avatar.${ext}`;
-        if (__DEV__) {
-          console.log("Uploading avatar to bucket: avatars");
-        }
-
-        const { error: uploadError } = await supabase.storage
-          .from("avatars")
-          .upload(path, fileBuffer, {
-            upsert: true,
-            contentType: asset.mimeType ?? "image/jpeg",
-          });
-
-        if (uploadError) {
-          throw uploadError;
-        }
-
-        const publicUrl = supabase.storage.from("avatars").getPublicUrl(path)
-          .data.publicUrl;
-
-        const { error: updateError } = await supabase
-          .from("profiles")
-          .update({ avatar_url: publicUrl })
-          .eq("id", user.id);
-
-        if (updateError) {
-          throw updateError;
-        }
-
-        await loadProfile();
-      } catch (e) {
-        const msg = getReadableErrorMessage(e, "Upload mislukt.");
-        if (__DEV__) {
-          console.warn("[Profile] avatar upload error:", e);
-        }
-        Alert.alert(
-          "Profielfoto uploaden mislukt",
-          msg.includes("avatars")
-            ? `${msg}\n\nControleer of bucket 'avatars' bestaat en upload policy actief is.`
-            : msg
-        );
-      } finally {
-        setAvatarUploading(false);
-      }
-    },
-    [isOwnProfile, loadProfile, user?.id]
-  );
-
-  const pickAvatarFromGallery = useCallback(async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        "Toegang nodig",
-        "Sta toegang tot je galerij toe om een profielfoto te kiezen."
-      );
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-    });
-    if (result.canceled || !result.assets[0]) {
-      return;
-    }
-    await uploadAvatarAsset(result.assets[0]);
-  }, [uploadAvatarAsset]);
-
-  const takeAvatarPhoto = useCallback(async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        "Toegang nodig",
-        "Sta camera-toegang toe om een profielfoto te maken."
-      );
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-      mediaTypes: ["images"],
-    });
-    if (result.canceled || !result.assets[0]) {
-      return;
-    }
-    await uploadAvatarAsset(result.assets[0]);
-  }, [uploadAvatarAsset]);
-
-  const onAvatarPress = useCallback(() => {
-    if (!isOwnProfile) {
-      return;
-    }
-    Alert.alert("Profielfoto", "Kies hoe je je profielfoto wilt instellen.", [
-      { text: "Annuleren", style: "cancel" },
-      { text: "Galerij", onPress: () => void pickAvatarFromGallery() },
-      { text: "Camera", onPress: () => void takeAvatarPhoto() },
-    ]);
-  }, [isOwnProfile, pickAvatarFromGallery, takeAvatarPhoto]);
 
   const handleLogout = useCallback(async () => {
     setLogoutBusy(true);
@@ -955,18 +860,14 @@ function ProfileAuthenticatedScreen({
               isOwnProfile ? "Profielfoto kiezen" : "Profielfoto van gebruiker"
             }
           >
-            {profileAvatarUrl ? (
-              <Image source={{ uri: profileAvatarUrl }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, styles.avatarFallback]}>
-                <Text style={styles.avatarFallbackText}>Profielfoto</Text>
-                {isOwnProfile ? (
-                  <Animated.View style={{ transform: [{ scale: plusPulse }] }}>
-                    <Ionicons name="add-circle" size={30} color={theme.accent} />
-                  </Animated.View>
-                ) : null}
+            <AvatarImage uri={profileAvatarUrl} style={styles.avatar} />
+            {isOwnProfile && !profileAvatarUrl ? (
+              <View style={styles.avatarAddBadge}>
+                <Animated.View style={{ transform: [{ scale: plusPulse }] }}>
+                  <Ionicons name="add-circle" size={30} color={theme.accent} />
+                </Animated.View>
               </View>
-            )}
+            ) : null}
             {avatarUploading && isOwnProfile ? (
               <View style={styles.avatarUploadingOverlay}>
                 <ActivityIndicator size="small" color={theme.text} />
@@ -1357,6 +1258,8 @@ function ProfileAuthenticatedScreen({
         </Modal>
       ) : null}
 
+      {avatarCropModal}
+
       {isOwnProfile ? (
         <Modal
           visible={uploadModalVisible}
@@ -1379,11 +1282,20 @@ function ProfileAuthenticatedScreen({
               <View
                 style={[
                   styles.uploadSheetCard,
-                  { paddingBottom: Math.max(insets.bottom, 16) + 8 },
+                  {
+                    maxHeight: windowHeight - insets.top - 12,
+                    paddingBottom: Math.max(insets.bottom, 16) + 8,
+                  },
                 ]}
                 collapsable={false}
               >
                 <Text style={styles.uploadSheetTitle}>Uploaden</Text>
+                <ScrollView
+                  style={styles.uploadSheetScroll}
+                  contentContainerStyle={styles.uploadSheetScrollContent}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
                 {!uploadDraftMedia ? (
                   <View style={styles.uploadChoiceStack}>
                     <Pressable
@@ -1440,6 +1352,21 @@ function ProfileAuthenticatedScreen({
                         ))}
                       </ScrollView>
                     )}
+                <AudioPickerCard
+                  selectedUri={selectedAudioUri}
+                  selectedName={selectedAudioName}
+                  volume={selectedAudioVolume}
+                  onSelected={(uri, name) => {
+                    setSelectedAudioUri(uri);
+                    setSelectedAudioName(name);
+                  }}
+                  onClear={() => {
+                    setSelectedAudioUri(null);
+                    setSelectedAudioName(null);
+                    setSelectedAudioVolume(AUDIO_VOLUME_NORMAL);
+                  }}
+                  onVolumeChange={setSelectedAudioVolume}
+                />
                 <Text style={styles.uploadSheetLabel}>Beschrijving</Text>
                 <TextInput
                   style={[styles.uploadSheetInput, styles.uploadSheetCaptionInput]}
@@ -1571,6 +1498,7 @@ function ProfileAuthenticatedScreen({
                 >
                   <Text style={styles.uploadSheetBtnSecondaryText}>Annuleren</Text>
                 </Pressable>
+                </ScrollView>
               </View>
             </View>
           </KeyboardAvoidingView>
@@ -1708,13 +1636,7 @@ function ProfileAuthenticatedScreen({
                     accessibilityRole="button"
                     accessibilityLabel="Open profiel"
                   >
-                    {item.avatar_url ? (
-                      <Image source={{ uri: item.avatar_url }} style={styles.followAvatar} />
-                    ) : (
-                      <View style={[styles.followAvatar, styles.followAvatarFallback]}>
-                        <Text style={styles.followAvatarFallbackText}>Geen foto</Text>
-                      </View>
-                    )}
+                    <AvatarImage uri={item.avatar_url} style={styles.followAvatar} />
 
                     <View style={styles.followTextWrap}>
                       <Text style={styles.followUsername} numberOfLines={1}>
@@ -1859,6 +1781,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.35)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  avatarAddBadge: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
   },
   avatarFallback: {
     backgroundColor: theme.bgElevated,
@@ -2316,6 +2243,13 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
+    flexShrink: 1,
+  },
+  uploadSheetScroll: {
+    flexShrink: 1,
+  },
+  uploadSheetScrollContent: {
+    paddingBottom: 4,
   },
   uploadSheetTitle: {
     color: theme.text,
@@ -2408,7 +2342,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(158, 255, 0, 0.35)",
+    borderColor: theme.accentBorder,
   },
   uploadSheetChipText: {
     color: theme.accent,
@@ -2466,8 +2400,8 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(158, 255, 0, 0.35)",
-    backgroundColor: "rgba(158, 255, 0, 0.1)",
+    borderColor: theme.accentBorder,
+    backgroundColor: theme.accentLight,
   },
   linkedProductHeader: {
     flexDirection: "row",

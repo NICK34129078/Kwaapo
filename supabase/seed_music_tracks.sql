@@ -1,0 +1,28 @@
+-- Seed-template voor de app-muziekbibliotheek (public.music_tracks).
+--
+-- BELANGRIJK: er worden hier bewust GEEN tracks ingevoegd.
+-- music_tracks.audio_url is NOT NULL en moet verwijzen naar een echt bestand in
+-- de Supabase Storage bucket "music-library" (of een licensed provider URL).
+--
+-- STAPPEN OM TRACKS TOE TE VOEGEN:
+-- 1. Upload royalty-free audiobestanden naar de bucket "music-library"
+--    (Supabase Dashboard → Storage → music-library), bijv. in map tracks/.
+-- 2. Kopieer de public URL, deze ziet er zo uit:
+--    https://<PROJECT>.supabase.co/storage/v1/object/public/music-library/tracks/<bestand>.mp3
+-- 3. Vul de inserts hieronder in (verwijder de comment-tekens) en voer dit bestand uit
+--    met de service role (SQL editor in het dashboard bypasst RLS).
+--
+-- Voorbeeld (vervang de audio_url's door echte public URLs):
+--
+-- insert into public.music_tracks
+--   (title, artist, audio_url, cover_url, duration_ms, genre, mood, source, usage_type, is_active, is_featured)
+-- values
+--   ('Sunset Drive', 'Studio Loops',
+--    'https://<PROJECT>.supabase.co/storage/v1/object/public/music-library/tracks/sunset-drive.mp3',
+--    null, 32000, 'electronic', 'chill', 'app_library', 'royalty_free', true, true),
+--   ('City Pulse', 'Studio Loops',
+--    'https://<PROJECT>.supabase.co/storage/v1/object/public/music-library/tracks/city-pulse.mp3',
+--    null, 28000, 'hiphop', 'sport', 'app_library', 'royalty_free', true, true),
+--   ('Runway', 'Studio Loops',
+--    'https://<PROJECT>.supabase.co/storage/v1/object/public/music-library/tracks/runway.mp3',
+--    null, 30000, 'pop', 'fashion', 'app_library', 'royalty_free', true, false);

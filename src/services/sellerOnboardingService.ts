@@ -97,7 +97,14 @@ function validateBusinessPayload(payload: BusinessInfoPayload): BusinessInfoPayl
 
 /** Verkoper mag officiële uitbetalingen ontvangen (live-modus). */
 export function canSellerReceivePayments(
-  onboarding: SellerOnboarding | null | undefined
+  onboarding:
+    | SellerOnboarding
+    | Pick<
+        SellerOnboarding,
+        "status" | "stripeChargesEnabled" | "stripePayoutsEnabled"
+      >
+    | null
+    | undefined
 ): boolean {
   if (!onboarding) {
     return false;
@@ -123,21 +130,131 @@ export function canSellerManageProducts(
   return isSellerVerified(onboarding);
 }
 
-/** Echte verkoop/checkout — alleen na handmatige goedkeuring (verified). */
+/** Echte verkoop/checkout — verified + Stripe Connect volledig actief. */
 export function canSellerAcceptSales(
   onboarding:
     | SellerOnboarding
-    | Pick<SellerOnboarding, "status">
+    | Pick<
+        SellerOnboarding,
+        "status" | "stripeChargesEnabled" | "stripePayoutsEnabled"
+      >
     | null
     | undefined
 ): boolean {
-  return onboarding?.status === "verified";
+  return canSellerReceivePayments(onboarding);
 }
 
 export function hasCompletedStripePayoutSetup(
   onboarding: SellerOnboarding | null | undefined
 ): boolean {
   return !!onboarding?.stripeConnectOnboardingComplete;
+}
+
+export function isStripePayoutFullyActive(
+  onboarding: SellerOnboarding | null | undefined
+): boolean {
+  if (!onboarding) {
+    return false;
+  }
+  return (
+    onboarding.stripeChargesEnabled &&
+    onboarding.stripePayoutsEnabled &&
+    onboarding.stripeConnectOnboardingComplete
+  );
+}
+
+/** Ideale live-verkoop: handmatige verified + Stripe Connect volledig actief. */
+export function isSellerFullyReadyForLiveSales(
+  onboarding: SellerOnboarding | null | undefined
+): boolean {
+  return isSellerVerified(onboarding) && isStripePayoutFullyActive(onboarding);
+}
+
+export function getKvkStatusLabel(
+  onboarding: SellerOnboarding | null | undefined
+): string {
+  if (!onboarding || onboarding.sellerType !== "business") {
+    return "Niet van toepassing";
+  }
+  if (onboarding.kvkVerifiedAt) {
+    return "Geverifieerd";
+  }
+  if (onboarding.kvkNumber) {
+    return "Ingediend";
+  }
+  return "Nog invullen";
+}
+
+function verificationStatusLabel(
+  status: SellerOnboardingStatus
+): string {
+  switch (status) {
+    case "not_started":
+      return "Nog niet gestart";
+    case "needs_business_info":
+      return "Gegevens aanvullen";
+    case "pending_review":
+      return "In controle";
+    case "verified":
+      return "Goedgekeurd";
+    case "rejected":
+      return "Afgewezen";
+    default:
+      return "Onbekend";
+  }
+}
+
+export function getSalesStatusLabel(
+  onboarding: SellerOnboarding | null | undefined
+): string {
+  if (!onboarding) {
+    return "Nog niet actief";
+  }
+  if (isSellerFullyReadyForLiveSales(onboarding)) {
+    return "Actief";
+  }
+  if (isSellerVerified(onboarding)) {
+    return "Goedgekeurd — Stripe nog afronden";
+  }
+  return "Nog niet actief";
+}
+
+function kontroleStatusLabel(
+  status: SellerOnboardingStatus
+): string {
+  if (status === "verified") {
+    return "Goedgekeurd";
+  }
+  if (status === "pending_review") {
+    return "In controle";
+  }
+  if (status === "rejected") {
+    return "Afgewezen";
+  }
+  return "Nog niet ingediend";
+}
+
+function bedrijfsgegevensStatusLabel(
+  onboarding: SellerOnboarding
+): string {
+  if (onboarding.status === "verified" || onboarding.status === "pending_review") {
+    return "Ingediend";
+  }
+  if (onboarding.sellerType === "business") {
+    return getKvkStatusLabel(onboarding);
+  }
+  return verificationStatusLabel(onboarding.status);
+}
+
+export function getSellerOnboardingDashboardLines(
+  onboarding: SellerOnboarding
+): string[] {
+  return [
+    `KVK & bedrijfsgegevens: ${bedrijfsgegevensStatusLabel(onboarding)}`,
+    `Stripe uitbetalingen: ${sellerPayoutStatusLabel(onboarding)}`,
+    `Controle: ${kontroleStatusLabel(onboarding.status)}`,
+    `Verkoop actief: ${getSalesStatusLabel(onboarding)}`,
+  ];
 }
 
 /** Bepaal onboarding-stap (1=gegevens, 2=Stripe, 3=indienen). */
@@ -174,19 +291,16 @@ export function sellerPayoutStatusLabel(
   if (!onboarding) {
     return "Uitbetalingen nog niet actief";
   }
-  if (onboarding.status === "verified") {
-    if (onboarding.stripePayoutsEnabled) {
-      return "Uitbetalingen actief";
-    }
-    return "Verificatie klaar — uitbetalingen worden nog ingesteld";
+  if (isStripePayoutFullyActive(onboarding)) {
+    return "Uitbetalingen actief";
   }
-  if (onboarding.status === "pending_review") {
-    return "Uitbetalingen nog niet actief";
+  if (onboarding.stripeConnectOnboardingComplete) {
+    return "Stripe controleert je gegevens";
   }
-  if (onboarding.status === "rejected") {
-    return "Verificatie nodig";
+  if (onboarding.stripeConnectAccountId) {
+    return "Doorgaan met uitbetalingen instellen";
   }
-  return "Verificatie nodig";
+  return "Uitbetalingen instellen";
 }
 
 export type SellerStatusCardContent = {
@@ -228,7 +342,8 @@ export function getSellerStatusCardContent(
     case "verified":
       return {
         title: "Verkoopaccount actief",
-        message: "Je account is klaar voor officiële verkoop.",
+        message:
+          "Je bedrijfsgegevens zijn goedgekeurd. Controleer of Stripe-uitbetalingen ook actief zijn.",
         buttonLabel: "Gegevens bekijken",
         tone: "success",
       };

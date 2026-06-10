@@ -16,23 +16,19 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
 import {
+  refreshStripeConnectStatus,
+  startStripeConnectOnboarding,
+} from "../services/stripeConnectService";
+import {
   fetchMySellerOnboarding,
   hasCompletedStripePayoutSetup,
-  markMyStripePayoutSetupPrepared,
+  isStripePayoutFullyActive,
   markSellerPendingReview,
   resolveSellerOnboardingStep,
+  sellerPayoutStatusLabel,
   updateMyBusinessInfo,
 } from "../services/sellerOnboardingService";
 import type { BusinessInfoPayload, SellerOnboarding, SellerType } from "../types/sellerOnboarding";
-
-const FLOW_STEPS = [
-  "Business account",
-  "Verkoopaccount",
-  "KVK & gegevens",
-  "Uitbetalingen",
-  "In controle",
-  "Verkoop actief",
-] as const;
 
 function FormField({
   label,
@@ -175,19 +171,54 @@ export function SellerOnboardingScreen() {
     }
   }, [buildPayload]);
 
-  const onStripeSetupPrepared = useCallback(async () => {
+  const refreshOnboardingFromServer = useCallback(async () => {
+    const row = await fetchMySellerOnboarding();
+    setOnboarding(row);
+    return row;
+  }, []);
+
+  const stripeDone = hasCompletedStripePayoutSetup(onboarding);
+  const stripePayoutsActive = isStripePayoutFullyActive(onboarding);
+  const stripePayoutLabel = sellerPayoutStatusLabel(onboarding);
+  const hasConnectAccount = !!onboarding?.stripeConnectAccountId;
+
+  const stripeButtonLabel = !hasConnectAccount
+    ? "Uitbetalingen instellen"
+    : stripePayoutsActive
+      ? "Status vernieuwen"
+      : "Doorgaan met uitbetalingen instellen";
+
+  const onStartStripeConnect = useCallback(async () => {
     setSubmitting(true);
     try {
-      const updated = await markMyStripePayoutSetupPrepared();
-      setOnboarding(updated);
-      setStep(3);
+      if (stripePayoutsActive) {
+        await refreshStripeConnectStatus();
+        const row = await refreshOnboardingFromServer();
+        if (isStripePayoutFullyActive(row)) {
+          Alert.alert("Uitbetalingen actief", "Je Stripe-uitbetalingen zijn ingesteld.");
+        }
+        return;
+      }
+
+      const result = await startStripeConnectOnboarding();
+      const row = await refreshOnboardingFromServer();
+      if (result.ok) {
+        if (hasCompletedStripePayoutSetup(row)) {
+          setStep(3);
+        }
+        if (isStripePayoutFullyActive(row)) {
+          Alert.alert("Uitbetalingen actief", "Je Stripe-uitbetalingen zijn ingesteld.");
+        }
+        return;
+      }
+      Alert.alert("Stripe", result.message);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Opslaan mislukt.";
+      const msg = e instanceof Error ? e.message : "Stripe onboarding mislukt.";
       Alert.alert("Fout", msg);
     } finally {
       setSubmitting(false);
     }
-  }, []);
+  }, [refreshOnboardingFromServer, stripePayoutsActive]);
 
   const onSubmitForReview = useCallback(async () => {
     setSubmitting(true);
@@ -211,7 +242,12 @@ export function SellerOnboardingScreen() {
   const isPending = onboarding?.status === "pending_review";
   const isVerified = onboarding?.status === "verified";
   const isReadOnly = isPending || isVerified;
-  const stripeDone = hasCompletedStripePayoutSetup(onboarding);
+
+  useEffect(() => {
+    if (step === 2 && !isReadOnly) {
+      void refreshOnboardingFromServer().catch(() => undefined);
+    }
+  }, [isReadOnly, refreshOnboardingFromServer, step]);
 
   const stepTitle =
     step === 1
@@ -237,26 +273,6 @@ export function SellerOnboardingScreen() {
         </Pressable>
         <Text style={styles.screenTitle}>Verkoopaccount</Text>
         <View style={styles.topBarSide} />
-      </View>
-
-      <View style={styles.funnelRow}>
-        {FLOW_STEPS.map((label, index) => {
-          const active =
-            (index <= 1 && !isPending && !isVerified) ||
-            (index === 2 && step >= 1) ||
-            (index === 3 && (stripeDone || step >= 2)) ||
-            (index === 4 && isPending) ||
-            (index === 5 && isVerified);
-          return (
-            <Text
-              key={label}
-              style={[styles.funnelChip, active && styles.funnelChipActive]}
-              numberOfLines={1}
-            >
-              {label}
-            </Text>
-          );
-        })}
       </View>
 
       <View style={styles.stepRow}>
@@ -305,54 +321,6 @@ export function SellerOnboardingScreen() {
                 Vul je officiële bedrijfsgegevens in. Deze zijn nodig voordat je
                 kunt verkopen en uitbetalingen ontvangt.
               </Text>
-              <View style={styles.typeRow}>
-                <Pressable
-                  style={[
-                    styles.typeChip,
-                    sellerType === "business" && styles.typeChipSelected,
-                  ]}
-                  onPress={() => setSellerType("business")}
-                  accessibilityRole="button"
-                  accessibilityLabel="Bedrijf"
-                >
-                  <Ionicons
-                    name="business-outline"
-                    size={22}
-                    color={sellerType === "business" ? theme.accent : theme.textMuted}
-                  />
-                  <Text
-                    style={[
-                      styles.typeChipText,
-                      sellerType === "business" && styles.typeChipTextSelected,
-                    ]}
-                  >
-                    Bedrijf
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.typeChip,
-                    sellerType === "individual" && styles.typeChipSelected,
-                  ]}
-                  onPress={() => setSellerType("individual")}
-                  accessibilityRole="button"
-                  accessibilityLabel="Persoonlijk"
-                >
-                  <Ionicons
-                    name="person-outline"
-                    size={22}
-                    color={sellerType === "individual" ? theme.accent : theme.textMuted}
-                  />
-                  <Text
-                    style={[
-                      styles.typeChipText,
-                      sellerType === "individual" && styles.typeChipTextSelected,
-                    ]}
-                  >
-                    Persoonlijk
-                  </Text>
-                </Pressable>
-              </View>
 
               <FormField
                 label={sellerType === "business" ? "Bedrijfsnaam" : "Naam / handelsnaam"}
@@ -424,26 +392,46 @@ export function SellerOnboardingScreen() {
 
           {step === 2 && !isReadOnly ? (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Uitbetalingen via Stripe</Text>
-              <Text style={styles.helperBlock}>
-                Stripe regelt veilige uitbetalingen naar je zakelijke rekening. In
-                testmodus bereiden we deze stap vooraf voor — de echte Stripe-koppeling
-                volgt in een latere versie.
-              </Text>
-              <View style={styles.stripeCard}>
-                <Ionicons name="card-outline" size={32} color={theme.accent} />
-                <Text style={styles.stripeCardTitle}>Uitbetalingen nog niet actief</Text>
+              <Text style={styles.sectionTitle}>Uitbetalingen instellen</Text>
+              {!hasConnectAccount ? (
+                <Text style={styles.helperBlock}>
+                  Stripe opent een beveiligde pagina. Vul daar je bankrekening en
+                  identiteitsgegevens in. Wij slaan je bankgegevens niet op.
+                </Text>
+              ) : !stripeDone ? (
+                <Text style={styles.helperBlock}>
+                  Je bent nog niet klaar met Stripe. Ga verder met de beveiligde
+                  Stripe-pagina om je uitbetalingen af te ronden.
+                </Text>
+              ) : stripePayoutsActive ? (
+                <Text style={styles.helperBlock}>
+                  Uitbetalingen actief. Je kunt doorgaan naar controle en indienen.
+                </Text>
+              ) : (
+                <Text style={styles.helperBlock}>
+                  Stripe controleert je gegevens. Dit kan even duren.
+                </Text>
+              )}
+              <View
+                style={[
+                  styles.stripeCard,
+                  stripePayoutsActive && styles.stripeCardSuccess,
+                ]}
+              >
+                <Ionicons
+                  name={stripePayoutsActive ? "checkmark-circle" : "card-outline"}
+                  size={32}
+                  color={stripePayoutsActive ? theme.accent : theme.textMuted}
+                />
+                <Text style={styles.stripeCardTitle}>{stripePayoutLabel}</Text>
                 <Text style={styles.stripeCardText}>
-                  Na goedkeuring van je gegevens koppelen we je account aan Stripe
-                  voor echte uitbetalingen.
+                  {stripePayoutsActive
+                    ? "Je Stripe-uitbetalingen zijn actief."
+                    : stripeDone
+                      ? "Stripe controleert je gegevens. Dit kan even duren."
+                      : "Open Stripe om je bankrekening en identiteit te bevestigen."}
                 </Text>
               </View>
-              {stripeDone ? (
-                <View style={styles.doneRow}>
-                  <Ionicons name="checkmark-circle" size={20} color={theme.accent} />
-                  <Text style={styles.doneText}>Stap voorbereid</Text>
-                </View>
-              ) : null}
             </View>
           ) : null}
 
@@ -480,9 +468,7 @@ export function SellerOnboardingScreen() {
               </View>
               <View style={styles.reviewRow}>
                 <Text style={styles.reviewLabel}>Uitbetalingen</Text>
-                <Text style={styles.reviewValue}>
-                  {stripeDone ? "Voorbereid via Stripe" : "Nog niet ingesteld"}
-                </Text>
+                <Text style={styles.reviewValue}>{stripePayoutLabel}</Text>
               </View>
             </View>
           ) : null}
@@ -539,17 +525,28 @@ export function SellerOnboardingScreen() {
               </Pressable>
               <Pressable
                 style={[styles.primaryBtn, submitting && styles.btnDisabled]}
-                onPress={() => void onStripeSetupPrepared()}
+                onPress={() => void onStartStripeConnect()}
                 disabled={submitting}
                 accessibilityRole="button"
-                accessibilityLabel="Uitbetalingen voorbereid"
+                accessibilityLabel={stripeButtonLabel}
               >
                 {submitting ? (
                   <ActivityIndicator size="small" color={theme.bg} />
                 ) : (
-                  <Text style={styles.primaryBtnText}>Uitbetalingen voorbereid</Text>
+                  <Text style={styles.primaryBtnText}>{stripeButtonLabel}</Text>
                 )}
               </Pressable>
+              {stripeDone ? (
+                <Pressable
+                  style={styles.secondaryBtn}
+                  onPress={() => setStep(3)}
+                  disabled={submitting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Ga verder naar controle"
+                >
+                  <Text style={styles.secondaryBtnText}>Ga verder naar controle</Text>
+                </Pressable>
+              ) : null}
             </>
           ) : null}
           {step === 3 ? (
@@ -612,28 +609,6 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textAlign: "center",
   },
-  funnelRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 10,
-    justifyContent: "center",
-  },
-  funnelChip: {
-    color: theme.textMuted,
-    fontSize: 10,
-    fontWeight: "700",
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: theme.bgElevated,
-    overflow: "hidden",
-    maxWidth: 100,
-  },
-  funnelChipActive: {
-    color: theme.accent,
-    backgroundColor: theme.accentSoft,
-  },
   stepRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -692,33 +667,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 8,
   },
-  typeRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 14,
-  },
-  typeChip: {
-    flex: 1,
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 16,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    backgroundColor: theme.bgElevated,
-  },
-  typeChipSelected: {
-    borderColor: theme.accent,
-    backgroundColor: theme.accentSoft,
-  },
-  typeChipText: {
-    color: theme.textMuted,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  typeChipTextSelected: {
-    color: theme.accent,
-  },
   helperBlock: {
     color: theme.textMuted,
     fontSize: 13,
@@ -762,6 +710,10 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
     gap: 8,
+  },
+  stripeCardSuccess: {
+    backgroundColor: theme.accentLight,
+    borderColor: theme.accentBorderStrong,
   },
   stripeCardTitle: {
     color: theme.text,
@@ -819,8 +771,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   infoBoxSuccess: {
-    borderColor: "rgba(158, 255, 0, 0.45)",
-    backgroundColor: "rgba(158, 255, 0, 0.08)",
+    borderColor: theme.accentBorderStrong,
+    backgroundColor: theme.accentFaint,
   },
   infoTitle: {
     color: theme.text,

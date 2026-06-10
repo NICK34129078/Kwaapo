@@ -7,6 +7,9 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 
+# Worker HTTPS base (Stripe Connect account link return/refresh)
+# WORKER_PUBLIC_URL=https://wild-mountain-072a.n-vandullemen.workers.dev
+
 # Optional deep links (defaults match app.json scheme lumen-fashion)
 # Optional deep link for "Terug naar app" on Worker checkout pages (app sends HTTPS success/cancel URLs by default)
 # CHECKOUT_SUCCESS_URL=lumen-fashion://checkout/success?session_id={CHECKOUT_SESSION_ID}

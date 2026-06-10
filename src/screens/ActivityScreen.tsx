@@ -13,6 +13,7 @@ import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { theme } from "../constants/theme";
+import { AvatarImage } from "../components/AvatarImage";
 import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { supabase } from "../lib/supabase";
@@ -446,18 +447,7 @@ export function ActivityScreen() {
             item.kind === "order" ? "Open bestelling" : `Profiel ${uname}`
           }
         >
-          {item.profile.avatar_url ? (
-            <Image
-              source={{ uri: item.profile.avatar_url }}
-              style={styles.avatar}
-            />
-          ) : (
-            <View style={styles.avatarFallback}>
-              <Text style={styles.avatarFallbackText} numberOfLines={1}>
-                {uname.slice(0, 2).toUpperCase()}
-              </Text>
-            </View>
-          )}
+          <AvatarImage uri={item.profile.avatar_url} style={styles.avatar} />
 
           <View style={styles.rowMain}>
             <View style={styles.rowTop}>

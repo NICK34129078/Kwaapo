@@ -3,8 +3,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../constants/theme";
 import {
+  getSellerOnboardingDashboardLines,
   getSellerStatusCardContent,
-  sellerPayoutStatusLabel,
 } from "../services/sellerOnboardingService";
 import type { SellerOnboarding } from "../types/sellerOnboarding";
 
@@ -18,7 +18,7 @@ export function SellerOnboardingStatusCard({ onboarding, onPress }: Props) {
     onboarding.status,
     onboarding.sellerRejectionReason
   );
-  const payoutLabel = sellerPayoutStatusLabel(onboarding);
+  const dashboardLines = getSellerOnboardingDashboardLines(onboarding);
 
   const toneStyles =
     content.tone === "success"
@@ -51,7 +51,11 @@ export function SellerOnboardingStatusCard({ onboarding, onPress }: Props) {
       <View style={styles.body}>
         <Text style={styles.title}>{content.title}</Text>
         <Text style={styles.message}>{content.message}</Text>
-        <Text style={styles.payoutHint}>{payoutLabel}</Text>
+        {dashboardLines.map((line) => (
+          <Text key={line} style={styles.statusLine}>
+            {line}
+          </Text>
+        ))}
         <Text style={styles.cta}>{content.buttonLabel} →</Text>
       </View>
     </Pressable>
@@ -72,8 +76,8 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
   },
   cardSuccess: {
-    backgroundColor: "rgba(158, 255, 0, 0.1)",
-    borderColor: "rgba(158, 255, 0, 0.45)",
+    backgroundColor: theme.accentLight,
+    borderColor: theme.accentBorderStrong,
   },
   cardWarning: {
     backgroundColor: "rgba(255, 193, 7, 0.08)",
@@ -103,12 +107,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
-  payoutHint: {
+  statusLine: {
     color: theme.text,
     fontSize: 12,
     fontWeight: "700",
-    marginTop: 8,
-    opacity: 0.85,
+    marginTop: 6,
+    lineHeight: 17,
   },
   cta: {
     color: theme.accent,

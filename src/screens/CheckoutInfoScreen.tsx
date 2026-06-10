@@ -130,8 +130,8 @@ export function CheckoutInfoScreen() {
     const sellerOnboarding = await fetchSellerOnboardingByProfileId(product.ownerId);
     if (!canSellerAcceptSales(sellerOnboarding)) {
       Alert.alert(
-        "Verkoper niet actief",
-        "Deze verkoper is nog niet goedgekeurd. Betalen is nog niet mogelijk."
+        "Betaling niet mogelijk",
+        "Deze verkoper kan nog geen betalingen ontvangen."
       );
       return;
     }

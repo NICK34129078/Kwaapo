@@ -19,6 +19,8 @@ export type ProductSeller = {
   displayName: string | null;
   avatarUrl: string | null;
   sellerOnboardingStatus: SellerOnboardingStatus;
+  stripeChargesEnabled: boolean;
+  stripePayoutsEnabled: boolean;
 };
 
 function isUuid(value: string): boolean {
@@ -49,14 +51,49 @@ export async function fetchMyActiveProducts(): Promise<Product[]> {
 }
 
 export async function fetchActiveProducts(limit = 80): Promise<Product[]> {
-  const cap = Math.min(Math.max(1, limit), 120);
-  const { data, error } = await supabase
+  return fetchShopProducts({ limit });
+}
+
+type FetchShopProductsOptions = {
+  query?: string;
+  category?: string;
+  limit?: number;
+};
+
+/**
+ * Shop-zoeken: actieve producten ophalen met optionele tekst- en categoriefilter.
+ * Zoekt in naam, merk, beschrijving en categorie (case-insensitive).
+ */
+export async function fetchShopProducts(
+  options?: FetchShopProductsOptions
+): Promise<Product[]> {
+  const cap = Math.min(Math.max(1, options?.limit ?? 100), 120);
+  const q = (options?.query ?? "").trim();
+  const category = (options?.category ?? "").trim();
+
+  let builder = supabase
     .from("products")
     .select(PRODUCT_COLUMNS)
     .eq("is_active", true)
     .order("created_at", { ascending: false })
     .limit(cap);
 
+  if (category.length > 0 && category.toLowerCase() !== "alle") {
+    const safeCategory = category.replace(/[%_]/g, "");
+    const categoryPattern = `%${safeCategory}%`;
+    builder = builder.or(
+      `category.ilike.${categoryPattern},name.ilike.${categoryPattern},description.ilike.${categoryPattern},brand.ilike.${categoryPattern}`
+    );
+  }
+
+  if (q.length > 0) {
+    const pattern = `%${q.replace(/[%_]/g, "")}%`;
+    builder = builder.or(
+      `name.ilike.${pattern},brand.ilike.${pattern},description.ilike.${pattern},category.ilike.${pattern}`
+    );
+  }
+
+  const { data, error } = await builder;
   if (error) {
     throw error;
   }
@@ -78,7 +115,9 @@ export async function fetchProductSeller(
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, username, display_name, avatar_url, seller_onboarding_status")
+    .select(
+      "id, username, display_name, avatar_url, seller_onboarding_status, stripe_charges_enabled, stripe_payouts_enabled"
+    )
     .eq("id", ownerId)
     .maybeSingle<{
       id: string;
@@ -86,6 +125,8 @@ export async function fetchProductSeller(
       display_name: string | null;
       avatar_url: string | null;
       seller_onboarding_status: string | null;
+      stripe_charges_enabled: boolean | null;
+      stripe_payouts_enabled: boolean | null;
     }>();
 
   if (error) {
@@ -103,6 +144,8 @@ export async function fetchProductSeller(
     sellerOnboardingStatus: isSellerOnboardingStatus(data.seller_onboarding_status)
       ? data.seller_onboarding_status
       : "not_started",
+    stripeChargesEnabled: data.stripe_charges_enabled === true,
+    stripePayoutsEnabled: data.stripe_payouts_enabled === true,
   };
 }
 

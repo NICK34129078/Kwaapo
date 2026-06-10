@@ -1,4 +1,7 @@
-import { REEL_VIDEO_POSTER_FALLBACK } from "../data/placeholder";
+import {
+  REEL_VIDEO_POSTER_FALLBACK,
+  type PostAudioSource,
+} from "../data/placeholder";
 import {
   CLOUD_VIDEO_WORKER_BASE,
   UPLOADED_VIDEO_OWNER,
@@ -33,6 +36,14 @@ export type PostRow = {
   comments_count: number;
   created_at: string;
   is_deleted: boolean;
+  audio_url?: string | null;
+  audio_title?: string | null;
+  audio_artist?: string | null;
+  audio_source?: string | null;
+  audio_start_ms?: number | null;
+  audio_volume?: number | null;
+  audio_duration_ms?: number | null;
+  audio_track_id?: string | null;
 };
 
 type MaybePostRow = PostRow & {
@@ -51,7 +62,90 @@ type MaybePostRow = PostRow & {
   productPriceText?: string | null;
   productId?: string | null;
   isShopPost?: boolean;
+  audioUrl?: string | null;
+  audioTitle?: string | null;
+  audioArtist?: string | null;
+  audioSource?: string | null;
+  audioStartMs?: number | null;
+  audioVolume?: number | null;
+  audioDurationMs?: number | null;
 };
+
+const POST_AUDIO_SOURCES = new Set<PostAudioSource>([
+  "none",
+  "user_upload",
+  "app_library",
+  "external",
+]);
+
+function normalizePostAudioSource(value: unknown): PostAudioSource {
+  if (typeof value === "string" && POST_AUDIO_SOURCES.has(value as PostAudioSource)) {
+    return value as PostAudioSource;
+  }
+  return "none";
+}
+
+function audioFieldsFromRow(row: MaybePostRow): Pick<
+  UserVideoPost,
+  | "audioUrl"
+  | "audioTitle"
+  | "audioArtist"
+  | "audioSource"
+  | "audioStartMs"
+  | "audioVolume"
+  | "audioDurationMs"
+> {
+  const audioUrlRaw =
+    typeof row.audio_url === "string"
+      ? row.audio_url
+      : typeof row.audioUrl === "string"
+        ? row.audioUrl
+        : null;
+  const audioUrl =
+    audioUrlRaw && audioUrlRaw.trim().length > 0 ? audioUrlRaw.trim() : null;
+  if (!audioUrl) {
+    return {};
+  }
+
+  const audioTitle =
+    (typeof row.audio_title === "string" && row.audio_title.length > 0
+      ? row.audio_title
+      : typeof row.audioTitle === "string" && row.audioTitle.length > 0
+        ? row.audioTitle
+        : null) ?? null;
+  const audioArtist =
+    (typeof row.audio_artist === "string" && row.audio_artist.length > 0
+      ? row.audio_artist
+      : typeof row.audioArtist === "string" && row.audioArtist.length > 0
+        ? row.audioArtist
+        : null) ?? null;
+  const audioSource = normalizePostAudioSource(row.audio_source ?? row.audioSource);
+  const startRaw = row.audio_start_ms ?? row.audioStartMs;
+  const audioStartMs =
+    typeof startRaw === "number" && Number.isFinite(startRaw)
+      ? Math.max(0, Math.floor(startRaw))
+      : 0;
+  const volRaw = row.audio_volume ?? row.audioVolume;
+  const audioVolume =
+    typeof volRaw === "number" && Number.isFinite(volRaw)
+      ? Math.min(1, Math.max(0, volRaw))
+      : 1;
+  const durRaw = row.audio_duration_ms ?? row.audioDurationMs;
+  const audioDurationMs =
+    typeof durRaw === "number" && Number.isFinite(durRaw) && durRaw > 0
+      ? Math.floor(durRaw)
+      : null;
+
+  return {
+    audioUrl,
+    audioTitle,
+    audioArtist,
+    audioSource,
+    audioStartMs,
+    audioVolume,
+    audioDurationMs,
+  };
+}
 
 function normalizeTagsFromApi(v: unknown): string[] | undefined {
   if (v == null) {
@@ -281,6 +375,7 @@ function mapRowToUserVideoPost(
       mediaItems,
       ...(row.tags && row.tags.length > 0 ? { tags: row.tags } : {}),
       ...shopFieldsFromRow(row),
+      ...audioFieldsFromRow(row),
     };
   }
 
@@ -312,6 +407,7 @@ function mapRowToUserVideoPost(
     musicThumbUrl: row.thumbnail_url ?? undefined,
     ...(row.tags && row.tags.length > 0 ? { tags: row.tags } : {}),
     ...shopFieldsFromRow(row),
+    ...audioFieldsFromRow(row),
   };
 }
 

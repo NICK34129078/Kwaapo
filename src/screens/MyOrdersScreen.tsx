@@ -367,10 +367,10 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: theme.accentSoft,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(158, 255, 0, 0.35)",
+    borderColor: theme.accentBorder,
   },
   orderBadgePaid: {
-    backgroundColor: "rgba(158, 255, 0, 0.16)",
+    backgroundColor: theme.accentMedium,
   },
   orderBadgeMuted: {
     backgroundColor: "rgba(255,255,255,0.08)",

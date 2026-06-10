@@ -16,6 +16,7 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
+import { AvatarImage } from "../components/AvatarImage";
 import { useAuth } from "../context/AuthContext";
 import {
   deleteProduct,
@@ -163,7 +164,11 @@ export function ProductDetailScreen() {
   const sellerSalesActive = useMemo(
     () =>
       seller
-        ? canSellerAcceptSales({ status: seller.sellerOnboardingStatus })
+        ? canSellerAcceptSales({
+            status: seller.sellerOnboardingStatus,
+            stripeChargesEnabled: seller.stripeChargesEnabled,
+            stripePayoutsEnabled: seller.stripePayoutsEnabled,
+          })
         : false,
     [seller]
   );
@@ -174,8 +179,8 @@ export function ProductDetailScreen() {
     }
     if (!sellerSalesActive) {
       Alert.alert(
-        "Verkoper niet actief",
-        "Deze verkoper is nog niet goedgekeurd. Kopen is nog niet mogelijk."
+        "Betaling niet mogelijk",
+        "Deze verkoper kan nog geen betalingen ontvangen."
       );
       return;
     }
@@ -414,13 +419,7 @@ export function ProductDetailScreen() {
               <View style={styles.sellerBlock}>
                 <Text style={styles.sectionLabel}>Verkocht door</Text>
                 <View style={styles.sellerRow}>
-                  {seller?.avatarUrl ? (
-                    <Image source={{ uri: seller.avatarUrl }} style={styles.sellerAvatar} />
-                  ) : (
-                    <View style={[styles.sellerAvatar, styles.sellerAvatarFallback]}>
-                      <Ionicons name="person-outline" size={22} color={theme.textMuted} />
-                    </View>
-                  )}
+                  <AvatarImage uri={seller?.avatarUrl} style={styles.sellerAvatar} />
                   <View style={styles.sellerTextWrap}>
                     <Text style={styles.sellerName} numberOfLines={1}>
                       {sellerName}

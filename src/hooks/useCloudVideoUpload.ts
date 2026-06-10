@@ -19,6 +19,8 @@ import {
   type UploadProductInput,
 } from "../utils/uploadProduct";
 import { createUuidV4 } from "../utils/uuid";
+import { uploadPostAudio } from "../utils/uploadPostAudio";
+import { buildWorkerAudioFields, type PostAudioInput } from "../types/postAudio";
 
 /** Waarschuwing bij zeer grote bestanden; geen harde blokkade (direct PUT naar R2). */
 const LARGE_VIDEO_WARN_BYTES = 300 * 1024 * 1024;
@@ -90,6 +92,7 @@ function videoMimeType(asset: PickedVideoAsset): string {
 export type PickUploadOptions = UploadProductInput & {
   hashtagsRaw?: string;
   caption?: string;
+  audio?: PostAudioInput;
 };
 
 type UploadInitJson = {
@@ -309,6 +312,26 @@ export function useCloudVideoUpload() {
       const productPayload = productFieldsForWorkerPayload(product);
       const clientPostId = createUuidV4();
 
+      // Optionele eigen audio: faalt zacht — bij fout uploaden we de video zonder audio.
+      let audioFields: Record<string, string> | null = null;
+      if (options?.audio?.localUri) {
+        try {
+          const audioPublicUrl = await uploadPostAudio(
+            options.audio.localUri,
+            uploadUserId
+          );
+          audioFields = buildWorkerAudioFields(audioPublicUrl, options.audio);
+        } catch (audioError) {
+          if (__DEV__) {
+            console.warn("[video] audio upload failed", audioError);
+          }
+          Alert.alert(
+            "Audio upload mislukt",
+            "Je video wordt zonder audio geplaatst."
+          );
+        }
+      }
+
       const initData = await postWorkerJson<UploadInitJson>(
         `${CLOUD_VIDEO_WORKER_BASE}?uploadInit=1`,
         {
@@ -366,6 +389,7 @@ export function useCloudVideoUpload() {
           tags: parsedTags,
           caption: captionForPost,
           ...productPayload,
+          ...(audioFields ?? {}),
         },
         uploadUserId,
         UPLOAD_COMPLETE_TIMEOUT_MS,
@@ -398,6 +422,17 @@ export function useCloudVideoUpload() {
           is_deleted: false,
           ...(parsedTags.length > 0 ? { tags: parsedTags } : {}),
           ...(product.productId.length > 0 ? { product_id: product.productId, is_shop_post: true } : {}),
+          ...(audioFields
+            ? {
+                audio_url: audioFields.audioUrl,
+                audio_title: audioFields.audioTitle,
+                audio_artist: audioFields.audioArtist,
+                audio_source: audioFields.audioSource,
+                audio_start_ms: 0,
+                audio_volume: Number(audioFields.audioVolume),
+                audio_duration_ms: null,
+              }
+            : {}),
         };
         final = userVideoPostFromPostRow(fallbackRow);
       }

@@ -69,6 +69,11 @@ type WorkerJson = Record<string, unknown> & {
 };
 
 function formatWorkerError(json: WorkerJson, status: number): string {
+  if (json.step === "seller_connect_not_ready") {
+    return typeof json.message === "string" && json.message.length > 0
+      ? json.message
+      : "Deze verkoper kan nog geen betalingen ontvangen.";
+  }
   const parts = [json.error, json.message, json.detail, json.step]
     .filter((p): p is string => typeof p === "string" && p.length > 0);
   if (parts.length > 0) {

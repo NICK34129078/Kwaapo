@@ -8,6 +8,7 @@
  *   - STRIPE_WEBHOOK_SECRET      whsec_...
  *   - CHECKOUT_SUCCESS_URL       optional (default lumen-fashion://checkout/success?session_id={CHECKOUT_SESSION_ID})
  *   - CHECKOUT_CANCEL_URL        optional (default lumen-fashion://checkout/cancel)
+ *   - WORKER_PUBLIC_URL          optional HTTPS base for Stripe Connect return/refresh links
  *   - KVK_API_KEY                KVK Handelsregister API key (test key ok for KVK_API_BASE test URL)
  *   - KVK_API_BASE               optional (default https://api.kvk.nl/api/v1; test: https://api.kvk.nl/test/api/v1)
  *
@@ -21,6 +22,14 @@ import {
   handleStripeConfirm,
   handleStripeWebhook,
 } from "./worker-stripe.js";
+import {
+  handleStripeConnectAccount,
+  handleStripeConnectOnboardingLink,
+  handleStripeConnectRefresh,
+  handleStripeConnectReturn,
+  handleStripeConnectStatus,
+  handleStripeConnectDebug,
+} from "./worker-stripe-connect.js";
 import { handleKvkVerify } from "./worker-kvk.js";
 
 const cors = {
@@ -357,6 +366,7 @@ async function handleUploadComplete(request, env) {
     productBrand: body.productBrand,
     productPriceText: body.productPriceText,
   };
+  const audioFields = sanitizeVideoAudioFromBody(env, body);
   try {
     const post = await insertPostRow(
       env,
@@ -367,7 +377,8 @@ async function handleUploadComplete(request, env) {
       caption,
       postId,
       tagsArray,
-      productRaw
+      productRaw,
+      audioFields
     );
     return json({
       success: true,
@@ -512,6 +523,137 @@ function normalizeCaptionForStorage(raw) {
   }
   const s = String(raw).trim().slice(0, MAX_POST_CAPTION_CHARS);
   return s.length > 0 ? s : DEFAULT_POST_CAPTION;
+}
+
+const POST_AUDIO_SOURCES = new Set([
+  "none",
+  "user_upload",
+  "app_library",
+  "external",
+]);
+
+/**
+ * @param {any} env
+ * @param {unknown} raw
+ * @returns {string | null}
+ */
+function sanitizePostAudioUrl(env, raw) {
+  if (raw == null || typeof raw !== "string") {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const base = String(env.SUPABASE_URL || "").replace(/\/$/, "");
+  if (!base) {
+    return null;
+  }
+  const prefix = `${base}/storage/v1/object/public/post-audio/`;
+  if (!trimmed.startsWith(prefix)) {
+    return null;
+  }
+  return trimmed;
+}
+
+/** Lege/uitgeschakelde audio-velden voor posts zonder geldige audio. */
+function emptyPostAudioFields() {
+  return {
+    audio_url: null,
+    audio_title: null,
+    audio_artist: null,
+    audio_source: "none",
+    audio_start_ms: 0,
+    audio_volume: 1,
+    audio_duration_ms: null,
+  };
+}
+
+/**
+ * Generieke audio-sanitizer voor zowel foto-carousel (FormData) als video (JSON).
+ * @param {any} env
+ * @param {(key: string) => unknown} get
+ * @returns {Record<string, unknown>}
+ */
+function sanitizePostAudioFields(env, get) {
+  const url = sanitizePostAudioUrl(env, get("audioUrl"));
+  if (!url) {
+    return emptyPostAudioFields();
+  }
+
+  const titleRaw = get("audioTitle");
+  const artistRaw = get("audioArtist");
+  const sourceRaw = get("audioSource");
+  const startRaw = get("audioStartMs");
+  const volumeRaw = get("audioVolume");
+  const durationRaw = get("audioDurationMs");
+
+  let audioSource = "user_upload";
+  if (typeof sourceRaw === "string" && POST_AUDIO_SOURCES.has(sourceRaw)) {
+    audioSource = sourceRaw;
+  }
+
+  let audioStartMs = 0;
+  if (typeof startRaw === "string" || typeof startRaw === "number") {
+    const n = Number(startRaw);
+    if (Number.isFinite(n) && n >= 0) {
+      audioStartMs = Math.floor(n);
+    }
+  }
+
+  let audioVolume = 1;
+  if (typeof volumeRaw === "string" || typeof volumeRaw === "number") {
+    const n = Number(volumeRaw);
+    if (Number.isFinite(n)) {
+      audioVolume = Math.min(1, Math.max(0, n));
+    }
+  }
+
+  let audioDurationMs = null;
+  if (typeof durationRaw === "string" || typeof durationRaw === "number") {
+    const n = Number(durationRaw);
+    if (Number.isFinite(n) && n > 0) {
+      audioDurationMs = Math.floor(n);
+    }
+  }
+
+  const audioTitle =
+    typeof titleRaw === "string" && titleRaw.trim().length > 0
+      ? titleRaw.trim().slice(0, 120)
+      : "Eigen audio";
+  const audioArtist =
+    typeof artistRaw === "string" && artistRaw.trim().length > 0
+      ? artistRaw.trim().slice(0, 120)
+      : null;
+
+  return {
+    audio_url: url,
+    audio_title: audioTitle,
+    audio_artist: audioArtist,
+    audio_source: audioSource,
+    audio_start_ms: audioStartMs,
+    audio_volume: audioVolume,
+    audio_duration_ms: audioDurationMs,
+  };
+}
+
+/**
+ * @param {any} env
+ * @param {FormData} fd
+ * @returns {Record<string, unknown>}
+ */
+function sanitizeCarouselAudioFromForm(env, fd) {
+  return sanitizePostAudioFields(env, (key) => fd.get(key));
+}
+
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} body
+ * @returns {Record<string, unknown>}
+ */
+function sanitizeVideoAudioFromBody(env, body) {
+  const src = body && typeof body === "object" ? body : {};
+  return sanitizePostAudioFields(env, (key) => src[key]);
 }
 
 /** Client stuurt JSON-array; server-side opschoning (max 10, max 30 chars). */
@@ -777,6 +919,7 @@ async function supabaseRequest(env, method, pathWithQuery, jsonBody, opts) {
  * @param {string | null} [explicitPostId] — optioneel door client (header X-Post-Id); zelfde id als in public.posts.
  * @param {string[]} [tagsArray] — text[] in public.posts.tags
  * @param {Record<string, unknown> | null} [productRaw]
+ * @param {Record<string, unknown> | null} [audioFields] — geschoonde audio-metadata (optioneel)
  */
 async function insertPostRow(
   env,
@@ -787,7 +930,8 @@ async function insertPostRow(
   caption,
   explicitPostId,
   tagsArray,
-  productRaw
+  productRaw,
+  audioFields
 ) {
   const tagsClean = sanitizeWorkerTags(tagsArray || []);
   const productResolved = await resolveProductFieldsForInsert(env, userId, productRaw);
@@ -806,6 +950,7 @@ async function insertPostRow(
     comments_count: 0,
     tags: tagsClean.length > 0 ? tagsClean : [],
     ...productResolved.fields,
+    ...(audioFields && typeof audioFields === "object" ? audioFields : {}),
   };
   if (explicitPostId && isStandardUuid(explicitPostId)) {
     row.id = explicitPostId;
@@ -858,6 +1003,7 @@ function imageContentTypeForExt(ext) {
  * @param {string | null} explicitPostId
  * @param {string[]} tagsArray
  * @param {Record<string, unknown> | null} [productRaw]
+ * @param {Record<string, unknown> | null} [audioFields]
  */
 async function insertCarouselPostRow(
   env,
@@ -867,7 +1013,8 @@ async function insertCarouselPostRow(
   caption,
   explicitPostId,
   tagsArray,
-  productRaw
+  productRaw,
+  audioFields
 ) {
   const tagsClean = sanitizeWorkerTags(tagsArray || []);
   const productResolved = await resolveProductFieldsForInsert(env, userId, productRaw);
@@ -886,6 +1033,7 @@ async function insertCarouselPostRow(
     comments_count: 0,
     tags: tagsClean.length > 0 ? tagsClean : [],
     ...productResolved.fields,
+    ...(audioFields && typeof audioFields === "object" ? audioFields : {}),
   };
   if (explicitPostId && isStandardUuid(explicitPostId)) {
     row.id = explicitPostId;
@@ -1272,9 +1420,31 @@ export default {
       return handleStripeConfirm(request, url, env, cors);
     }
 
+    if (request.method === "GET" && url.searchParams.get("stripeConnectReturn") === "1") {
+      return handleStripeConnectReturn(request, url, env, cors);
+    }
+
+    if (request.method === "GET" && url.searchParams.get("stripeConnectRefresh") === "1") {
+      return handleStripeConnectRefresh(request, url, env, cors);
+    }
+
+    if (request.method === "GET" && url.searchParams.get("stripeConnectStatus") === "1") {
+      return handleStripeConnectStatus(request, env, cors);
+    }
+
+    if (request.method === "GET" && url.searchParams.get("stripeConnectDebug") === "1") {
+      return handleStripeConnectDebug(request, env, cors);
+    }
+
     if (request.method === "POST") {
       if (url.searchParams.get("stripeCheckout") === "1") {
         return handleStripeCheckout(request, env, cors);
+      }
+      if (url.searchParams.get("stripeConnectAccount") === "1") {
+        return handleStripeConnectAccount(request, env, cors);
+      }
+      if (url.searchParams.get("stripeConnectOnboardingLink") === "1") {
+        return handleStripeConnectOnboardingLink(request, env, cors);
       }
       if (url.searchParams.get("kvkVerify") === "1") {
         return handleKvkVerify(request, env, cors);
@@ -1447,6 +1617,7 @@ export default {
             urls.push(getPublicPostImageUrl(request, key));
           }
           const carouselProductRaw = productRawFromFormData(fd);
+          const carouselAudioFields = sanitizeCarouselAudioFromForm(env, fd);
           try {
             const post = await insertCarouselPostRow(
               env,
@@ -1456,7 +1627,8 @@ export default {
               carouselCaptionRaw,
               explicitPostId,
               tagsPayload,
-              carouselProductRaw
+              carouselProductRaw,
+              carouselAudioFields
             );
             const postId = post && post.id;
             if (!postId) {

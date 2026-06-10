@@ -17,6 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { theme } from "../constants/theme";
+import { AvatarImage } from "./AvatarImage";
 import { useAuth } from "../context/AuthContext";
 import {
   addComment,
@@ -58,15 +59,7 @@ function CommentRow({ item, isOwn, onDeletePress }: CommentRowProps) {
   const uname = item.username?.trim() || "gebruiker";
   return (
     <View style={styles.commentRow}>
-      {item.avatarUrl ? (
-        <Image source={{ uri: item.avatarUrl }} style={styles.commentAvatar} />
-      ) : (
-        <View style={styles.commentAvatarFallback}>
-          <Text style={styles.commentAvatarFallbackText}>
-            {uname.slice(0, 2).toUpperCase()}
-          </Text>
-        </View>
-      )}
+      <AvatarImage uri={item.avatarUrl} style={styles.commentAvatar} />
       <View style={styles.commentBodyWrap}>
         <View style={styles.commentHeader}>
           <Text style={styles.commentUser} numberOfLines={1}>

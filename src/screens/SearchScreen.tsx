@@ -10,8 +10,10 @@ import {
   View,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { theme } from "../constants/theme";
+import { AvatarImage } from "../components/AvatarImage";
 import { supabase } from "../lib/supabase";
 
 type SearchProfile = {
@@ -23,6 +25,7 @@ type SearchProfile = {
 
 export function SearchScreen() {
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<SearchProfile[]>([]);
@@ -74,13 +77,7 @@ export function SearchScreen() {
           style={styles.row}
           onPress={() => navigation.navigate("PublicProfile", { profileId: item.id })}
         >
-          {item.avatar_url ? (
-            <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarFallback}>
-              <Text style={styles.avatarFallbackText}>Voeg profielfoto toe</Text>
-            </View>
-          )}
+          <AvatarImage uri={item.avatar_url} style={styles.avatar} />
 
           <View style={styles.rowText}>
             <Text style={styles.name} numberOfLines={1}>
@@ -97,7 +94,7 @@ export function SearchScreen() {
   );
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { paddingTop: insets.top + 12 }]}>
       <Text style={styles.title}>Zoeken</Text>
       <TextInput
         value={query}
@@ -140,7 +137,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.bg,
     paddingHorizontal: 16,
-    paddingTop: 16,
   },
   title: {
     color: theme.text,

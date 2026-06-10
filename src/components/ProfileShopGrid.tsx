@@ -167,10 +167,7 @@ export function ProfileShopGrid({
     <View style={styles.root}>
       {isOwnProfile ? (
         <Pressable
-          style={[
-            styles.addProductButton,
-            !canAddProducts && styles.addProductButtonMuted,
-          ]}
+          style={styles.addProductButton}
           onPress={openAddProduct}
           accessibilityRole="button"
           accessibilityLabel={
@@ -230,11 +227,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-  },
-  addProductButtonMuted: {
-    backgroundColor: theme.bgElevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
   },
   addProductButtonText: {
     color: theme.bg,

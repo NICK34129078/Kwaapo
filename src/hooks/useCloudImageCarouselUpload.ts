@@ -16,6 +16,8 @@ import {
   type UploadProductInput,
 } from "../utils/uploadProduct";
 import { createUuidV4 } from "../utils/uuid";
+import { uploadPostAudio } from "../utils/uploadPostAudio";
+import { buildWorkerAudioFields, type PostAudioInput } from "../types/postAudio";
 
 const MAX_IMAGES = 10;
 const CAROUSEL_UPLOAD_TIMEOUT_MS = 600_000;
@@ -56,9 +58,12 @@ function uploadErrorMessage(error: unknown): string {
   return "De upload kon niet worden voltooid.";
 }
 
+export type CarouselAudioInput = PostAudioInput;
+
 export type PickCarouselOptions = UploadProductInput & {
   hashtagsRaw?: string;
   caption?: string;
+  audio?: CarouselAudioInput;
 };
 
 export type PickedCarouselAsset = ImagePicker.ImagePickerAsset;
@@ -93,6 +98,24 @@ export function useCloudImageCarouselUpload() {
         const parsedTags = parseHashtagInput(options?.hashtagsRaw ?? "");
         const captionForPost = sanitizeUploadCaption(options?.caption);
         const product = sanitizeUploadProduct(options);
+        let audioFields: Record<string, string> | null = null;
+        if (options?.audio?.localUri) {
+          try {
+            const audioPublicUrl = await uploadPostAudio(
+              options.audio.localUri,
+              uploadUserId
+            );
+            audioFields = buildWorkerAudioFields(audioPublicUrl, options.audio);
+          } catch (audioError) {
+            if (__DEV__) {
+              console.warn("[carousel] audio upload failed", audioError);
+            }
+            Alert.alert(
+              "Audio upload mislukt",
+              "Je fotoserie wordt zonder audio geplaatst."
+            );
+          }
+        }
         const uploadUrl = `${CLOUD_VIDEO_WORKER_BASE}?userId=${encodeURIComponent(uploadUserId)}`;
         const formData = new FormData();
         formData.append("uploadType", "image_carousel");
@@ -110,6 +133,11 @@ export function useCloudImageCarouselUpload() {
           }
           if (product.productPriceText.length > 0) {
             formData.append("productPriceText", product.productPriceText);
+          }
+        }
+        if (audioFields) {
+          for (const [key, value] of Object.entries(audioFields)) {
+            formData.append(key, value);
           }
         }
         for (let i = 0; i < picked.length; i++) {

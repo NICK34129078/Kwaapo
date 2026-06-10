@@ -13,13 +13,16 @@ import {
   type PaymentStatus,
   type SellerOrder,
 } from "../types/order";
+import {
+  computePlatformFeeAmount,
+  computeSellerAmount,
+} from "../constants/platformFee";
 import { fetchProductsByIds } from "./productsService";
 
 const ORDER_COLUMNS =
   "id, buyer_id, seller_id, status, subtotal_amount, platform_fee_amount, seller_amount, payment_status, buyer_email, buyer_full_name, shipping_country, shipping_city, shipping_postal_code, shipping_street, shipping_house_number, shipping_phone, seller_note, shipping_status, tracking_code, shipped_at, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, created_at";
 const ORDER_ITEM_COLUMNS =
   "id, order_id, product_id, quantity, unit_price, size, created_at";
-const PLATFORM_FEE_RATE = 0.1;
 
 export type CheckoutOrderInput = {
   buyerFullName: string;
@@ -212,8 +215,8 @@ export async function createTestOrderFromProduct(
         });
 
   const subtotal = roundMoney(product.price * checkout.quantity);
-  const platformFee = roundMoney(subtotal * PLATFORM_FEE_RATE);
-  const sellerAmount = roundMoney(subtotal - platformFee);
+  const platformFee = computePlatformFeeAmount(subtotal);
+  const sellerAmount = computeSellerAmount(subtotal);
 
   const { data: orderData, error: orderError } = await supabase
     .from("orders")

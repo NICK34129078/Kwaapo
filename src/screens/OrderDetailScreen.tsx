@@ -14,6 +14,7 @@ import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/nativ
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
+import { AvatarImage } from "../components/AvatarImage";
 import {
   fetchBuyerOrderById,
   fetchSellerOrderById,
@@ -21,6 +22,7 @@ import {
   type SellerOrder,
 } from "../services/ordersService";
 import type { BuyerOrder } from "../types/order";
+import { PLATFORM_FEE_PERCENT_LABEL } from "../constants/platformFee";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
   buyerDisplayName,
@@ -241,16 +243,10 @@ export function OrderDetailScreen() {
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Verkoper</Text>
                 <View style={styles.buyerRow}>
-                  {buyerOrder.seller?.avatarUrl ? (
-                    <Image
-                      source={{ uri: buyerOrder.seller.avatarUrl }}
-                      style={styles.buyerAvatar}
-                    />
-                  ) : (
-                    <View style={[styles.buyerAvatar, styles.productThumbFallback]}>
-                      <Ionicons name="storefront-outline" size={22} color={theme.textMuted} />
-                    </View>
-                  )}
+                  <AvatarImage
+                    uri={buyerOrder.seller?.avatarUrl}
+                    style={styles.buyerAvatar}
+                  />
                   <View style={styles.productMain}>
                     <Text style={styles.productName}>
                       {sellerDisplayName(buyerOrder)}
@@ -303,16 +299,10 @@ export function OrderDetailScreen() {
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Koper</Text>
                 <View style={styles.buyerRow}>
-                  {sellerOrder.buyer?.avatarUrl ? (
-                    <Image
-                      source={{ uri: sellerOrder.buyer.avatarUrl }}
-                      style={styles.buyerAvatar}
-                    />
-                  ) : (
-                    <View style={[styles.buyerAvatar, styles.productThumbFallback]}>
-                      <Ionicons name="person-outline" size={22} color={theme.textMuted} />
-                    </View>
-                  )}
+                  <AvatarImage
+                    uri={sellerOrder.buyer?.avatarUrl}
+                    style={styles.buyerAvatar}
+                  />
                   <View style={styles.productMain}>
                     <Text style={styles.productName}>
                       {order.buyerFullName || buyerDisplayName(sellerOrder)}
@@ -416,7 +406,9 @@ export function OrderDetailScreen() {
                   </Text>
                 </View>
                 <View style={styles.amountRow}>
-                  <Text style={styles.amountLabel}>Platform fee (10%)</Text>
+                  <Text style={styles.amountLabel}>
+                Platform fee ({PLATFORM_FEE_PERCENT_LABEL})
+              </Text>
                   <Text style={styles.amountValue}>
                     {formatPriceEur(order.platformFeeAmount)}
                   </Text>
@@ -509,7 +501,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: theme.accentSoft,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(158, 255, 0, 0.35)",
+    borderColor: theme.accentBorder,
   },
   statusBadgeText: {
     color: theme.accent,
@@ -517,8 +509,8 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   paymentPaidBadge: {
-    backgroundColor: "rgba(158, 255, 0, 0.16)",
-    borderColor: "rgba(158, 255, 0, 0.45)",
+    backgroundColor: theme.accentMedium,
+    borderColor: theme.accentBorderStrong,
   },
   paymentPaidText: {
     color: theme.accent,
@@ -605,7 +597,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: theme.accentSoft,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(158, 255, 0, 0.35)",
+    borderColor: theme.accentBorder,
   },
   instructionText: {
     flex: 1,

@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useMemo, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -17,19 +17,12 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
-import { fetchActiveProducts } from "../services/productsService";
+import { fetchShopProducts } from "../services/productsService";
 import type { Product } from "../types/product";
 import { formatPriceEur } from "../utils/formatPrice";
+import { SHOP_CATEGORY_FILTERS } from "../constants/shopCategories";
+import { matchesProductCategory, matchesProductSearch } from "../utils/productSearch";
 
-const CATEGORIES = [
-  "Alle",
-  "Kleding",
-  "Schoenen",
-  "Accessoires",
-  "Elektronica",
-  "Sport",
-  "Overig",
-];
 const GAP = 12;
 
 function ShopProductCard({
@@ -106,50 +99,70 @@ export function ShopScreen() {
   const { width } = useWindowDimensions();
   const cardWidth = (width - 16 * 2 - GAP) / 2;
   const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("Alle");
+  const queryRef = useRef(query);
+  const categoryRef = useRef(category);
+  const skipSearchEffectRef = useRef(true);
+  const fetchRequestIdRef = useRef(0);
 
-  const load = useCallback(async () => {
-    const rows = await fetchActiveProducts(100);
-    setProducts(rows);
+  queryRef.current = query;
+  categoryRef.current = category;
+
+  const fetchProducts = useCallback(async () => {
+    return fetchShopProducts({
+      query: queryRef.current.trim(),
+      category:
+        categoryRef.current === "Alle" ? undefined : categoryRef.current,
+      limit: 100,
+    });
   }, []);
+
+  const applyProductResults = useCallback(async () => {
+    const requestId = ++fetchRequestIdRef.current;
+    try {
+      const rows = await fetchProducts();
+      if (requestId === fetchRequestIdRef.current) {
+        setProducts(rows);
+      }
+    } catch {
+      if (requestId === fetchRequestIdRef.current) {
+        setProducts([]);
+      }
+    }
+  }, [fetchProducts]);
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      void load().finally(() => setLoading(false));
-    }, [load])
+      setInitialLoading(true);
+      void applyProductResults().finally(() => setInitialLoading(false));
+    }, [applyProductResults])
   );
+
+  useEffect(() => {
+    if (skipSearchEffectRef.current) {
+      skipSearchEffectRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      void applyProductResults();
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [applyProductResults, category, query]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    void load().finally(() => setRefreshing(false));
-  }, [load]);
+    void applyProductResults().finally(() => setRefreshing(false));
+  }, [applyProductResults]);
 
   const filteredProducts = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return products.filter((product) => {
-      const categoryMatch =
-        category === "Alle" ||
-        (product.category ?? "").trim().toLowerCase() === category.toLowerCase();
-      if (!categoryMatch) {
-        return false;
-      }
-      if (q.length === 0) {
-        return true;
-      }
-      const haystack = [
-        product.name,
-        product.brand ?? "",
-        product.category ?? "",
-        product.description ?? "",
-      ]
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(q);
-    });
+    return products.filter(
+      (product) =>
+        matchesProductCategory(product, category) &&
+        matchesProductSearch(product, query)
+    );
   }, [category, products, query]);
 
   const openProduct = useCallback(
@@ -162,83 +175,83 @@ export function ShopScreen() {
     [navigation]
   );
 
-  const listHeader = (
-    <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-      <Text style={styles.kicker}>TikTok Shop meets Instagram Shop</Text>
-      <Text style={styles.title}>Shop de nieuwste producten</Text>
-      <Text style={styles.subtitle}>
-        Ontdek items uit business stores en bekijk direct de content erbij.
-      </Text>
-      <View style={styles.searchWrap}>
-        <Ionicons name="search-outline" size={18} color={theme.textMuted} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Zoek producten..."
-          placeholderTextColor={theme.textMuted}
-          style={styles.searchInput}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-      </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.chipsContent}
-      >
-        {CATEGORIES.map((item) => {
-          const selected = item === category;
-          return (
-            <Pressable
-              key={item}
-              style={[styles.chip, selected && styles.chipSelected]}
-              onPress={() => setCategory(item)}
-              accessibilityRole="button"
-              accessibilityLabel={item}
-            >
-              <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                {item}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-    </View>
-  );
-
   return (
     <View style={styles.root}>
-      {loading && !refreshing ? (
-        <View style={[styles.loadingState, { paddingTop: insets.top }]}>
-          <ActivityIndicator size="small" color={theme.accent} />
+      <View style={[styles.fixedHeader, { paddingTop: insets.top + 12 }]}>
+        <Text style={styles.kicker}>Kwaapo Store</Text>
+        <Text style={styles.title}>Shop de nieuwste producten</Text>
+        <Text style={styles.subtitle}>
+          Ontdek items uit business stores en bekijk direct de content erbij.
+        </Text>
+        <View style={styles.searchWrap}>
+          <Ionicons name="search-outline" size={18} color={theme.textMuted} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Zoek op merk, naam of product..."
+            placeholderTextColor={theme.textMuted}
+            style={styles.searchInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+          />
         </View>
-      ) : (
-        <FlatList
-          data={filteredProducts}
-          keyExtractor={(item) => item.id}
-          numColumns={2}
-          columnWrapperStyle={styles.gridRow}
-          ListHeaderComponent={listHeader}
-          contentContainerStyle={[
-            styles.content,
-            { paddingBottom: insets.bottom + 110 },
-          ]}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={theme.accent}
-              colors={[theme.accent]}
-            />
-          }
-          renderItem={({ item }) => (
-            <ShopProductCard
-              product={item}
-              width={cardWidth}
-              onPress={() => openProduct(item)}
-            />
-          )}
-          ListEmptyComponent={
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipsContent}
+        >
+          {SHOP_CATEGORY_FILTERS.map((item) => {
+            const selected = item === category;
+            return (
+              <Pressable
+                key={item}
+                style={[styles.chip, selected && styles.chipSelected]}
+                onPress={() => setCategory(item)}
+                accessibilityRole="button"
+                accessibilityLabel={item}
+              >
+                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                  {item}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+      <FlatList
+        style={styles.productList}
+        data={filteredProducts}
+        keyExtractor={(item) => item.id}
+        numColumns={2}
+        columnWrapperStyle={styles.gridRow}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: insets.bottom + 110 },
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.accent}
+            colors={[theme.accent]}
+          />
+        }
+        renderItem={({ item }) => (
+          <ShopProductCard
+            product={item}
+            width={cardWidth}
+            onPress={() => openProduct(item)}
+          />
+        )}
+        ListEmptyComponent={
+          initialLoading ? (
+            <View style={styles.emptyWrap}>
+              <ActivityIndicator size="small" color={theme.accent} />
+            </View>
+          ) : (
             <View style={styles.emptyWrap}>
               <Ionicons name="bag-outline" size={44} color={theme.textMuted} />
               <Text style={styles.emptyTitle}>Geen producten gevonden</Text>
@@ -246,10 +259,10 @@ export function ShopScreen() {
                 Probeer een andere zoekterm of categorie.
               </Text>
             </View>
-          }
-          showsVerticalScrollIndicator={false}
-        />
-      )}
+          )
+        }
+        showsVerticalScrollIndicator={false}
+      />
     </View>
   );
 }
@@ -259,23 +272,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.bg,
   },
-  loadingState: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   content: {
     paddingHorizontal: 16,
   },
-  header: {
-    paddingBottom: 8,
+  fixedHeader: {
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+    backgroundColor: theme.bg,
+  },
+  productList: {
+    flex: 1,
   },
   kicker: {
     color: theme.accent,
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    fontFamily: "Comic Sans MS, Comic Sans, cursive",
     marginBottom: 8,
   },
   title: {
@@ -322,7 +335,7 @@ const styles = StyleSheet.create({
   },
   chipSelected: {
     backgroundColor: theme.accentSoft,
-    borderColor: "rgba(158, 255, 0, 0.55)",
+    borderColor: theme.accentBorderMuted,
   },
   chipText: {
     color: theme.textMuted,

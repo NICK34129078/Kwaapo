@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,7 +12,9 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
+import { AvatarImage } from "../components/AvatarImage";
 import { useAuth } from "../context/AuthContext";
+import { useAvatarPicker } from "../hooks/useAvatarPicker";
 import { supabase } from "../lib/supabase";
 
 type Props = {
@@ -47,6 +48,17 @@ export function EditProfileScreen({ onClose, onSaved }: Props) {
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const {
+    uploading: avatarUploading,
+    showPicker: showAvatarPicker,
+    cropModal: avatarCropModal,
+  } = useAvatarPicker({
+    userId: user?.id,
+    onSuccess: (publicUrl) => {
+      setAvatarUrl(publicUrl);
+      onSaved?.();
+    },
+  });
   const cleanUsername = cleanUsernameInput(username);
 
   const canSave = useMemo(() => {
@@ -183,13 +195,30 @@ export function EditProfileScreen({ onClose, onSaved }: Props) {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.avatarWrap}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, styles.avatarFallback]}>
-                <Text style={styles.avatarFallbackText}>Voeg profielfoto toe</Text>
-              </View>
-            )}
+            <Pressable
+              onPress={showAvatarPicker}
+              disabled={avatarUploading}
+              style={styles.avatarPressable}
+              accessibilityRole="button"
+              accessibilityLabel="Profielfoto wijzigen"
+            >
+              <AvatarImage uri={avatarUrl} style={styles.avatar} />
+              {avatarUploading ? (
+                <View style={styles.avatarUploadingOverlay}>
+                  <ActivityIndicator size="small" color={theme.text} />
+                </View>
+              ) : null}
+            </Pressable>
+            <Pressable
+              onPress={showAvatarPicker}
+              disabled={avatarUploading}
+              style={styles.changeAvatarBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Profielfoto wijzigen"
+            >
+              <Ionicons name="camera-outline" size={16} color={theme.accent} />
+              <Text style={styles.changeAvatarText}>Profielfoto wijzigen</Text>
+            </Pressable>
           </View>
 
           <View style={styles.field}>
@@ -250,6 +279,7 @@ export function EditProfileScreen({ onClose, onSaved }: Props) {
           </Pressable>
         </ScrollView>
       )}
+      {avatarCropModal}
     </View>
   );
 }
@@ -296,24 +326,41 @@ const styles = StyleSheet.create({
   avatarWrap: {
     alignItems: "center",
     marginBottom: 6,
+    gap: 10,
+  },
+  avatarPressable: {
+    position: "relative",
   },
   avatar: {
     width: 112,
     height: 112,
     borderRadius: 56,
   },
-  avatarFallback: {
+  avatarUploadingOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 56,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  changeAvatarBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
     backgroundColor: theme.bgElevated,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 14,
   },
-  avatarFallbackText: {
-    color: theme.textMuted,
-    fontSize: 13,
-    textAlign: "center",
+  changeAvatarText: {
+    color: theme.text,
+    fontSize: 14,
     fontWeight: "700",
   },
   field: {

@@ -246,7 +246,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: theme.accentSoft,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(158, 255, 0, 0.35)",
+    borderColor: theme.accentBorder,
   },
   statusBadgeText: {
     color: theme.accent,
@@ -272,7 +272,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(158, 255, 0, 0.45)",
+    borderColor: theme.accentBorderStrong,
     backgroundColor: theme.accentSoft,
   },
   secondaryBtnText: {

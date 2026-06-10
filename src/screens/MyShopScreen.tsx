@@ -625,7 +625,7 @@ const styles = StyleSheet.create({
   },
   shopTabActive: {
     backgroundColor: theme.accentSoft,
-    borderColor: "rgba(158, 255, 0, 0.45)",
+    borderColor: theme.accentBorderStrong,
   },
   shopTabText: {
     color: theme.textMuted,
@@ -668,7 +668,7 @@ const styles = StyleSheet.create({
   },
   filterChipActive: {
     backgroundColor: theme.accentSoft,
-    borderColor: "rgba(158, 255, 0, 0.45)",
+    borderColor: theme.accentBorderStrong,
   },
   filterChipText: {
     color: theme.textMuted,
@@ -744,7 +744,7 @@ const styles = StyleSheet.create({
   },
   orderBadgePaid: {
     backgroundColor: theme.accentSoft,
-    borderColor: "rgba(158, 255, 0, 0.35)",
+    borderColor: theme.accentBorder,
   },
   orderBadgeMuted: {
     backgroundColor: "rgba(255,255,255,0.06)",
@@ -825,7 +825,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: theme.accentSoft,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(158, 255, 0, 0.35)",
+    borderColor: theme.accentBorder,
   },
   statusBadgeText: {
     color: theme.accent,

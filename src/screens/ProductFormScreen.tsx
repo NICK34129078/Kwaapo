@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
+import { SHOP_PRODUCT_CATEGORIES } from "../constants/shopCategories";
 import { useAuth } from "../context/AuthContext";
 import {
   canSellerManageProducts,
@@ -360,14 +361,36 @@ export function ProductFormScreen() {
           </View>
 
           <Text style={styles.label}>Categorie</Text>
-          <TextInput
-            style={styles.input}
-            value={category}
-            onChangeText={setCategory}
-            placeholder="Bijv. Kleding, Schoenen"
-            placeholderTextColor={theme.textMuted}
-            maxLength={80}
-          />
+          <Text style={styles.categoryHint}>
+            Kies een filter zodat klanten je product sneller vinden in de Store.
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryChipRow}
+          >
+            {SHOP_PRODUCT_CATEGORIES.map((item) => {
+              const selected = category === item;
+              return (
+                <Pressable
+                  key={item}
+                  style={[styles.categoryChip, selected && styles.categoryChipSelected]}
+                  onPress={() => setCategory(selected ? "" : item)}
+                  accessibilityRole="button"
+                  accessibilityLabel={item}
+                >
+                  <Text
+                    style={[
+                      styles.categoryChipText,
+                      selected && styles.categoryChipTextSelected,
+                    ]}
+                  >
+                    {item}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
 
           <Text style={styles.label}>Merk</Text>
           <TextInput
@@ -467,6 +490,36 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginBottom: 6,
     marginTop: 12,
+  },
+  categoryHint: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 8,
+  },
+  categoryChipRow: {
+    gap: 8,
+    paddingBottom: 4,
+  },
+  categoryChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  categoryChipSelected: {
+    backgroundColor: theme.accentSoft,
+    borderColor: theme.accentBorderMuted,
+  },
+  categoryChipText: {
+    color: theme.textMuted,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  categoryChipTextSelected: {
+    color: theme.accent,
   },
   input: {
     borderWidth: 1,
