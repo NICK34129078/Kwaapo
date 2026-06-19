@@ -11,6 +11,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { isSupabaseClientConfigured } from "../config/env";
 import { supabase } from "../lib/supabase";
 import { formatAuthError } from "../utils/authErrorMessages";
+import { clearSavedStatusCache } from "../services/savedPostsService";
 
 function safeAuthLog(scope: string, message: string): void {
   if (__DEV__) {
@@ -108,6 +109,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       try {
+        if (nextSession == null) {
+          // Bij uitloggen/accountwissel: bookmark-cache leegmaken.
+          clearSavedStatusCache();
+        }
         setSession(nextSession);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

@@ -1080,6 +1080,66 @@ async function insertPostMediaRows(env, rows) {
 }
 
 /**
+ * @param {any} post
+ * @returns {boolean}
+ */
+function postHasTags(post) {
+  const tags = post?.tags;
+  if (!Array.isArray(tags)) {
+    return false;
+  }
+  return tags.some((t) => typeof t === "string" && t.trim().length > 0);
+}
+
+/**
+ * Fisher–Yates shuffle (in place).
+ * @param {any[]} arr
+ */
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
+/**
+ * For You global feed: tagged posts eerst (created_at desc),
+ * beperkt aantal no-tag posts random/shuffled achteraan (~10%, max 20).
+ * @param {any[]} posts
+ * @returns {any[]}
+ */
+function orderGlobalFeedControlledExplore(posts) {
+  if (!Array.isArray(posts) || posts.length === 0) {
+    return [];
+  }
+  const tagged = [];
+  const untagged = [];
+  for (const post of posts) {
+    if (postHasTags(post)) {
+      tagged.push(post);
+    } else {
+      untagged.push(post);
+    }
+  }
+  const byCreatedDesc = (a, b) => {
+    const ta = a?.created_at ? Date.parse(a.created_at) : 0;
+    const tb = b?.created_at ? Date.parse(b.created_at) : 0;
+    return tb - ta;
+  };
+  tagged.sort(byCreatedDesc);
+  shuffleInPlace(untagged);
+  const maxUntagged = Math.min(
+    untagged.length,
+    Math.max(1, Math.ceil(tagged.length * 0.1)),
+    20
+  );
+  return [...tagged, ...untagged.slice(0, maxUntagged)];
+}
+
+/**
  * Global feed (?posts=1): alleen rijen uit Supabase public.posts (zelfde ids als inserts).
  * @param {any} env
  */
@@ -1237,10 +1297,13 @@ export default {
     if (request.method === "GET" && url.searchParams.get("posts") === "1") {
       try {
         const posts = await fetchPostsForUser(env);
-        const validPosts = Array.isArray(posts) ? posts : [];
+        const rawPosts = Array.isArray(posts) ? posts : [];
+        const validPosts = orderGlobalFeedControlledExplore(rawPosts);
         console.log("[posts] fetched", {
           mode: "global",
-          total: Array.isArray(posts) ? posts.length : 0,
+          total: rawPosts.length,
+          tagged: rawPosts.filter((p) => postHasTags(p)).length,
+          untagged: rawPosts.filter((p) => !postHasTags(p)).length,
           valid: validPosts.length,
         });
         return new Response(JSON.stringify({ success: true, posts: validPosts }), {

@@ -58,6 +58,11 @@ export type FeedPost = {
   avatarUrl?: string;
   /** Genormaliseerde hashtags (zonder #), uit `public.posts.tags`. */
   tags?: string[];
+  /**
+   * UI-state: of de huidige gebruiker deze post heeft opgeslagen.
+   * Waarheid blijft `public.saved_posts`; dit veld is alleen een hint voor de UI.
+   */
+  isSaved?: boolean;
   /** Shop-post met productlink (fase 1 — extern openen, geen betaling). */
   isShopPost?: boolean;
   /** Gekoppeld catalogproduct (public.products). */

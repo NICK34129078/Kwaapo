@@ -59,5 +59,17 @@ export async function fetchPersonalizedFeed(
     return [];
   }
 
-  return mapSupabasePostRowsToGlobalUserVideoPosts(data);
+  if (__DEV__) {
+    const sample = data.slice(0, 5).map((row) => {
+      const r = row as { id?: string; tags?: unknown; ranking_score?: number };
+      return {
+        id: r.id,
+        rawTags: r.tags,
+        ranking_score: r.ranking_score,
+      };
+    });
+    console.log("[PersonalizedFeed] raw tag sample", sample);
+  }
+
+  return await mapSupabasePostRowsToGlobalUserVideoPosts(data);
 }

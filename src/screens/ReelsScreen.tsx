@@ -20,14 +20,20 @@ import { FeedItem, type FeedItemPlaybackMetrics } from "../components/FeedItem";
 import { useGlobalFeed } from "../context/GlobalFeedContext";
 import { useLikes } from "../context/LikesContext";
 import {
-  REELS_POSTS,
   isVideoReelItem,
   type FeedPost,
 } from "../data/placeholder";
+import type { UserVideoPost } from "../types/userVideoPost";
 import { theme } from "../constants/theme";
 import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { isPersistablePostId } from "../services/postLikesService";
+import { fetchSavedPostIdsForCurrentUser } from "../services/savedPostsService";
+import {
+  buildControlledForYouMix,
+  logForYouControlledMix,
+  logForYouFinalTop20,
+} from "../utils/feedRanking";
 import { capWatchedMs, recordVideoView } from "../services/videoViewsService";
 
 const INITIAL_H = Dimensions.get("window").height;
@@ -149,6 +155,7 @@ export function ReelsScreen() {
     isLoadingMoreFeed,
   } = useGlobalFeed();
   const { interactionRevision } = useLikes();
+  const { user } = useAuth();
   const [pageH, setPageH] = useState(INITIAL_H);
   const [activeReelId, setActiveReelId] = useState<string | null>(null);
   const isFocused = useIsFocused();
@@ -281,16 +288,10 @@ export function ReelsScreen() {
     };
   }, [finalizeActiveView]);
 
-  const feedData = useMemo(() => {
+  const dedupedFeedData = useMemo(() => {
     const seen = new Set<string>();
-    const out: FeedPost[] = [];
+    const out: UserVideoPost[] = [];
     for (const p of globalFeedPosts) {
-      if (!seen.has(p.id)) {
-        seen.add(p.id);
-        out.push(p);
-      }
-    }
-    for (const p of REELS_POSTS) {
       if (!seen.has(p.id)) {
         seen.add(p.id);
         out.push(p);
@@ -299,43 +300,66 @@ export function ReelsScreen() {
     return out;
   }, [globalFeedPosts]);
 
-  useEffect(() => {
-    console.log("[RENDER POSTS]", globalFeedPosts.length);
-    if (__DEV__) {
-      console.log("[Reels] feed posts count", feedData.length);
-      console.log("[Reels] global Supabase posts", globalFeedPosts.length);
-    }
-  }, [feedData.length, globalFeedPosts.length]);
+  const finalFeedData = useMemo(() => {
+    const mixed = buildControlledForYouMix(dedupedFeedData);
+    logForYouControlledMix(mixed);
+    logForYouFinalTop20(mixed);
+    return mixed;
+  }, [dedupedFeedData]);
 
   useEffect(() => {
-    if (feedData.length === 0) {
+    if (__DEV__) {
+      console.log("[Reels] render source: finalFeedData from globalFeedPosts", {
+        globalCount: globalFeedPosts.length,
+        dedupedCount: dedupedFeedData.length,
+        finalCount: finalFeedData.length,
+      });
+    }
+  }, [globalFeedPosts.length, dedupedFeedData.length, finalFeedData.length]);
+
+  // Batch: vul de saved-status cache voor alle geladen posts in één request.
+  useEffect(() => {
+    if (user == null || finalFeedData.length === 0) {
+      return;
+    }
+    const ids = finalFeedData.map((p) => p.id).filter(isPersistablePostId);
+    if (ids.length === 0) {
+      return;
+    }
+    void fetchSavedPostIdsForCurrentUser(ids).catch(() => {
+      /* stil falen: FeedItem valt terug op per-item check */
+    });
+  }, [finalFeedData, user]);
+
+  useEffect(() => {
+    if (finalFeedData.length === 0) {
       return;
     }
     if (activeReelId == null) {
-      setActiveReelId(feedData[0]!.id);
+      setActiveReelId(finalFeedData[0]!.id);
       return;
     }
-    if (!feedData.some((p) => p.id === activeReelId)) {
-      setActiveReelId(feedData[0]!.id);
+    if (!finalFeedData.some((p) => p.id === activeReelId)) {
+      setActiveReelId(finalFeedData[0]!.id);
     }
-  }, [feedData, activeReelId]);
+  }, [finalFeedData, activeReelId]);
 
   const activeIndex = useMemo(
-    () => feedData.findIndex((p) => p.id === activeReelId),
-    [feedData, activeReelId]
+    () => finalFeedData.findIndex((p) => p.id === activeReelId),
+    [finalFeedData, activeReelId]
   );
 
   useEffect(() => {
     if (!isFocused) {
       return;
     }
-    if (activeIndex < 0 || feedData.length === 0) {
+    if (activeIndex < 0 || finalFeedData.length === 0) {
       return;
     }
-    if (feedData.length < 6) {
+    if (finalFeedData.length < 6) {
       return;
     }
-    if (activeIndex < feedData.length - 4) {
+    if (activeIndex < finalFeedData.length - 4) {
       return;
     }
     if (isLoadingMoreFeed) {
@@ -345,18 +369,18 @@ export function ReelsScreen() {
   }, [
     isFocused,
     activeIndex,
-    feedData.length,
+    finalFeedData.length,
     isLoadingMoreFeed,
     loadMoreGlobalFeed,
   ]);
 
   const nextVideoForPreload = useMemo(() => {
-    if (activeIndex < 0 || activeIndex + 1 >= feedData.length) {
+    if (activeIndex < 0 || activeIndex + 1 >= finalFeedData.length) {
       return null;
     }
-    const next = feedData[activeIndex + 1];
+    const next = finalFeedData[activeIndex + 1];
     return isVideoReelItem(next) ? next.videoUrl : null;
-  }, [feedData, activeIndex]);
+  }, [finalFeedData, activeIndex]);
 
   const onRootLayout = useCallback((e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;
@@ -409,7 +433,7 @@ export function ReelsScreen() {
       <ReelsFeedTopBar />
       <ReelNextPreloader videoUrl={nextVideoForPreload} />
       <FlatList
-        data={feedData}
+        data={finalFeedData}
         extraData={`${activeReelId}:${interactionRevision}`}
         renderItem={renderItem}
         keyExtractor={keyExtractor}

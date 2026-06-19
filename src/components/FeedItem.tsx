@@ -2,8 +2,6 @@ import React, { createElement, useCallback, useEffect, useMemo, useRef, useState
 import { Image } from "expo-image";
 import {
   Alert,
-  Animated,
-  Easing,
   FlatList,
   Linking,
   Platform,
@@ -12,10 +10,12 @@ import {
   Text,
   useWindowDimensions,
   View,
+  type GestureResponderEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
 import { Audio, Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
+import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -28,12 +28,23 @@ import {
 } from "../data/placeholder";
 import { CommentsSheet } from "./CommentsSheet";
 import { AvatarImage } from "./AvatarImage";
+import {
+  DoubleTapHeartAnimation,
+  type DoubleTapHeartHandle,
+} from "./DoubleTapHeartAnimation";
 import type { ProfilePostMediaItem } from "../types/userVideoPost";
 import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { useReelLike } from "../context/LikesContext";
 import { recordProductClick } from "../services/productClicksService";
 import { isPersistablePostId } from "../services/postLikesService";
+import {
+  getCachedSavedStatus,
+  isPostSaved,
+  savePost,
+  subscribeSavedStatus,
+  unsavePost,
+} from "../services/savedPostsService";
 import { formatPriceEur } from "../utils/formatPrice";
 import { PressableScale } from "./PressableScale";
 import { theme } from "../constants/theme";
@@ -63,8 +74,6 @@ const ACTION_ICON = 28;
 const MORE_ICON = 24;
 const ICON_TO_LABEL = 3;
 const GROUP_GAP = 20;
-const MUSIC = 42;
-const MUSIC_RADIUS = 7;
 const RAIL_RIGHT = 12;
 const COUNT_FS = 11;
 const BOTTOM_AVATAR = 32;
@@ -77,7 +86,6 @@ const CAPTION_RAIL_CLEARANCE = 110;
 
 const PLAYBACK_METRICS_EMIT_MS = 500;
 const DOUBLE_TAP_MS = 280;
-const DOUBLE_TAP_HEART_SIZE = 96;
 
 function buildProductInfoLine(item: FeedPost): string {
   if (item.linkedProduct) {
@@ -152,6 +160,7 @@ type ReelImageCarouselProps = {
   pageHeight: number;
   dotsBottom: number;
   onCarouselDraggingChange?: (dragging: boolean) => void;
+  onSlidePress?: (e: GestureResponderEvent) => void;
 };
 
 function ReelImageCarousel({
@@ -161,6 +170,7 @@ function ReelImageCarousel({
   pageHeight,
   dotsBottom,
   onCarouselDraggingChange,
+  onSlidePress,
 }: ReelImageCarouselProps) {
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -221,7 +231,12 @@ function ReelImageCarousel({
             }
           : {})}
         renderItem={({ item: slide }) => (
-          <View style={{ width: pageWidth, height: pageHeight }}>
+          <Pressable
+            style={{ width: pageWidth, height: pageHeight }}
+            onPress={onSlidePress}
+            accessibilityRole="button"
+            accessibilityLabel="Dubbel tik om te liken"
+          >
             <Image
               source={{ uri: slide.url }}
               style={{ width: pageWidth, height: pageHeight }}
@@ -229,7 +244,7 @@ function ReelImageCarousel({
               transition={200}
               cachePolicy="memory-disk"
             />
-          </View>
+          </Pressable>
         )}
       />
       {slides.length > 1 ? (
@@ -275,7 +290,6 @@ export function FeedItem({
     resolveCommentsCount(item)
   );
   const shareCount = item.shares ?? "—";
-  const thumbUri = item.musicThumbUrl ?? item.imageUrl;
   const ownerLabel =
     item.ownerUsername && item.ownerUsername.length > 0
       ? `@${item.ownerUsername}`
@@ -618,6 +632,76 @@ export function FeedItem({
     }
   };
 
+  const [isSaved, setIsSaved] = useState<boolean>(
+    () => getCachedSavedStatus(item.id) ?? item.isSaved ?? false
+  );
+  const saveBusyRef = useRef(false);
+
+  // Houd de bookmark in sync met de gedeelde cache (over FlatList-remounts heen).
+  useEffect(() => {
+    const sync = () => {
+      const cached = getCachedSavedStatus(item.id);
+      if (typeof cached === "boolean") {
+        setIsSaved(cached);
+      }
+    };
+    sync();
+    return subscribeSavedStatus(sync);
+  }, [item.id]);
+
+  // Initiële status ophalen als die nog niet in de cache zit (batch vult deze vaak al).
+  useEffect(() => {
+    if (user == null) {
+      setIsSaved(false);
+      return;
+    }
+    if (!isPersistablePostId(item.id)) {
+      return;
+    }
+    if (typeof getCachedSavedStatus(item.id) === "boolean") {
+      return;
+    }
+    let cancelled = false;
+    void isPostSaved(item.id)
+      .then((saved) => {
+        if (!cancelled) {
+          setIsSaved(saved);
+        }
+      })
+      .catch(() => {
+        /* stil falen: bookmark blijft outline */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, item.id]);
+
+  const onSavePress = () => {
+    if (user == null) {
+      openAuthPrompt({
+        message: "Log in om posts op te slaan.",
+      });
+      return;
+    }
+    if (!isPersistablePostId(item.id) || saveBusyRef.current) {
+      return;
+    }
+
+    const next = !isSaved;
+    saveBusyRef.current = true;
+    setIsSaved(next); // optimistische UI
+
+    const action = next ? savePost(item.id) : unsavePost(item.id);
+    void action
+      .catch(() => {
+        setIsSaved(!next); // rollback bij fout
+        Alert.alert("Opslaan mislukt", "Probeer het opnieuw.");
+      })
+      .finally(() => {
+        saveBusyRef.current = false;
+      });
+  };
+
   const onOwnerPress = useCallback(() => {
     const ownerProfileId = item.ownerProfileId;
     if (!ownerProfileId) {
@@ -662,71 +746,54 @@ export function FeedItem({
 
   const lastMediaTapAtRef = useRef(0);
   const carouselDraggingRef = useRef(false);
-  const heartOpacity = useRef(new Animated.Value(0)).current;
-  const heartScale = useRef(new Animated.Value(0.4)).current;
+  const heartAnimRef = useRef<DoubleTapHeartHandle | null>(null);
 
   const onCarouselDraggingChange = useCallback((dragging: boolean) => {
     carouselDraggingRef.current = dragging;
   }, []);
 
-  const playHeartBurst = useCallback(() => {
-    heartOpacity.setValue(0);
-    heartScale.setValue(0.4);
-    Animated.parallel([
-      Animated.timing(heartOpacity, {
-        toValue: 1,
-        duration: 120,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }),
-      Animated.spring(heartScale, {
-        toValue: 1,
-        friction: 5,
-        tension: 140,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      Animated.timing(heartOpacity, {
-        toValue: 0,
-        duration: 320,
-        delay: 160,
-        easing: Easing.in(Easing.quad),
-        useNativeDriver: true,
-      }).start();
-    });
-  }, [heartOpacity, heartScale]);
+  const fireLikeHaptic = useCallback(() => {
+    // Haptics zijn optioneel; nooit laten crashen (bv. web of geen motor).
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+      () => {}
+    );
+  }, []);
 
-  const onDoubleTapLike = useCallback(() => {
-    if (user == null) {
-      openAuthPrompt({
-        message: "Log in of registreer om een like te plaatsen.",
-      });
-      return;
-    }
-    playHeartBurst();
-    if (!isLikedByCurrentUser) {
-      void onToggleLike();
-    }
-  }, [
-    user,
-    openAuthPrompt,
-    playHeartBurst,
-    isLikedByCurrentUser,
-    onToggleLike,
-  ]);
+  const onDoubleTapLike = useCallback(
+    (x?: number, y?: number) => {
+      if (user == null) {
+        openAuthPrompt({
+          message: "Log in of registreer om een like te plaatsen.",
+        });
+        return;
+      }
+      heartAnimRef.current?.trigger(x, y);
+      fireLikeHaptic();
+      // Niet spammen: alleen liken als nog niet geliket; extra dubbeltikken
+      // tonen wel een hart maar voegen geen tweede like toe.
+      if (!isLikedByCurrentUser) {
+        void onToggleLike();
+      }
+    },
+    [user, openAuthPrompt, fireLikeHaptic, isLikedByCurrentUser, onToggleLike]
+  );
 
-  const onMediaAreaPress = useCallback(() => {
-    if (carouselDraggingRef.current) {
-      return;
-    }
-    const now = Date.now();
-    if (now - lastMediaTapAtRef.current <= DOUBLE_TAP_MS) {
-      lastMediaTapAtRef.current = 0;
-      onDoubleTapLike();
-      return;
-    }
-    lastMediaTapAtRef.current = now;
-  }, [onDoubleTapLike]);
+  const onMediaAreaPress = useCallback(
+    (e?: GestureResponderEvent) => {
+      if (carouselDraggingRef.current) {
+        return;
+      }
+      const now = Date.now();
+      if (now - lastMediaTapAtRef.current <= DOUBLE_TAP_MS) {
+        lastMediaTapAtRef.current = 0;
+        const ne = e?.nativeEvent;
+        onDoubleTapLike(ne?.pageX, ne?.pageY);
+        return;
+      }
+      lastMediaTapAtRef.current = now;
+    },
+    [onDoubleTapLike]
+  );
 
   return (
     <View style={[styles.card, { height: pageHeight }]}>
@@ -795,6 +862,7 @@ export function FeedItem({
             pageHeight={pageHeight}
             dotsBottom={carouselDotsBottom}
             onCarouselDraggingChange={onCarouselDraggingChange}
+            onSlidePress={onMediaAreaPress}
           />
         </View>
       ) : !asVideo ? (
@@ -814,31 +882,22 @@ export function FeedItem({
         pointerEvents="none"
       />
 
-      <Pressable
-        style={[
-          styles.mediaTapLayer,
-          {
-            bottom: reelsBottomInset + 72,
-            right: 72,
-          },
-        ]}
-        onPress={onMediaAreaPress}
-        accessibilityRole="button"
-        accessibilityLabel="Dubbel tik om te liken"
-      />
+      {!asCarouselReel ? (
+        <Pressable
+          style={[
+            styles.mediaTapLayer,
+            {
+              bottom: reelsBottomInset + 72,
+              right: 72,
+            },
+          ]}
+          onPress={onMediaAreaPress}
+          accessibilityRole="button"
+          accessibilityLabel="Dubbel tik om te liken"
+        />
+      ) : null}
 
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.heartBurst,
-          {
-            opacity: heartOpacity,
-            transform: [{ scale: heartScale }],
-          },
-        ]}
-      >
-        <Ionicons name="heart" size={DOUBLE_TAP_HEART_SIZE} color="#ff375f" />
-      </Animated.View>
+      <DoubleTapHeartAnimation ref={heartAnimRef} />
 
       <View
         style={[styles.rightRail, { bottom: 96 + bottomPad, right: RAIL_RIGHT }]}
@@ -878,20 +937,26 @@ export function FeedItem({
           <Text style={styles.railCount}>{shareCount}</Text>
         </PressableScale>
 
+        <PressableScale
+          style={styles.railAction}
+          scaleTo={0.9}
+          onPress={onSavePress}
+          accessibilityRole="button"
+          accessibilityLabel={isSaved ? "Verwijder uit opgeslagen" : "Opslaan"}
+          accessibilityState={{ selected: isSaved }}
+        >
+          <Ionicons
+            name={isSaved ? "bookmark" : "bookmark-outline"}
+            size={ACTION_ICON}
+            color={theme.text}
+          />
+        </PressableScale>
+
         <PressableScale style={[styles.railAction, styles.railMoreRow]} scaleTo={0.9}>
           <Ionicons
             name="ellipsis-horizontal"
             size={MORE_ICON}
             color={theme.text}
-          />
-        </PressableScale>
-
-        <PressableScale style={styles.musicWrap} scaleTo={0.94}>
-          <Image
-            source={{ uri: thumbUri }}
-            style={styles.musicThumb}
-            contentFit="cover"
-            cachePolicy="memory-disk"
           />
         </PressableScale>
       </View>
@@ -1045,17 +1110,6 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
-  musicWrap: {
-    marginTop: 2,
-    borderRadius: MUSIC_RADIUS,
-    borderWidth: 2,
-    borderColor: theme.text,
-    overflow: "hidden",
-  },
-  musicThumb: {
-    width: MUSIC,
-    height: MUSIC,
-  },
   bottomLeftOverlay: {
     position: "absolute",
     left: 16,
@@ -1143,15 +1197,5 @@ const styles = StyleSheet.create({
     left: 0,
     zIndex: 8,
     elevation: 8,
-  },
-  heartBurst: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: "38%",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 15,
-    elevation: 15,
   },
 });

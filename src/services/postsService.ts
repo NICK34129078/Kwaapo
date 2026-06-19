@@ -11,6 +11,7 @@ import { supabase } from "../lib/supabase";
 import type { ProfilePostMediaItem, UserVideoPost } from "../types/userVideoPost";
 import type { Product } from "../types/product";
 import { fetchProductsByIds } from "./productsService";
+import { logForYouControlledMix } from "../utils/feedRanking";
 
 /** Profiel (mijn uploads): vaste owner-handle. Globale feed: afgeleid van `user_id`. */
 export type UserVideoPostMappingScope = "own_profile" | "global";
@@ -147,15 +148,42 @@ function audioFieldsFromRow(row: MaybePostRow): Pick<
   };
 }
 
-function normalizeTagsFromApi(v: unknown): string[] | undefined {
+/** Normaliseert Supabase text[] / Worker JSON naar string[] (leeg = []). */
+export function normalizeTagsFromApi(v: unknown): string[] {
   if (v == null) {
-    return undefined;
+    return [];
   }
   if (Array.isArray(v)) {
-    const out = v.filter((x): x is string => typeof x === "string" && x.length > 0);
-    return out.length > 0 ? out : undefined;
+    return v
+      .filter((x): x is string => typeof x === "string")
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0);
   }
-  return undefined;
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (s.length === 0) {
+      return [];
+    }
+    if (s.startsWith("[") && s.endsWith("]")) {
+      try {
+        return normalizeTagsFromApi(JSON.parse(s));
+      } catch {
+        /* fall through */
+      }
+    }
+    if (s.startsWith("{") && s.endsWith("}")) {
+      const inner = s.slice(1, -1).trim();
+      if (inner.length === 0) {
+        return [];
+      }
+      return inner
+        .split(",")
+        .map((part) => part.replace(/^"|"$/g, "").trim())
+        .filter((part) => part.length > 0);
+    }
+    return [s];
+  }
+  return [];
 }
 
 type ProfileOwnerRow = {
@@ -271,10 +299,9 @@ function normalizePostRow(row: MaybePostRow): PostRow {
     comments_count: row.comments_count ?? row.commentsCount ?? 0,
     created_at: row.created_at ?? row.createdAt ?? new Date().toISOString(),
     is_deleted: row.is_deleted ?? row.isDeleted ?? false,
-    ...(() => {
-      const t = normalizeTagsFromApi(row.tags);
-      return t ? { tags: t } : {};
-    })(),
+    tags: normalizeTagsFromApi(
+      row.tags ?? (row as { hashtags?: unknown }).hashtags
+    ),
     product_title:
       typeof row.product_title !== "undefined"
         ? row.product_title
@@ -373,7 +400,7 @@ function mapRowToUserVideoPost(
       shares: "0",
       musicThumbUrl: row.thumbnail_url ?? undefined,
       mediaItems,
-      ...(row.tags && row.tags.length > 0 ? { tags: row.tags } : {}),
+      tags: row.tags ?? [],
       ...shopFieldsFromRow(row),
       ...audioFieldsFromRow(row),
     };
@@ -405,7 +432,7 @@ function mapRowToUserVideoPost(
     comments: String(row.comments_count),
     shares: "0",
     musicThumbUrl: row.thumbnail_url ?? undefined,
-    ...(row.tags && row.tags.length > 0 ? { tags: row.tags } : {}),
+    tags: row.tags ?? [],
     ...shopFieldsFromRow(row),
     ...audioFieldsFromRow(row),
   };
@@ -654,7 +681,17 @@ export async function fetchGlobalPosts(): Promise<UserVideoPost[] | undefined> {
   }
 
   const ownerProfilesById = await fetchOwnerProfilesByIds(json.posts);
-  return await mapWorkerPostsToUserVideoPosts(json.posts, "global", ownerProfilesById);
+  const mapped = await mapWorkerPostsToUserVideoPosts(json.posts, "global", ownerProfilesById);
+  if (__DEV__) {
+    const sample = json.posts.slice(0, 5).map((r) => ({
+      id: r.id,
+      rawTags: (r as { tags?: unknown }).tags,
+      mappedTags: mapped.find((p) => p.id === r.id)?.tags ?? [],
+    }));
+    console.log("[fetchGlobalPosts] tag mapping sample", sample);
+    logForYouControlledMix(mapped);
+  }
+  return mapped;
 }
 
 export const fetchGlobalVideoPosts = fetchGlobalPosts;

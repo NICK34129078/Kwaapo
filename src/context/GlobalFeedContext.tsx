@@ -13,6 +13,11 @@ import { useLikes } from "./LikesContext";
 import { fetchGlobalPosts } from "../services/postsService";
 import { fetchPersonalizedFeed } from "../services/personalizedFeedService";
 import type { UserVideoPost } from "../types/userVideoPost";
+import {
+  buildControlledForYouMix,
+  logForYouControlledMix,
+  mergePersonalizedAndGlobalFeed,
+} from "../utils/feedRanking";
 
 type GlobalFeedValue = {
   /** Alle posts voor de Reels-tab (iedereen, Supabase, nieuwste eerst). */
@@ -43,6 +48,12 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
     globalFeedPostsRef.current = globalFeedPosts;
   }, [globalFeedPosts]);
 
+  const commitGlobalFeedPosts = useCallback((posts: UserVideoPost[]) => {
+    const mixed = buildControlledForYouMix(posts);
+    logForYouControlledMix(mixed);
+    setGlobalFeedPosts(mixed);
+  }, []);
+
   const refreshGlobalFeed = useCallback(async () => {
     setGlobalFeedLoading(true);
     setGlobalFeedError(null);
@@ -50,31 +61,16 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
       const personalized =
         user?.id != null ? await fetchPersonalizedFeed(10, []) : [];
       const rows = await fetchGlobalPosts();
+
       if (rows === undefined) {
         if (personalized.length > 0) {
-          setGlobalFeedPosts(personalized);
+          commitGlobalFeedPosts(personalized);
         }
         return;
       }
-      if (personalized.length === 0) {
-        setGlobalFeedPosts(rows);
-      } else {
-        const seen = new Set<string>();
-        const merged: UserVideoPost[] = [];
-        for (const p of personalized) {
-          if (!seen.has(p.id)) {
-            seen.add(p.id);
-            merged.push(p);
-          }
-        }
-        for (const p of rows) {
-          if (!seen.has(p.id)) {
-            seen.add(p.id);
-            merged.push(p);
-          }
-        }
-        setGlobalFeedPosts(merged);
-      }
+
+      const merged = mergePersonalizedAndGlobalFeed(personalized, rows);
+      commitGlobalFeedPosts(merged);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Feed kon niet geladen worden";
       setGlobalFeedError(msg);
@@ -84,7 +80,7 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
     } finally {
       setGlobalFeedLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, commitGlobalFeedPosts]);
 
   const loadMoreGlobalFeed = useCallback(async () => {
     if (loadMoreInFlightRef.current) {
@@ -118,14 +114,15 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
 
       setGlobalFeedPosts((prev) => {
         const seen = new Set(prev.map((p) => p.id));
-        const next = [...prev];
+        const combined = [...prev];
         for (const p of append) {
-          if (!seen.has(p.id)) {
-            seen.add(p.id);
-            next.push(p);
-          }
+          if (seen.has(p.id)) continue;
+          seen.add(p.id);
+          combined.push(p);
         }
-        return next;
+        const mixed = buildControlledForYouMix(combined);
+        logForYouControlledMix(mixed);
+        return mixed;
       });
     } catch {
       /* feed blijft staan op huidige buffer */

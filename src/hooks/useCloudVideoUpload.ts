@@ -307,6 +307,15 @@ export function useCloudVideoUpload() {
           : `video-${Date.now()}.mp4`;
       const videoMime = videoMimeType(asset);
       const parsedTags = parseHashtagInput(options?.hashtagsRaw ?? "");
+
+      if (parsedTags.length === 0) {
+        Alert.alert(
+          "Geen hashtags",
+          "Posts zonder hashtags worden veel minder aanbevolen in de For You-feed. Voeg hashtags toe voor meer bereik.",
+          [{ text: "Begrepen" }]
+        );
+      }
+
       const captionForPost = sanitizeUploadCaption(options?.caption);
       const product = sanitizeUploadProduct(options);
       const productPayload = productFieldsForWorkerPayload(product);

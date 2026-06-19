@@ -65,6 +65,7 @@ import {
   type ProfileContentTab,
 } from "../components/ProfileContentTabs";
 import { ProfileShopGrid } from "../components/ProfileShopGrid";
+import { SavedPostsGrid } from "../components/SavedPostsGrid";
 import { AvatarImage } from "../components/AvatarImage";
 import {
   AudioPickerCard,
@@ -207,6 +208,13 @@ function ProfileAuthenticatedScreen({
     useState<ProfileContentTab>("posts");
   const [accountTypeBusy, setAccountTypeBusy] = useState(false);
   const isBusinessProfile = profileAccountType === "business";
+  const profileTabs = useMemo<ProfileContentTab[]>(
+    () =>
+      isBusinessProfile
+        ? ["posts", "shop", "saved"]
+        : ["posts", "saved"],
+    [isBusinessProfile]
+  );
   const plusPulse = useRef(new Animated.Value(1)).current;
 
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
@@ -916,7 +924,7 @@ function ProfileAuthenticatedScreen({
               <Text style={styles.statLabel}>volgend</Text>
             </Pressable>
 
-            {isOwnProfile && (!isBusinessProfile || profileContentTab === "posts") ? (
+            {isOwnProfile && profileContentTab === "posts" ? (
               <Pressable
                 style={styles.statsAddButton}
                 onPress={() => {
@@ -960,16 +968,21 @@ function ProfileAuthenticatedScreen({
           ) : null}
         </View>
 
-        {isBusinessProfile ? (
-          <ProfileContentTabs
-            active={profileContentTab}
-            onChange={setProfileContentTab}
-          />
-        ) : null}
+        <ProfileContentTabs
+          active={profileContentTab}
+          onChange={setProfileContentTab}
+          tabs={profileTabs}
+        />
 
-        {isBusinessProfile && profileContentTab === "shop" && targetProfileId ? (
+        {profileContentTab === "shop" && isBusinessProfile && targetProfileId ? (
           <ProfileShopGrid
             ownerId={targetProfileId}
+            cellSize={cellSize}
+            isOwnProfile={isOwnProfile}
+          />
+        ) : profileContentTab === "saved" && targetProfileId ? (
+          <SavedPostsGrid
+            userId={targetProfileId}
             cellSize={cellSize}
             isOwnProfile={isOwnProfile}
           />
