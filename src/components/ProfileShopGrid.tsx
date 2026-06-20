@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
-  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -11,6 +10,7 @@ import {
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import { ProductListingImage } from "./ProductListingImage";
 import { theme } from "../constants/theme";
 import { fetchActiveProductsByOwner } from "../services/productsService";
 import {
@@ -39,7 +39,6 @@ function ProductCard({
   onPress: () => void;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
-  const imageOpacity = useRef(new Animated.Value(0)).current;
   const imageUri = product.images[0];
 
   const animateScale = useCallback(
@@ -54,14 +53,6 @@ function ProductCard({
     [scale]
   );
 
-  const fadeIn = useCallback(() => {
-    Animated.timing(imageOpacity, {
-      toValue: 1,
-      duration: 180,
-      useNativeDriver: true,
-    }).start();
-  }, [imageOpacity]);
-
   return (
     <Animated.View style={{ width, transform: [{ scale }] }}>
       <Pressable
@@ -73,15 +64,11 @@ function ProductCard({
         style={styles.card}
       >
         <View style={styles.imageWrap}>
-          {imageUri ? (
-            <Animated.View style={[styles.imageFill, { opacity: imageOpacity }]}>
-              <Image source={{ uri: imageUri }} style={styles.image} onLoad={fadeIn} />
-            </Animated.View>
-          ) : (
-            <View style={[styles.image, styles.imageFallback]}>
-              <Ionicons name="image-outline" size={30} color={theme.textMuted} />
-            </View>
-          )}
+          <ProductListingImage
+            uri={imageUri}
+            style={styles.image}
+            recyclingKey={`profile-shop-${product.id}`}
+          />
         </View>
         <View style={styles.cardBody}>
           <Text style={styles.productName} numberOfLines={2}>
@@ -250,17 +237,11 @@ const styles = StyleSheet.create({
     width: "100%",
     aspectRatio: 0.82,
     backgroundColor: "#101010",
-  },
-  imageFill: {
-    flex: 1,
+    overflow: "hidden",
   },
   image: {
     width: "100%",
     height: "100%",
-  },
-  imageFallback: {
-    alignItems: "center",
-    justifyContent: "center",
   },
   cardBody: {
     paddingHorizontal: 10,

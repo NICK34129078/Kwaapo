@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Animated,
   FlatList,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -16,6 +15,7 @@ import {
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ProductListingImage } from "../components/ProductListingImage";
 import { theme } from "../constants/theme";
 import { fetchShopProducts } from "../services/productsService";
 import type { Product } from "../types/product";
@@ -35,7 +35,6 @@ function ShopProductCard({
   onPress: () => void;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
-  const imageOpacity = useRef(new Animated.Value(0)).current;
   const imageUri = product.images[0];
 
   const animateScale = useCallback(
@@ -50,14 +49,6 @@ function ShopProductCard({
     [scale]
   );
 
-  const fadeIn = useCallback(() => {
-    Animated.timing(imageOpacity, {
-      toValue: 1,
-      duration: 180,
-      useNativeDriver: true,
-    }).start();
-  }, [imageOpacity]);
-
   return (
     <Animated.View style={{ width, transform: [{ scale }] }}>
       <Pressable
@@ -69,15 +60,11 @@ function ShopProductCard({
         accessibilityLabel={product.name}
       >
         <View style={styles.productImageWrap}>
-          {imageUri ? (
-            <Animated.View style={[styles.imageFill, { opacity: imageOpacity }]}>
-              <Image source={{ uri: imageUri }} style={styles.productImage} onLoad={fadeIn} />
-            </Animated.View>
-          ) : (
-            <View style={[styles.productImage, styles.imageFallback]}>
-              <Ionicons name="image-outline" size={30} color={theme.textMuted} />
-            </View>
-          )}
+          <ProductListingImage
+            uri={imageUri}
+            style={styles.productImage}
+            recyclingKey={`shop-${product.id}`}
+          />
         </View>
         <View style={styles.cardBody}>
           <Text style={styles.productName} numberOfLines={2}>
@@ -262,6 +249,7 @@ export function ShopScreen() {
           )
         }
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews={false}
       />
     </View>
   );
@@ -360,17 +348,11 @@ const styles = StyleSheet.create({
     width: "100%",
     aspectRatio: 0.82,
     backgroundColor: "#101010",
-  },
-  imageFill: {
-    flex: 1,
+    overflow: "hidden",
   },
   productImage: {
     width: "100%",
     height: "100%",
-  },
-  imageFallback: {
-    alignItems: "center",
-    justifyContent: "center",
   },
   cardBody: {
     paddingHorizontal: 10,

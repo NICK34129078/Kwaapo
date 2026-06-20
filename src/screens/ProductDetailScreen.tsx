@@ -2,9 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   FlatList,
-  Image,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
 import { AvatarImage } from "../components/AvatarImage";
+import { ProductListingImage } from "../components/ProductListingImage";
 import { useAuth } from "../context/AuthContext";
 import {
   deleteProduct,
@@ -34,6 +36,105 @@ import {
   shouldWarnUnverifiedSeller,
 } from "../services/sellerOnboardingService";
 
+const THUMB_CHIP_SIZE = 58;
+const THUMB_CHIP_GAP = 8;
+
+function ProductImageCarousel({
+  images,
+  width,
+  height,
+  imageIndex,
+  onIndexChange,
+}: {
+  images: string[];
+  width: number;
+  height: number;
+  imageIndex: number;
+  onIndexChange: (index: number) => void;
+}) {
+  const listRef = useRef<FlatList<string>>(null);
+
+  const getItemLayout = useCallback(
+    (_: ArrayLike<string> | null | undefined, index: number) => ({
+      length: width,
+      offset: width * index,
+      index,
+    }),
+    [width]
+  );
+
+  const scrollToIndex = useCallback(
+    (index: number, animated: boolean) => {
+      listRef.current?.scrollToOffset({
+        offset: width * index,
+        animated,
+      });
+    },
+    [width]
+  );
+
+  useEffect(() => {
+    scrollToIndex(imageIndex, true);
+  }, [imageIndex, scrollToIndex]);
+
+  const onMomentumScrollEnd = useCallback(
+    (ev: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const page = Math.round(ev.nativeEvent.contentOffset.x / width);
+      const next = Math.min(Math.max(0, page), images.length - 1);
+      if (next !== imageIndex) {
+        onIndexChange(next);
+      }
+    },
+    [imageIndex, images.length, onIndexChange, width]
+  );
+
+  return (
+    <View style={{ width, height }}>
+      <FlatList
+        ref={listRef}
+        data={images}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        decelerationRate="fast"
+        bounces={false}
+        nestedScrollEnabled
+        scrollEventThrottle={16}
+        removeClippedSubviews={false}
+        keyExtractor={(uri, idx) => `${uri}-${idx}`}
+        getItemLayout={getItemLayout}
+        onMomentumScrollEnd={onMomentumScrollEnd}
+        {...(Platform.OS === "android"
+          ? {
+              snapToInterval: width,
+              snapToAlignment: "start" as const,
+              disableIntervalMomentum: true,
+            }
+          : {})}
+        renderItem={({ item, index }) => (
+          <View style={{ width, height }}>
+            <ProductListingImage
+              uri={item}
+              style={styles.hero}
+              recyclingKey={`product-hero-${item}-${index}`}
+            />
+          </View>
+        )}
+      />
+      {images.length > 1 ? (
+        <View style={styles.heroDotsRow} pointerEvents="none">
+          {images.map((uri, i) => (
+            <View
+              key={`${uri}-${i}`}
+              style={[styles.heroDot, i === imageIndex && styles.heroDotActive]}
+            />
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export function ProductDetailScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -50,9 +151,10 @@ export function ProductDetailScreen() {
   const [busy, setBusy] = useState(false);
   const [imageIndex, setImageIndex] = useState(0);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
-  const imageOpacity = useRef(new Animated.Value(0)).current;
+  const thumbListRef = useRef<FlatList<string>>(null);
 
   const heroHeight = Math.min(width * 1.05, 460);
+  const thumbSnapInterval = THUMB_CHIP_SIZE + THUMB_CHIP_GAP;
 
   const load = useCallback(async () => {
     if (!productId) {
@@ -80,10 +182,6 @@ export function ProductDetailScreen() {
     setLoading(true);
     void load().finally(() => setLoading(false));
   }, [load]);
-
-  useEffect(() => {
-    imageOpacity.setValue(0);
-  }, [imageIndex, imageOpacity]);
 
   const images = product?.images ?? [];
   const heroUri = images[imageIndex] ?? images[0];
@@ -221,13 +319,31 @@ export function ProductDetailScreen() {
     [navigation, relatedPosts, user?.id]
   );
 
-  const fadeHeroIn = useCallback(() => {
-    Animated.timing(imageOpacity, {
-      toValue: 1,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  }, [imageOpacity]);
+  const selectImageIndex = useCallback(
+    (index: number) => {
+      setImageIndex(index);
+      thumbListRef.current?.scrollToOffset({
+        offset: thumbSnapInterval * index,
+        animated: true,
+      });
+    },
+    [thumbSnapInterval]
+  );
+
+  useEffect(() => {
+    if (images.length === 0) {
+      return;
+    }
+    const safeIndex = Math.min(imageIndex, images.length - 1);
+    if (safeIndex !== imageIndex) {
+      setImageIndex(safeIndex);
+      return;
+    }
+    thumbListRef.current?.scrollToOffset({
+      offset: thumbSnapInterval * safeIndex,
+      animated: false,
+    });
+  }, [imageIndex, images.length, thumbSnapInterval]);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -274,10 +390,20 @@ export function ProductDetailScreen() {
             showsVerticalScrollIndicator={false}
           >
             <View style={[styles.heroWrap, { height: heroHeight }]}>
-              {heroUri ? (
-                <Animated.View style={[styles.heroFill, { opacity: imageOpacity }]}>
-                  <Image source={{ uri: heroUri }} style={styles.hero} onLoad={fadeHeroIn} />
-                </Animated.View>
+              {images.length > 1 ? (
+                <ProductImageCarousel
+                  images={images}
+                  width={width}
+                  height={heroHeight}
+                  imageIndex={imageIndex}
+                  onIndexChange={setImageIndex}
+                />
+              ) : heroUri ? (
+                <ProductListingImage
+                  uri={heroUri}
+                  style={styles.hero}
+                  recyclingKey={`product-hero-${heroUri}`}
+                />
               ) : (
                 <View style={[styles.hero, styles.heroFallback]}>
                   <Ionicons name="image-outline" size={54} color={theme.textMuted} />
@@ -292,20 +418,31 @@ export function ProductDetailScreen() {
 
             {images.length > 1 ? (
               <FlatList
+                ref={thumbListRef}
                 horizontal
                 data={images}
                 keyExtractor={(uri, idx) => `${uri}-${idx}`}
                 showsHorizontalScrollIndicator={false}
+                decelerationRate="fast"
+                nestedScrollEnabled
+                snapToInterval={thumbSnapInterval}
+                snapToAlignment="start"
                 contentContainerStyle={styles.thumbRow}
+                {...(Platform.OS === "android" ? { disableIntervalMomentum: true } : {})}
                 renderItem={({ item, index }) => (
                   <Pressable
-                    onPress={() => setImageIndex(index)}
+                    onPress={() => selectImageIndex(index)}
                     style={[
                       styles.thumbChip,
                       index === imageIndex && styles.thumbChipActive,
+                      index < images.length - 1 && styles.thumbChipSpacing,
                     ]}
                   >
-                    <Image source={{ uri: item }} style={styles.thumbChipImg} />
+                    <ProductListingImage
+                      uri={item}
+                      style={styles.thumbChipImg}
+                      recyclingKey={`product-thumb-${item}-${index}`}
+                    />
                   </Pressable>
                 )}
               />
@@ -379,18 +516,27 @@ export function ProductDetailScreen() {
                     data={relatedPosts}
                     keyExtractor={(item) => item.id}
                     showsHorizontalScrollIndicator={false}
+                    decelerationRate="fast"
+                    nestedScrollEnabled
+                    snapToInterval={114}
+                    snapToAlignment="start"
                     contentContainerStyle={styles.relatedList}
-                    renderItem={({ item }) => (
+                    {...(Platform.OS === "android" ? { disableIntervalMomentum: true } : {})}
+                    renderItem={({ item, index }) => (
                       <Pressable
-                        style={styles.relatedCard}
+                        style={[
+                          styles.relatedCard,
+                          index < relatedPosts.length - 1 && styles.relatedCardSpacing,
+                        ]}
                         onPress={() => openRelatedPost(item)}
                         accessibilityRole="button"
                         accessibilityLabel="Open reel"
                       >
                         {item.thumbnailUrl || item.imageUrl ? (
-                          <Image
-                            source={{ uri: item.thumbnailUrl ?? item.imageUrl }}
+                          <ProductListingImage
+                            uri={item.thumbnailUrl ?? item.imageUrl}
                             style={styles.relatedThumb}
+                            recyclingKey={`related-${item.id}`}
                           />
                         ) : (
                           <View style={[styles.relatedThumb, styles.heroFallback]}>
@@ -542,12 +688,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: theme.bgElevated,
   },
-  heroFill: {
-    flex: 1,
-  },
   hero: {
     width: "100%",
     height: "100%",
+    backgroundColor: theme.bgElevated,
   },
   heroFallback: {
     alignItems: "center",
@@ -568,18 +712,39 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
   },
+  heroDotsRow: {
+    position: "absolute",
+    bottom: 12,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+  },
+  heroDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.35)",
+  },
+  heroDotActive: {
+    width: 18,
+    backgroundColor: theme.accent,
+  },
   thumbRow: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    gap: 8,
   },
   thumbChip: {
-    width: 58,
-    height: 58,
+    width: THUMB_CHIP_SIZE,
+    height: THUMB_CHIP_SIZE,
     borderRadius: 12,
     overflow: "hidden",
     borderWidth: 2,
     borderColor: "transparent",
+  },
+  thumbChipSpacing: {
+    marginRight: THUMB_CHIP_GAP,
   },
   thumbChipActive: {
     borderColor: theme.accent,
@@ -690,7 +855,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   relatedList: {
-    gap: 10,
+    paddingRight: 4,
   },
   relatedCard: {
     width: 104,
@@ -698,6 +863,9 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: "hidden",
     backgroundColor: theme.bgElevated,
+  },
+  relatedCardSpacing: {
+    marginRight: 10,
   },
   relatedThumb: {
     width: "100%",

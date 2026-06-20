@@ -67,6 +67,8 @@ import {
 import { ProfileShopGrid } from "../components/ProfileShopGrid";
 import { SavedPostsGrid } from "../components/SavedPostsGrid";
 import { AvatarImage } from "../components/AvatarImage";
+import { FullScreenImageModal } from "../components/FullScreenImageModal";
+import { hasProfileAvatar } from "../utils/resolveAvatarSource";
 import {
   AudioPickerCard,
   AUDIO_VOLUME_NORMAL,
@@ -199,6 +201,7 @@ function ProfileAuthenticatedScreen({
 
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | null>(null);
+  const [avatarViewerVisible, setAvatarViewerVisible] = useState(false);
   const [profileUsername, setProfileUsername] = useState<string>("");
   const [profileDisplayName, setProfileDisplayName] = useState<string>("");
   const [profileBio, setProfileBio] = useState<string>("");
@@ -507,12 +510,23 @@ function ProfileAuthenticatedScreen({
     },
   });
 
+  const handleAvatarPress = useCallback(() => {
+    if (isOwnProfile) {
+      void onAvatarPress();
+      return;
+    }
+    if (hasProfileAvatar(profileAvatarUrl)) {
+      setAvatarViewerVisible(true);
+    }
+  }, [isOwnProfile, onAvatarPress, profileAvatarUrl]);
+
   useEffect(() => {
     void loadProfile();
   }, [loadProfile]);
 
   useEffect(() => {
     setProfileContentTab("posts");
+    setAvatarViewerVisible(false);
   }, [targetProfileId]);
 
   useEffect(() => {
@@ -860,12 +874,19 @@ function ProfileAuthenticatedScreen({
 
         <View style={styles.header}>
           <Pressable
-            onPress={() => void onAvatarPress()}
-            disabled={avatarUploading || !isOwnProfile}
+            onPress={handleAvatarPress}
+            disabled={
+              avatarUploading ||
+              (!isOwnProfile && !hasProfileAvatar(profileAvatarUrl))
+            }
             style={styles.avatarPressable}
             accessibilityRole="button"
             accessibilityLabel={
-              isOwnProfile ? "Profielfoto kiezen" : "Profielfoto van gebruiker"
+              isOwnProfile
+                ? "Profielfoto kiezen"
+                : hasProfileAvatar(profileAvatarUrl)
+                  ? "Profielfoto vergroten"
+                  : "Profielfoto van gebruiker"
             }
           >
             <AvatarImage uri={profileAvatarUrl} style={styles.avatar} />
@@ -1272,6 +1293,12 @@ function ProfileAuthenticatedScreen({
       ) : null}
 
       {avatarCropModal}
+
+      <FullScreenImageModal
+        visible={avatarViewerVisible}
+        imageUri={profileAvatarUrl}
+        onClose={() => setAvatarViewerVisible(false)}
+      />
 
       {isOwnProfile ? (
         <Modal
