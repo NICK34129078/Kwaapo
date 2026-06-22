@@ -11,7 +11,7 @@ import {
 } from "../types/product";
 
 const PRODUCT_COLUMNS =
-  "id, owner_id, name, description, price, category, brand, stock, images, sizes, is_active, created_at";
+  "id, owner_id, name, description, price, category, brand, tags, stock, images, sizes, is_active, created_at";
 
 export type ProductSeller = {
   id: string;
@@ -157,6 +157,7 @@ function rowToInsert(input: ProductInput, ownerId: string) {
     price: input.price,
     category: input.category?.trim() || null,
     brand: input.brand?.trim() || null,
+    tags: input.tags ?? [],
     stock: Math.max(0, Math.floor(input.stock)),
     images: input.images,
     sizes: input.sizes,
@@ -270,6 +271,9 @@ export async function updateProduct(
   }
   if (input.brand !== undefined) {
     patch.brand = input.brand?.trim() || null;
+  }
+  if (input.tags !== undefined) {
+    patch.tags = input.tags;
   }
   if (input.stock !== undefined) {
     patch.stock = Math.max(0, Math.floor(input.stock));

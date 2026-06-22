@@ -6,11 +6,15 @@ export type Product = {
   price: number;
   category: string | null;
   brand: string | null;
+  tags: string[];
   stock: number;
   images: string[];
   sizes: string[];
   isActive: boolean;
   createdAt: string;
+  /** Alleen gezet door get_personalized_shop_products (dev/logging). */
+  shopScore?: number;
+  relevantTags?: string[];
 };
 
 export type ProductRow = {
@@ -21,6 +25,7 @@ export type ProductRow = {
   price: number | string;
   category: string | null;
   brand: string | null;
+  tags?: unknown;
   stock: number;
   images: unknown;
   sizes: unknown;
@@ -34,6 +39,7 @@ export type ProductInput = {
   price: number;
   category?: string | null;
   brand?: string | null;
+  tags?: string[];
   stock: number;
   images: string[];
   sizes: string[];
@@ -59,6 +65,7 @@ export function mapProductRow(row: ProductRow): Product {
     price: Number.isFinite(price) ? price : 0,
     category: row.category,
     brand: row.brand,
+    tags: parseStringArray(row.tags),
     stock: Math.max(0, row.stock ?? 0),
     images: parseStringArray(row.images),
     sizes: parseStringArray(row.sizes),

@@ -17,7 +17,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ProductListingImage } from "../components/ProductListingImage";
 import { theme } from "../constants/theme";
+import { useAuth } from "../context/AuthContext";
 import { fetchShopProducts } from "../services/productsService";
+import { fetchPersonalizedShopProducts } from "../services/personalizedShopService";
 import type { Product } from "../types/product";
 import { formatPriceEur } from "../utils/formatPrice";
 import { SHOP_CATEGORY_FILTERS } from "../constants/shopCategories";
@@ -83,6 +85,7 @@ function ShopProductCard({
 export function ShopScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const { width } = useWindowDimensions();
   const cardWidth = (width - 16 * 2 - GAP) / 2;
   const [products, setProducts] = useState<Product[]>([]);
@@ -99,13 +102,24 @@ export function ShopScreen() {
   categoryRef.current = category;
 
   const fetchProducts = useCallback(async () => {
+    const trimmedQuery = queryRef.current.trim();
+    const activeCategory = categoryRef.current;
+    const usePersonalized =
+      !!user?.id && trimmedQuery.length === 0 && activeCategory === "Alle";
+
+    if (usePersonalized) {
+      const personalized = await fetchPersonalizedShopProducts(100);
+      if (personalized.length > 0) {
+        return personalized;
+      }
+    }
+
     return fetchShopProducts({
-      query: queryRef.current.trim(),
-      category:
-        categoryRef.current === "Alle" ? undefined : categoryRef.current,
+      query: trimmedQuery,
+      category: activeCategory === "Alle" ? undefined : activeCategory,
       limit: 100,
     });
-  }, []);
+  }, [user?.id]);
 
   const applyProductResults = useCallback(async () => {
     const requestId = ++fetchRequestIdRef.current;
@@ -168,7 +182,9 @@ export function ShopScreen() {
         <Text style={styles.kicker}>Kwaapo Store</Text>
         <Text style={styles.title}>Shop de nieuwste producten</Text>
         <Text style={styles.subtitle}>
-          Ontdek items uit business stores en bekijk direct de content erbij.
+          {user
+            ? "Producten op volgorde van jouw interesses — met af en toe iets nieuws om te ontdekken."
+            : "Ontdek items uit business stores en bekijk direct de content erbij."}
         </Text>
         <View style={styles.searchWrap}>
           <Ionicons name="search-outline" size={18} color={theme.textMuted} />

@@ -37,6 +37,7 @@ import {
   uploadProductImages,
 } from "../utils/uploadProductImage";
 import { createUuidV4 } from "../utils/uuid";
+import { parseHashtagInput } from "../utils/hashtags";
 
 type ImageDraft = {
   uri: string;
@@ -57,6 +58,7 @@ export function ProductFormScreen() {
   const [description, setDescription] = useState("");
   const [priceText, setPriceText] = useState("");
   const [category, setCategory] = useState("");
+  const [tagsDraft, setTagsDraft] = useState("");
   const [brand, setBrand] = useState("");
   const [stockText, setStockText] = useState("0");
   const [sizesText, setSizesText] = useState("");
@@ -112,6 +114,7 @@ export function ProductFormScreen() {
         setDescription(product.description ?? "");
         setPriceText(String(product.price).replace(".", ","));
         setCategory(product.category ?? "");
+        setTagsDraft(product.tags.map((tag) => `#${tag}`).join(" "));
         setBrand(product.brand ?? "");
         setStockText(String(product.stock));
         setSizesText(formatSizesForInput(product.sizes));
@@ -187,6 +190,7 @@ export function ProductFormScreen() {
     const stockParsed = parseInt(stockText.replace(/\D/g, ""), 10);
     const stock = Number.isFinite(stockParsed) ? Math.max(0, stockParsed) : 0;
     const sizes = parseSizesInput(sizesText);
+    const tags = parseHashtagInput(tagsDraft);
 
     setSaving(true);
     try {
@@ -204,6 +208,7 @@ export function ProductFormScreen() {
         price,
         category: category.trim() || null,
         brand: brand.trim() || null,
+        tags,
         stock,
         images: uploadedUrls,
         sizes,
@@ -235,6 +240,7 @@ export function ProductFormScreen() {
     productId,
     sizesText,
     stockText,
+    tagsDraft,
     user?.id,
   ]);
 
@@ -391,6 +397,21 @@ export function ProductFormScreen() {
               );
             })}
           </ScrollView>
+
+          <Text style={styles.label}>Stijltags</Text>
+          <Text style={styles.categoryHint}>
+            Helpt de shop jouw product te matchen met interesses (bijv. summer beach
+            oldmoney). Max 10 tags, zonder # in de database.
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={tagsDraft}
+            onChangeText={setTagsDraft}
+            placeholder="#summer #beach #casual"
+            placeholderTextColor={theme.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
 
           <Text style={styles.label}>Merk</Text>
           <TextInput
