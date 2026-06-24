@@ -6,6 +6,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import * as Linking from "expo-linking";
 
 import { ReelsScreen } from "./src/screens/ReelsScreen";
 import { ShopScreen } from "./src/screens/ShopScreen";
@@ -14,6 +15,7 @@ import { ActivityTabScreen } from "./src/screens/TabScreens";
 import { ProfileScreen } from "./src/screens/ProfileScreen";
 import { PublicProfileScreen } from "./src/screens/PublicProfileScreen";
 import { ProfileReelsScreen } from "./src/screens/ProfileReelsScreen";
+import { SharedPostScreen } from "./src/screens/SharedPostScreen";
 import { CreatorStatsScreen } from "./src/screens/CreatorStatsScreen";
 import { MyShopScreen } from "./src/screens/MyShopScreen";
 import { ProductFormScreen } from "./src/screens/ProductFormScreen";
@@ -30,9 +32,25 @@ import { GlobalFeedProvider } from "./src/context/GlobalFeedContext";
 import { LikesProvider } from "./src/context/LikesContext";
 import { UserUploadsProvider } from "./src/context/UserUploadsContext";
 import { theme } from "./src/constants/theme";
+import { PUBLIC_SHARE_BASE } from "./src/constants/shareLinks";
 
 const Tab = createBottomTabNavigator();
 const RootStack = createNativeStackNavigator();
+
+const linking = {
+  prefixes: [Linking.createURL("/"), "lumen-fashion://", PUBLIC_SHARE_BASE],
+  config: {
+    screens: {
+      MainTabs: {
+        path: "",
+        screens: {
+          Home: "home",
+        },
+      },
+      SharedPost: "post/:postId",
+    },
+  },
+};
 
 const navTheme = {
   ...DefaultTheme,
@@ -83,13 +101,24 @@ function AppGate() {
       <LikesProvider>
         <GlobalFeedProvider>
           <UserUploadsProvider>
-            <NavigationContainer theme={navTheme}>
+            <NavigationContainer
+              theme={navTheme}
+              linking={linking as any}
+            >
               <RootStack.Navigator
                 screenOptions={{
                   headerShown: false,
                 }}
               >
                 <RootStack.Screen name="MainTabs" component={MainTabs} />
+                <RootStack.Screen
+                  name="SharedPost"
+                  component={SharedPostScreen}
+                  options={{
+                    animation: "fade",
+                    presentation: "fullScreenModal",
+                  }}
+                />
                 <RootStack.Screen
                   name="PublicProfile"
                   component={PublicProfileScreen}

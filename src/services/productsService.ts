@@ -1,7 +1,9 @@
 import { supabase } from "../lib/supabase";
 import {
   isSellerOnboardingStatus,
+  isSellerType,
   type SellerOnboardingStatus,
+  type SellerType,
 } from "../types/sellerOnboarding";
 import {
   mapProductRow,
@@ -18,7 +20,16 @@ export type ProductSeller = {
   username: string | null;
   displayName: string | null;
   avatarUrl: string | null;
+  sellerType: SellerType | null;
+  businessName: string | null;
+  kvkNumber: string | null;
+  kvkVerifiedAt: string | null;
+  businessCity: string | null;
+  businessPostalCode: string | null;
+  businessCountry: string | null;
   sellerOnboardingStatus: SellerOnboardingStatus;
+  stripeConnectAccountId: string | null;
+  stripeConnectOnboardingComplete: boolean;
   stripeChargesEnabled: boolean;
   stripePayoutsEnabled: boolean;
 };
@@ -116,7 +127,7 @@ export async function fetchProductSeller(
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "id, username, display_name, avatar_url, seller_onboarding_status, stripe_charges_enabled, stripe_payouts_enabled"
+      "id, username, display_name, avatar_url, seller_type, business_name, kvk_number, kvk_verified_at, business_city, business_postal_code, business_country, seller_onboarding_status, stripe_connect_account_id, stripe_connect_onboarding_complete, stripe_charges_enabled, stripe_payouts_enabled"
     )
     .eq("id", ownerId)
     .maybeSingle<{
@@ -124,7 +135,16 @@ export async function fetchProductSeller(
       username: string | null;
       display_name: string | null;
       avatar_url: string | null;
+      seller_type: string | null;
+      business_name: string | null;
+      kvk_number: string | null;
+      kvk_verified_at: string | null;
+      business_city: string | null;
+      business_postal_code: string | null;
+      business_country: string | null;
       seller_onboarding_status: string | null;
+      stripe_connect_account_id: string | null;
+      stripe_connect_onboarding_complete: boolean | null;
       stripe_charges_enabled: boolean | null;
       stripe_payouts_enabled: boolean | null;
     }>();
@@ -141,9 +161,18 @@ export async function fetchProductSeller(
     username: data.username,
     displayName: data.display_name,
     avatarUrl: data.avatar_url,
+    sellerType: isSellerType(data.seller_type) ? data.seller_type : null,
+    businessName: data.business_name,
+    kvkNumber: data.kvk_number,
+    kvkVerifiedAt: data.kvk_verified_at ?? null,
+    businessCity: data.business_city,
+    businessPostalCode: data.business_postal_code,
+    businessCountry: data.business_country,
     sellerOnboardingStatus: isSellerOnboardingStatus(data.seller_onboarding_status)
       ? data.seller_onboarding_status
       : "not_started",
+    stripeConnectAccountId: data.stripe_connect_account_id ?? null,
+    stripeConnectOnboardingComplete: data.stripe_connect_onboarding_complete === true,
     stripeChargesEnabled: data.stripe_charges_enabled === true,
     stripePayoutsEnabled: data.stripe_payouts_enabled === true,
   };

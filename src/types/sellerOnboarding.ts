@@ -25,6 +25,9 @@ export type SellerOnboardingRow = {
   stripe_connect_onboarding_complete: boolean;
   stripe_charges_enabled: boolean;
   stripe_payouts_enabled: boolean;
+  stripe_requirements_currently_due: string[] | null;
+  stripe_requirements_disabled_reason: string | null;
+  stripe_status_updated_at: string | null;
   seller_verified_at: string | null;
   seller_rejection_reason: string | null;
   display_name: string | null;
@@ -50,6 +53,9 @@ export type SellerOnboarding = {
   stripeConnectOnboardingComplete: boolean;
   stripeChargesEnabled: boolean;
   stripePayoutsEnabled: boolean;
+  stripeRequirementsCurrentlyDue: string[];
+  stripeRequirementsDisabledReason: string | null;
+  stripeStatusUpdatedAt: string | null;
   sellerVerifiedAt: string | null;
   sellerRejectionReason: string | null;
   displayName: string | null;
@@ -113,6 +119,11 @@ export function mapSellerOnboardingRow(row: SellerOnboardingRow): SellerOnboardi
     stripeConnectOnboardingComplete: !!row.stripe_connect_onboarding_complete,
     stripeChargesEnabled: !!row.stripe_charges_enabled,
     stripePayoutsEnabled: !!row.stripe_payouts_enabled,
+    stripeRequirementsCurrentlyDue: Array.isArray(row.stripe_requirements_currently_due)
+      ? row.stripe_requirements_currently_due.filter((x): x is string => typeof x === "string")
+      : [],
+    stripeRequirementsDisabledReason: row.stripe_requirements_disabled_reason ?? null,
+    stripeStatusUpdatedAt: row.stripe_status_updated_at ?? null,
     sellerVerifiedAt: row.seller_verified_at,
     sellerRejectionReason: row.seller_rejection_reason,
     displayName: row.display_name,

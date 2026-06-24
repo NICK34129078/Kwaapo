@@ -12,9 +12,11 @@
 
 
 
+import {
+  evaluateSellerPayoutReadiness,
+} from "./worker-seller-readiness.js";
+
 const STRIPE_API = "https://api.stripe.com/v1";
-
-
 
 const PROFILE_CONNECT_COLUMNS =
 
@@ -580,21 +582,25 @@ async function syncConnectStatusFromStripe(env, userId, accountId) {
 
   const mapped = mapConnectStatusResponse(account, accountId);
 
+  const readiness = await evaluateSellerPayoutReadiness(env, userId, {
 
-
-  await patchProfileConnect(env, userId, {
-
-    stripe_connect_onboarding_complete: mapped.onboardingComplete,
-
-    stripe_charges_enabled: mapped.chargesEnabled,
-
-    stripe_payouts_enabled: mapped.payoutsEnabled,
+    stripeStatus: mapped,
 
   });
 
 
 
-  return mapped;
+  return {
+
+    ...mapped,
+
+    payoutReady: readiness.payoutReady,
+
+    sellerOnboardingStatus: readiness.sellerOnboardingStatus,
+
+    readinessChecks: readiness.checks,
+
+  };
 
 }
 
@@ -780,6 +786,8 @@ export async function handleStripeConnectStatus(request, env, cors = {}) {
 
     if (!accountId.startsWith("acct_")) {
 
+      const readiness = await evaluateSellerPayoutReadiness(env, userId, {});
+
       return jsonStripe(
 
         {
@@ -805,6 +813,10 @@ export async function handleStripeConnectStatus(request, env, cors = {}) {
           userFriendlyStatus: "Uitbetalingen instellen",
 
           statusLabel: "Uitbetalingen instellen",
+
+          payoutReady: readiness.payoutReady,
+
+          sellerOnboardingStatus: readiness.sellerOnboardingStatus,
 
         },
 
@@ -858,7 +870,7 @@ export async function handleStripeConnectReturn(request, url, env, cors = {}) {
 
     "Terug naar de app",
 
-    "<h1>Klaar</h1><p>Je kunt dit venster sluiten en teruggaan naar de app. We controleren je Stripe-status automatisch.</p>",
+    "<h1>Klaar</h1><p>Je kunt dit venster sluiten en teruggaan naar de app. Open de app om je Stripe-status te vernieuwen.</p>",
 
     cors
 
@@ -908,6 +920,8 @@ export async function handleStripeConnectDebug(request, env, cors = {}) {
 
       hasServiceRole: hasSecret(env, "SUPABASE_SERVICE_ROLE_KEY"),
 
+      hasKvkApiKey: hasSecret(env, "KVK_API_KEY"),
+
       workerPublicUrl: getWorkerPublicBase(env),
 
     },
@@ -917,6 +931,126 @@ export async function handleStripeConnectDebug(request, env, cors = {}) {
     cors
 
   );
+
+}
+
+
+
+/**
+
+ * POST ?stripeConnectPayoutManageLink=1
+
+ * Opent Stripe Hosted Onboarding (nog niet klaar) of Express Dashboard (actief).
+
+ * Geen IBAN opslag in Kwaapo.
+
+ */
+
+export async function handleStripeConnectPayoutManageLink(request, env, cors = {}) {
+
+  const logPrefix = "[stripeConnectPayoutManageLink]";
+
+  try {
+
+    const userId = (request.headers.get("X-App-User-Id") || "").trim();
+
+    if (!isStandardUuid(userId)) {
+
+      return jsonStripe({ error: "X-App-User-Id required" }, 400, cors);
+
+    }
+
+
+
+    const profile = await fetchSellerProfile(env, userId);
+
+    requireBusinessSeller(profile);
+
+
+
+    const accountId = await ensureConnectAccount(env, profile, userId);
+
+    const account = await stripeRequest(
+
+      env,
+
+      "GET",
+
+      `/accounts/${encodeURIComponent(accountId)}`,
+
+      null
+
+    );
+
+    const mapped = mapConnectStatusResponse(account, accountId);
+
+    const base = getWorkerPublicBase(env);
+
+
+
+    let manageUrl = null;
+
+    if (mapped.chargesEnabled && mapped.payoutsEnabled) {
+
+      const login = await stripeRequest(
+
+        env,
+
+        "POST",
+
+        `/accounts/${encodeURIComponent(accountId)}/login_links`,
+
+        {}
+
+      );
+
+      manageUrl = login?.url ?? null;
+
+    } else {
+
+      const link = await stripeRequest(env, "POST", "/account_links", {
+
+        account: accountId,
+
+        refresh_url: `${base}?stripeConnectRefresh=1`,
+
+        return_url: `${base}?stripeConnectReturn=1`,
+
+        type: "account_onboarding",
+
+      });
+
+      manageUrl = link?.url ?? null;
+
+    }
+
+
+
+    if (!manageUrl) {
+
+      throw new Error("Stripe beheerkoppeling heeft geen url");
+
+    }
+
+
+
+    await evaluateSellerPayoutReadiness(env, userId, { stripeStatus: mapped });
+
+
+
+    console.log(logPrefix, "ok", { userId, accountId, expressDashboard: mapped.chargesEnabled && mapped.payoutsEnabled });
+
+    return jsonStripe({ manageUrl, accountId }, 200, cors);
+
+  } catch (e) {
+
+    const message = (e && e.message) || String(e);
+
+    console.error(logPrefix, message);
+
+    return jsonStripe({ error: message, step: "stripe_connect_payout_manage" }, 500, cors);
+
+  }
 
 }
 

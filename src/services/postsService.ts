@@ -740,6 +740,32 @@ export async function fetchPostsByProductId(
   return mapSupabasePostRowsToGlobalUserVideoPosts(data ?? []);
 }
 
+/** Enkele post ophalen voor deep links / gedeelde URLs. */
+export async function fetchPostById(
+  postId: string
+): Promise<UserVideoPost | null> {
+  if (!isUuid(postId)) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select("*")
+    .eq("id", postId)
+    .eq("is_deleted", false)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+  if (!data) {
+    return null;
+  }
+
+  const mapped = await mapSupabasePostRowsToGlobalUserVideoPosts([data]);
+  return mapped[0] ?? null;
+}
+
 export type DeleteMyPostResult = {
   success?: boolean;
   post_id?: string;

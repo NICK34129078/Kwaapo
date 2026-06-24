@@ -14,7 +14,7 @@ import { ProductListingImage } from "./ProductListingImage";
 import { theme } from "../constants/theme";
 import { fetchActiveProductsByOwner } from "../services/productsService";
 import {
-  canSellerManageProducts,
+  canSellerPrepareProducts,
   fetchMySellerOnboarding,
 } from "../services/sellerOnboardingService";
 import type { Product } from "../types/product";
@@ -120,7 +120,7 @@ export function ProfileShopGrid({
       return;
     }
     void fetchMySellerOnboarding()
-      .then((row) => setCanAddProducts(canSellerManageProducts(row)))
+      .then((row) => setCanAddProducts(canSellerPrepareProducts(row)))
       .catch(() => setCanAddProducts(false));
   }, [isOwnProfile]);
 

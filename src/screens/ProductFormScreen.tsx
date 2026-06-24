@@ -19,8 +19,9 @@ import { theme } from "../constants/theme";
 import { SHOP_PRODUCT_CATEGORIES } from "../constants/shopCategories";
 import { useAuth } from "../context/AuthContext";
 import {
-  canSellerManageProducts,
+  canSellerPrepareProducts,
   fetchMySellerOnboarding,
+  isSellerPayoutReadyForSales,
 } from "../services/sellerOnboardingService";
 import {
   createProduct,
@@ -62,8 +63,9 @@ export function ProductFormScreen() {
   const [brand, setBrand] = useState("");
   const [stockText, setStockText] = useState("0");
   const [sizesText, setSizesText] = useState("");
-  const [isActive, setIsActive] = useState(true);
+  const [isActive, setIsActive] = useState(false);
   const [images, setImages] = useState<ImageDraft[]>([]);
+  const [payoutReady, setPayoutReady] = useState(false);
 
   useEffect(() => {
     if (productId) {
@@ -72,10 +74,15 @@ export function ProductFormScreen() {
     void (async () => {
       try {
         const onboarding = await fetchMySellerOnboarding();
-        if (!canSellerManageProducts(onboarding)) {
+        const ready = isSellerPayoutReadyForSales(onboarding);
+        setPayoutReady(ready);
+        if (!ready) {
+          setIsActive(false);
+        }
+        if (!canSellerPrepareProducts(onboarding)) {
           Alert.alert(
-            "Verificatie nodig",
-            "Je kunt producten toevoegen zodra je verkoopaccount is goedgekeurd.",
+            "Zakelijk account nodig",
+            "Alleen zakelijke verkopers kunnen producten voorbereiden.",
             [
               {
                 text: "Verkoopaccount",
@@ -104,7 +111,12 @@ export function ProductFormScreen() {
     setLoading(true);
     void (async () => {
       try {
-        const product = await fetchProductById(productId);
+        const [product, onboarding] = await Promise.all([
+          fetchProductById(productId),
+          fetchMySellerOnboarding(),
+        ]);
+        const ready = isSellerPayoutReadyForSales(onboarding);
+        setPayoutReady(ready);
         if (!product) {
           Alert.alert("Fout", "Product niet gevonden.");
           navigation.goBack();
@@ -118,7 +130,7 @@ export function ProductFormScreen() {
         setBrand(product.brand ?? "");
         setStockText(String(product.stock));
         setSizesText(formatSizesForInput(product.sizes));
-        setIsActive(product.isActive);
+        setIsActive(ready ? product.isActive : false);
         setImages(
           product.images.map((uri) => ({ uri, isRemote: true }))
         );
@@ -212,7 +224,7 @@ export function ProductFormScreen() {
         stock,
         images: uploadedUrls,
         sizes,
-        isActive,
+        isActive: payoutReady ? isActive : false,
       };
 
       if (isEdit && productId) {
@@ -232,6 +244,7 @@ export function ProductFormScreen() {
     category,
     description,
     images,
+    payoutReady,
     isActive,
     isEdit,
     name,
@@ -438,12 +451,24 @@ export function ProductFormScreen() {
             <View style={styles.switchTextWrap}>
               <Text style={styles.switchLabel}>Product actief</Text>
               <Text style={styles.switchHint}>
-                Inactieve producten zijn niet zichtbaar in je winkel-tab.
+                {payoutReady
+                  ? "Inactieve producten zijn niet zichtbaar in je winkel-tab."
+                  : "Rond Stripe-uitbetalingen af om producten publiek te activeren."}
               </Text>
             </View>
             <Switch
               value={isActive}
-              onValueChange={setIsActive}
+              onValueChange={(next) => {
+                if (next && !payoutReady) {
+                  Alert.alert(
+                    "Stripe nog niet klaar",
+                    "Je kunt concepten opslaan, maar pas publiceren zodra uitbetalingen volledig zijn ingesteld."
+                  );
+                  return;
+                }
+                setIsActive(next);
+              }}
+              disabled={!payoutReady}
               trackColor={{ false: theme.border, true: theme.accentSoft }}
               thumbColor={isActive ? theme.accent : theme.textMuted}
             />

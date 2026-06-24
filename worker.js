@@ -25,6 +25,7 @@ import {
 import {
   handleStripeConnectAccount,
   handleStripeConnectOnboardingLink,
+  handleStripeConnectPayoutManageLink,
   handleStripeConnectRefresh,
   handleStripeConnectReturn,
   handleStripeConnectStatus,
@@ -1220,6 +1221,153 @@ async function softDeletePostForUser(env, postId, userId) {
   );
 }
 
+/**
+ * @param {any} env
+ * @param {string} postId
+ */
+async function fetchPostByIdForShare(env, postId) {
+  const path =
+    "/posts?select=*" +
+    "&id=eq." + encodeURIComponent(postId) +
+    "&is_deleted=eq.false" +
+    "&limit=1";
+  const rows = await supabaseRequest(env, "GET", path);
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return null;
+  }
+  return rows[0];
+}
+
+/**
+ * @param {any} env
+ * @param {string} userId
+ */
+async function fetchProfileUsername(env, userId) {
+  if (!isUuidLike(userId)) {
+    return null;
+  }
+  const path =
+    "/profiles?select=username,display_name" +
+    "&id=eq." + encodeURIComponent(userId) +
+    "&limit=1";
+  const rows = await supabaseRequest(env, "GET", path);
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return null;
+  }
+  return rows[0];
+}
+
+/**
+ * Publieke web-fallback voor gedeelde post-URLs (`/post/<uuid>`).
+ * @param {any} env
+ * @param {Request} request
+ * @param {string} postId
+ */
+async function handlePostSharePage(env, request, postId) {
+  const origin = new URL(request.url).origin;
+  const deepLink = `lumen-fashion://post/${postId}`;
+  let post = null;
+  let username = "gebruiker";
+  let caption = "";
+  let thumb = "";
+
+  try {
+    post = await fetchPostByIdForShare(env, postId);
+    if (post) {
+      caption = typeof post.caption === "string" ? post.caption.trim() : "";
+      thumb =
+        typeof post.thumbnail_url === "string" && post.thumbnail_url.length > 0
+          ? post.thumbnail_url
+          : "";
+      const profile = await fetchProfileUsername(env, post.user_id || "");
+      const uname =
+        profile && typeof profile.username === "string"
+          ? profile.username.trim()
+          : "";
+      if (uname.length > 0) {
+        username = uname;
+      }
+    }
+  } catch (e) {
+    console.log("[post share page] load failed", {
+      postId,
+      error: (e && e.message) || String(e),
+    });
+  }
+
+  const title = post
+    ? `Reel van @${username} op Kwaapo`
+    : "Post op Kwaapo";
+  const description =
+    caption.length > 0
+      ? caption.slice(0, 180)
+      : "Bekijk deze reel in de Kwaapo-app.";
+  const pageUrl = `${origin}/post/${postId}`;
+  const safeTitle = title.replace(/[<>&"]/g, "");
+  const safeDescription = description.replace(/[<>&"]/g, "");
+  const safeUser = username.replace(/[<>&"]/g, "");
+  const ogImage =
+    thumb.length > 0
+      ? thumb.replace(/[<>&"]/g, "")
+      : "";
+
+  const html = `<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeTitle}</title>
+  <meta property="og:title" content="${safeTitle}" />
+  <meta property="og:description" content="${safeDescription}" />
+  <meta property="og:url" content="${pageUrl}" />
+  <meta property="og:type" content="website" />
+  ${ogImage ? `<meta property="og:image" content="${ogImage}" />` : ""}
+  <meta name="twitter:card" content="summary_large_image" />
+  <style>
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background:#0b0b0b; color:#fff; }
+    .wrap { max-width: 420px; margin: 0 auto; padding: 32px 20px; }
+    .card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; overflow: hidden; }
+    .thumb { width: 100%; aspect-ratio: 9/16; object-fit: cover; background: #151515; display:block; }
+    .meta { padding: 16px; }
+    h1 { font-size: 1.15rem; margin: 0 0 8px; }
+    p { color: rgba(255,255,255,0.72); line-height: 1.45; margin: 0 0 16px; }
+    a.btn { display:block; text-align:center; background:#b9d9f7; color:#0b0b0b; text-decoration:none; font-weight:700; padding:14px; border-radius:12px; }
+    .hint { margin-top: 14px; font-size: 12px; color: rgba(255,255,255,0.45); word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      ${ogImage ? `<img class="thumb" src="${ogImage}" alt="" />` : `<div class="thumb"></div>`}
+      <div class="meta">
+        <h1>@${safeUser}</h1>
+        <p>${safeDescription}</p>
+        <a class="btn" href="${deepLink}">Open in Kwaapo</a>
+        <p class="hint">${pageUrl}</p>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var deep = ${JSON.stringify(deepLink)};
+      var timer = setTimeout(function () {}, 1500);
+      try { window.location.href = deep; } catch (e) {}
+      clearTimeout(timer);
+    })();
+  </script>
+</body>
+</html>`;
+
+  return new Response(html, {
+    status: post ? 200 : 404,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "public, max-age=60",
+      ...cors,
+    },
+  });
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -1227,6 +1375,13 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    const postPathMatch = url.pathname.match(
+      /^\/post\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
+    );
+    if (request.method === "GET" && postPathMatch) {
+      return handlePostSharePage(env, request, postPathMatch[1]);
+    }
 
     if (request.method === "PUT" && url.searchParams.get("videoPut") === "1") {
       return handleVideoPut(request, url, env);
@@ -1508,6 +1663,9 @@ export default {
       }
       if (url.searchParams.get("stripeConnectOnboardingLink") === "1") {
         return handleStripeConnectOnboardingLink(request, env, cors);
+      }
+      if (url.searchParams.get("stripeConnectPayoutManageLink") === "1") {
+        return handleStripeConnectPayoutManageLink(request, env, cors);
       }
       if (url.searchParams.get("kvkVerify") === "1") {
         return handleKvkVerify(request, env, cors);

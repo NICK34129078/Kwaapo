@@ -17,3 +17,4 @@ web-build/
 .env
 .env.*
 !.env.example
+.dev.vars

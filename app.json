@@ -12,7 +12,15 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.lumen.fashion"
+      "bundleIdentifier": "com.lumen.fashion",
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": [
+          "whatsapp",
+          "instagram",
+          "snapchat",
+          "discord"
+        ]
+      }
     },
     "android": {
       "package": "com.lumen.fashion"

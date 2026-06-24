@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
 import { AvatarImage } from "../components/AvatarImage";
 import { ProductListingImage } from "../components/ProductListingImage";
+import { ProductSellerBusinessInfoModal } from "../components/ProductSellerBusinessInfoModal";
 import { useAuth } from "../context/AuthContext";
 import {
   deleteProduct,
@@ -33,6 +34,8 @@ import type { UserVideoPost } from "../types/userVideoPost";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
   canSellerAcceptSales,
+  getPublicSellerBusinessName,
+  isVerifiedBusinessSellerForBuyers,
   shouldWarnUnverifiedSeller,
 } from "../services/sellerOnboardingService";
 
@@ -151,6 +154,7 @@ export function ProductDetailScreen() {
   const [busy, setBusy] = useState(false);
   const [imageIndex, setImageIndex] = useState(0);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  const [businessInfoVisible, setBusinessInfoVisible] = useState(false);
   const thumbListRef = useRef<FlatList<string>>(null);
 
   const heroHeight = Math.min(width * 1.05, 460);
@@ -186,14 +190,34 @@ export function ProductDetailScreen() {
   const images = product?.images ?? [];
   const heroUri = images[imageIndex] ?? images[0];
 
-  const sellerName = useMemo(() => {
+  const verifiedBusinessSeller = useMemo(
+    () => (seller ? isVerifiedBusinessSellerForBuyers(seller) : false),
+    [seller]
+  );
+
+  const sellerDisplayName = useMemo(() => {
     if (!seller) {
       return "Onbekende verkoper";
     }
-    return seller.displayName?.trim() || seller.username?.trim() || "Business";
-  }, [seller]);
+    return getPublicSellerBusinessName(seller, verifiedBusinessSeller);
+  }, [seller, verifiedBusinessSeller]);
 
-  const sellerUsername = seller?.username ? `@${seller.username}` : "@business";
+  const sellerUsername = useMemo(() => {
+    if (!seller?.username?.trim()) {
+      return null;
+    }
+    return `@${seller.username.trim()}`;
+  }, [seller?.username]);
+
+  const sellerSubtitle = useMemo(() => {
+    if (verifiedBusinessSeller) {
+      return sellerUsername;
+    }
+    if (sellerUsername) {
+      return `Verkocht door ${sellerUsername}`;
+    }
+    return "Verkocht door onbekende verkoper";
+  }, [sellerUsername, verifiedBusinessSeller]);
 
   const showSellerVerificationWarning = useMemo(() => {
     if (!seller || canManage) {
@@ -260,14 +284,7 @@ export function ProductDetailScreen() {
   }, [navigation, product]);
 
   const sellerSalesActive = useMemo(
-    () =>
-      seller
-        ? canSellerAcceptSales({
-            status: seller.sellerOnboardingStatus,
-            stripeChargesEnabled: seller.stripeChargesEnabled,
-            stripePayoutsEnabled: seller.stripePayoutsEnabled,
-          })
-        : false,
+    () => (seller ? canSellerAcceptSales(seller) : false),
     [seller]
   );
 
@@ -468,6 +485,81 @@ export function ProductDetailScreen() {
                 </View>
               </View>
 
+              {showSellerVerificationWarning ? (
+                <View style={styles.verifyWarning}>
+                  <Ionicons name="information-circle-outline" size={20} color="#f5c542" />
+                  <Text style={styles.verifyWarningText}>
+                    Deze verkoper is nog niet volledig geverifieerd. Kopen is nog niet
+                    mogelijk tot het verkoopaccount is goedgekeurd.
+                  </Text>
+                </View>
+              ) : null}
+
+              <View style={styles.sellerBlock}>
+                <Text style={styles.sellerSectionEyebrow}>Verkocht door</Text>
+                <View style={styles.sellerRow}>
+                  <AvatarImage uri={seller?.avatarUrl} style={styles.sellerAvatar} />
+                  <View style={styles.sellerTextWrap}>
+                    <Text style={styles.sellerName} numberOfLines={2}>
+                      {sellerDisplayName}
+                    </Text>
+                    {verifiedBusinessSeller ? (
+                      <View style={styles.verifiedBadge}>
+                        <Ionicons
+                          name="shield-checkmark"
+                          size={13}
+                          color={theme.accent}
+                        />
+                        <Text style={styles.verifiedBadgeText}>
+                          Geverifieerde zakelijke verkoper
+                        </Text>
+                      </View>
+                    ) : null}
+                    <Text style={styles.sellerUsername} numberOfLines={1}>
+                      {sellerSubtitle}
+                    </Text>
+                    {verifiedBusinessSeller && seller?.kvkNumber?.trim() ? (
+                      <Text style={styles.sellerKvk}>
+                        KVK: {seller.kvkNumber.trim()}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+                <View style={styles.sellerActions}>
+                  {verifiedBusinessSeller ? (
+                    <Pressable
+                      style={styles.sellerActionBtn}
+                      onPress={() => setBusinessInfoVisible(true)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Bekijk bedrijfsinformatie"
+                    >
+                      <Text style={styles.sellerActionBtnText}>
+                        Bekijk bedrijfsinformatie
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    style={[
+                      styles.sellerActionBtn,
+                      verifiedBusinessSeller && styles.sellerActionBtnSecondary,
+                    ]}
+                    onPress={onSellerPress}
+                    disabled={!seller?.id}
+                    accessibilityRole="button"
+                    accessibilityLabel="Bekijk verkopersprofiel"
+                  >
+                    <Text
+                      style={[
+                        styles.sellerActionBtnText,
+                        verifiedBusinessSeller && styles.sellerActionBtnTextSecondary,
+                      ]}
+                    >
+                      Bekijk verkopersprofiel
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+
               {product.sizes.length > 0 ? (
                 <View style={styles.section}>
                   <Text style={styles.sectionLabel}>Maten</Text>
@@ -552,39 +644,6 @@ export function ProductDetailScreen() {
                 )}
               </View>
 
-              {showSellerVerificationWarning ? (
-                <View style={styles.verifyWarning}>
-                  <Ionicons name="information-circle-outline" size={20} color="#f5c542" />
-                  <Text style={styles.verifyWarningText}>
-                    Deze verkoper is nog niet volledig geverifieerd. Kopen is nog niet
-                    mogelijk tot het verkoopaccount is goedgekeurd.
-                  </Text>
-                </View>
-              ) : null}
-
-              <View style={styles.sellerBlock}>
-                <Text style={styles.sectionLabel}>Verkocht door</Text>
-                <View style={styles.sellerRow}>
-                  <AvatarImage uri={seller?.avatarUrl} style={styles.sellerAvatar} />
-                  <View style={styles.sellerTextWrap}>
-                    <Text style={styles.sellerName} numberOfLines={1}>
-                      {sellerName}
-                    </Text>
-                    <Text style={styles.sellerUsername} numberOfLines={1}>
-                      {sellerUsername}
-                    </Text>
-                  </View>
-                  <Pressable
-                    style={styles.profileBtn}
-                    onPress={onSellerPress}
-                    accessibilityRole="button"
-                    accessibilityLabel="Bekijk profiel"
-                  >
-                    <Text style={styles.profileBtnText}>Bekijk profiel</Text>
-                  </Pressable>
-                </View>
-              </View>
-
               {canManage ? (
                 <View style={styles.manageActions}>
                   <Pressable
@@ -641,6 +700,12 @@ export function ProductDetailScreen() {
               </Pressable>
             </View>
           ) : null}
+          <ProductSellerBusinessInfoModal
+            visible={businessInfoVisible}
+            seller={seller}
+            verifiedBusiness={verifiedBusinessSeller}
+            onClose={() => setBusinessInfoVisible(false)}
+          />
         </>
       )}
     </View>
@@ -902,16 +967,24 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   sellerBlock: {
-    marginTop: 26,
-    padding: 14,
+    marginTop: 22,
+    padding: 16,
     borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.055)",
+    backgroundColor: "rgba(255,255,255,0.045)",
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
+    gap: 14,
+  },
+  sellerSectionEyebrow: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
   },
   sellerRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
   },
   sellerAvatar: {
@@ -932,24 +1005,70 @@ const styles = StyleSheet.create({
   },
   sellerName: {
     color: theme.text,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "800",
+    lineHeight: 22,
+  },
+  verifiedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 5,
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: theme.accentLight,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.accentBorder,
+  },
+  verifiedBadgeText: {
+    color: theme.accent,
+    fontSize: 11,
+    fontWeight: "700",
   },
   sellerUsername: {
     color: theme.textMuted,
     fontSize: 13,
-    marginTop: 2,
+    marginTop: 6,
+    lineHeight: 18,
   },
-  profileBtn: {
-    borderRadius: 999,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
+  sellerKvk: {
+    color: theme.textMuted,
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+  },
+  sellerActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  sellerActionBtn: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: "46%",
+    borderRadius: 12,
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
     backgroundColor: theme.accent,
   },
-  profileBtnText: {
+  sellerActionBtnSecondary: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  sellerActionBtnText: {
     color: theme.bg,
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  sellerActionBtnTextSecondary: {
+    color: theme.text,
   },
   manageActions: {
     paddingTop: 22,

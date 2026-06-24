@@ -25,9 +25,13 @@ import {
 } from "../services/productsService";
 import { fetchSellerOrders } from "../services/ordersService";
 import {
+  canSellerPrepareProducts,
   canSellerManageProducts,
   fetchMySellerOnboarding,
+  isSellerPayoutReadyForSales,
+  resolveSellerDashboardUI,
 } from "../services/sellerOnboardingService";
+import { startStripePayoutManagement } from "../services/stripeConnectService";
 import { SellerOnboardingStatusCard } from "../components/SellerOnboardingStatusCard";
 import type { SellerOnboarding } from "../types/sellerOnboarding";
 import type { Product } from "../types/product";
@@ -243,6 +247,14 @@ export function MyShopScreen() {
     void load().finally(() => setRefreshing(false));
   }, [load]);
 
+  const canPublishProducts = canSellerManageProducts(sellerOnboarding);
+  const canPrepareProducts = canSellerPrepareProducts(sellerOnboarding);
+  const sellerDashboard = resolveSellerDashboardUI(sellerOnboarding);
+
+  const openOnboarding = useCallback(() => {
+    navigation.navigate("SellerOnboarding");
+  }, [navigation]);
+
   const confirmDelete = useCallback(
     (product: Product) => {
       Alert.alert(
@@ -272,20 +284,34 @@ export function MyShopScreen() {
     []
   );
 
-  const onToggleActive = useCallback(async (product: Product, next: boolean) => {
-    setToggleBusyId(product.id);
-    try {
-      const updated = await setProductActive(product.id, next);
-      setProducts((prev) =>
-        prev.map((p) => (p.id === product.id ? updated : p))
-      );
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Status wijzigen mislukt.";
-      Alert.alert("Fout", msg);
-    } finally {
-      setToggleBusyId(null);
-    }
-  }, []);
+  const onToggleActive = useCallback(
+    async (product: Product, next: boolean) => {
+      if (next && !canPublishProducts) {
+        Alert.alert(
+          "Stripe nog niet klaar",
+          "Rond je verkoopaccount en Stripe-uitbetalingen af voordat je producten publiek activeert.",
+          [
+            { text: "Annuleren", style: "cancel" },
+            { text: "Verkoopaccount", onPress: openOnboarding },
+          ]
+        );
+        return;
+      }
+      setToggleBusyId(product.id);
+      try {
+        const updated = await setProductActive(product.id, next);
+        setProducts((prev) =>
+          prev.map((p) => (p.id === product.id ? updated : p))
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Status wijzigen mislukt.";
+        Alert.alert("Fout", msg);
+      } finally {
+        setToggleBusyId(null);
+      }
+    },
+    [canPublishProducts, openOnboarding]
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: Product }) => (
@@ -334,17 +360,11 @@ export function MyShopScreen() {
     [activeTab, filteredOrders, products]
   );
 
-  const canManageProducts = canSellerManageProducts(sellerOnboarding);
-
-  const openOnboarding = useCallback(() => {
-    navigation.navigate("SellerOnboarding");
-  }, [navigation]);
-
   const tryOpenProductForm = useCallback(() => {
-    if (!canManageProducts) {
+    if (!canPrepareProducts) {
       Alert.alert(
-        "Verificatie nodig",
-        "Rond je verkoopaccount af en wacht op goedkeuring voordat je producten toevoegt.",
+        "Zakelijk account nodig",
+        "Stel eerst een zakelijk verkoopaccount in voordat je producten voorbereidt.",
         [
           { text: "Annuleren", style: "cancel" },
           { text: "Verkoopaccount", onPress: openOnboarding },
@@ -353,7 +373,17 @@ export function MyShopScreen() {
       return;
     }
     navigation.navigate("ProductForm", {});
-  }, [canManageProducts, navigation, openOnboarding]);
+  }, [canPrepareProducts, navigation, openOnboarding]);
+
+  const onManagePayout = useCallback(async () => {
+    const result = await startStripePayoutManagement();
+    if (!result.ok) {
+      Alert.alert("Stripe", result.message);
+      return;
+    }
+    const row = await fetchMySellerOnboarding();
+    setSellerOnboarding(row);
+  }, []);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
@@ -425,13 +455,25 @@ export function MyShopScreen() {
                   onPress={openOnboarding}
                 />
               ) : null}
-              {!canManageProducts && activeTab === "products" ? (
+              {sellerDashboard.showPayoutManage ? (
+                <Pressable
+                  style={styles.payoutManageBtn}
+                  onPress={() => void onManagePayout()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Uitbetalingsrekening beheren"
+                >
+                  <Text style={styles.payoutManageBtnText}>
+                    Uitbetalingsrekening beheren
+                  </Text>
+                </Pressable>
+              ) : null}
+              {!canPrepareProducts && activeTab === "products" ? (
                 <View style={styles.productsGate}>
                   <Ionicons name="shield-checkmark-outline" size={36} color={theme.textMuted} />
                   <Text style={styles.productsGateTitle}>Eerst verkoopaccount afronden</Text>
                   <Text style={styles.productsGateText}>
-                    Na goedkeuring van je KVK- en bedrijfsgegevens kun je producten toevoegen
-                    en officiële verkopen ontvangen.
+                    Stel een zakelijk verkoopaccount in om productconcepten voor te bereiden.
+                    Publiek activeren kan pas na Stripe-uitbetalingen.
                   </Text>
                   <Pressable
                     style={styles.primaryBtn}
@@ -524,9 +566,11 @@ export function MyShopScreen() {
               ) : null}
               <Text style={styles.subtitle}>
                 {activeTab === "products"
-                  ? canManageProducts
-                    ? "Beheer je producten. Lang indrukken om te verwijderen."
-                    : "Producten toevoegen is beschikbaar na goedkeuring van je verkoopaccount."
+                  ? canPrepareProducts
+                    ? canPublishProducts
+                      ? "Beheer je producten. Lang indrukken om te verwijderen."
+                      : "Bereid concepten voor. Publiek activeren kan na volledige Stripe-setup."
+                    : "Producten toevoegen is beschikbaar na een zakelijk verkoopaccount."
                   : "Filter op status en tik een bestelling voor verzendgegevens."}
               </Text>
             </View>
@@ -552,7 +596,7 @@ export function MyShopScreen() {
                     ? "Nieuwe bestellingen verschijnen hier."
                     : "Kies een ander filter om meer orders te zien."}
               </Text>
-              {activeTab === "products" && canManageProducts ? (
+              {activeTab === "products" && canPrepareProducts ? (
                 <Pressable
                   style={styles.primaryBtn}
                   onPress={tryOpenProductForm}
@@ -897,5 +941,21 @@ const styles = StyleSheet.create({
     color: theme.bg,
     fontSize: 15,
     fontWeight: "700",
+  },
+  payoutManageBtn: {
+    marginBottom: 14,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.accentBorder,
+    backgroundColor: theme.accentLight,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  payoutManageBtnText: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: "800",
   },
 });

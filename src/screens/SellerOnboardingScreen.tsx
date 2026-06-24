@@ -18,12 +18,15 @@ import { theme } from "../constants/theme";
 import {
   refreshStripeConnectStatus,
   startStripeConnectOnboarding,
+  startStripePayoutManagement,
 } from "../services/stripeConnectService";
 import {
   fetchMySellerOnboarding,
   hasCompletedStripePayoutSetup,
+  isSellerFullyReadyForLiveSales,
   isStripePayoutFullyActive,
   markSellerPendingReview,
+  resolveSellerDashboardUI,
   resolveSellerOnboardingStep,
   sellerPayoutStatusLabel,
   updateMyBusinessInfo,
@@ -178,6 +181,7 @@ export function SellerOnboardingScreen() {
   }, []);
 
   const stripeDone = hasCompletedStripePayoutSetup(onboarding);
+  const dashboardUI = resolveSellerDashboardUI(onboarding);
   const stripePayoutsActive = isStripePayoutFullyActive(onboarding);
   const stripePayoutLabel = sellerPayoutStatusLabel(onboarding);
   const hasConnectAccount = !!onboarding?.stripeConnectAccountId;
@@ -226,18 +230,42 @@ export function SellerOnboardingScreen() {
       await updateMyBusinessInfo(buildPayload());
       const updated = await markSellerPendingReview();
       setOnboarding(updated);
-      Alert.alert(
-        "Ingediend",
-        "Je gegevens worden gecontroleerd. Pas na goedkeuring kun je producten toevoegen en verkopen.",
-        [{ text: "OK", onPress: () => navigation.goBack() }]
-      );
+      if (isSellerFullyReadyForLiveSales(updated)) {
+        Alert.alert(
+          "Verkoopaccount actief",
+          "Je kunt nu producten toevoegen en verkopen. Uitbetalingen worden verwerkt via Stripe.",
+          [{ text: "OK", onPress: () => navigation.goBack() }]
+        );
+      } else {
+        Alert.alert(
+          "Nog niet volledig actief",
+          "Rond Stripe-verificatie en bedrijfsgegevens af. Uitbetalingen worden verwerkt via Stripe.",
+        );
+      }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Indienen mislukt.";
+      const msg = e instanceof Error ? e.message : "Activeren mislukt.";
       Alert.alert("Fout", msg);
     } finally {
       setSubmitting(false);
     }
   }, [buildPayload, navigation]);
+
+  const onManagePayoutAccount = useCallback(async () => {
+    setSubmitting(true);
+    try {
+      const result = await startStripePayoutManagement();
+      const row = await refreshOnboardingFromServer();
+      setOnboarding(row);
+      if (!result.ok) {
+        Alert.alert("Stripe", result.message);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Stripe openen mislukt.";
+      Alert.alert("Fout", msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [refreshOnboardingFromServer]);
 
   const isPending = onboarding?.status === "pending_review";
   const isVerified = onboarding?.status === "verified";
@@ -296,20 +324,16 @@ export function SellerOnboardingScreen() {
         >
           {isPending ? (
             <View style={styles.infoBox}>
-              <Text style={styles.infoTitle}>In controle</Text>
-              <Text style={styles.infoText}>
-                We controleren je KVK- en bedrijfsgegevens. Tot de goedkeuring kun
-                je geen producten toevoegen of verkopen.
-              </Text>
+              <Text style={styles.infoTitle}>{dashboardUI.title}</Text>
+              <Text style={styles.infoText}>{dashboardUI.message}</Text>
             </View>
           ) : null}
 
           {isVerified ? (
             <View style={[styles.infoBox, styles.infoBoxSuccess]}>
-              <Text style={styles.infoTitle}>Klaar om te verkopen</Text>
+              <Text style={styles.infoTitle}>Je verkoopaccount is actief</Text>
               <Text style={styles.infoText}>
-                Je verkoopaccount is goedgekeurd. Je kunt nu producten toevoegen en
-                officiële verkopen ontvangen.
+                Uitbetalingen gaan veilig via Stripe naar je opgegeven rekening.
               </Text>
             </View>
           ) : null}
@@ -426,12 +450,25 @@ export function SellerOnboardingScreen() {
                 <Text style={styles.stripeCardTitle}>{stripePayoutLabel}</Text>
                 <Text style={styles.stripeCardText}>
                   {stripePayoutsActive
-                    ? "Je Stripe-uitbetalingen zijn actief."
+                    ? "Uitbetalingen worden verwerkt via Stripe."
                     : stripeDone
                       ? "Stripe controleert je gegevens. Dit kan even duren."
-                      : "Open Stripe om je bankrekening en identiteit te bevestigen."}
+                      : "Open Stripe om je bankrekening en identiteit te bevestigen. Kwaapo slaat geen bankgegevens op."}
                 </Text>
               </View>
+              {hasConnectAccount ? (
+                <Pressable
+                  style={[styles.secondaryBtn, styles.inlineManageBtn]}
+                  onPress={() => void onManagePayoutAccount()}
+                  disabled={submitting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Uitbetalingsrekening beheren"
+                >
+                  <Text style={styles.secondaryBtnText}>
+                    Uitbetalingsrekening beheren
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
 
@@ -439,8 +476,8 @@ export function SellerOnboardingScreen() {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Controle</Text>
               <Text style={styles.reviewHint}>
-                Controleer alles en dien in. Daarna staat je status op{" "}
-                <Text style={styles.reviewHintAccent}>In controle</Text>.
+                Controleer je gegevens. Je verkoopaccount wordt automatisch actief
+                zodra KVK en Stripe volledig zijn afgerond.
               </Text>
               <View style={styles.reviewRow}>
                 <Text style={styles.reviewLabel}>Type</Text>
@@ -487,9 +524,22 @@ export function SellerOnboardingScreen() {
               <View style={styles.reviewRow}>
                 <Text style={styles.reviewLabel}>Status</Text>
                 <Text style={styles.reviewValue}>
-                  {isVerified ? "Goedgekeurd" : "In controle"}
+                  {isVerified ? "Actief" : dashboardUI.title}
                 </Text>
               </View>
+              {isVerified ? (
+                <Pressable
+                  style={[styles.secondaryBtn, styles.inlineManageBtn]}
+                  onPress={() => void onManagePayoutAccount()}
+                  disabled={submitting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Uitbetalingsrekening beheren"
+                >
+                  <Text style={styles.secondaryBtnText}>
+                    Uitbetalingsrekening beheren
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
         </ScrollView>
@@ -565,12 +615,12 @@ export function SellerOnboardingScreen() {
                 onPress={() => void onSubmitForReview()}
                 disabled={submitting || !stripeDone}
                 accessibilityRole="button"
-                accessibilityLabel="Gegevens indienen"
+                accessibilityLabel="Status controleren en activeren"
               >
                 {submitting ? (
                   <ActivityIndicator size="small" color={theme.bg} />
                 ) : (
-                  <Text style={styles.primaryBtnText}>Indienen ter controle</Text>
+                  <Text style={styles.primaryBtnText}>Status controleren</Text>
                 )}
               </Pressable>
             </>
@@ -816,6 +866,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
+  },
+  inlineManageBtn: {
+    marginTop: 14,
+    alignSelf: "stretch",
   },
   secondaryBtnText: {
     color: theme.text,

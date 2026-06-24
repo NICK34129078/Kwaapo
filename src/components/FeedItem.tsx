@@ -48,6 +48,8 @@ import {
 import { formatPriceEur } from "../utils/formatPrice";
 import { PressableScale } from "./PressableScale";
 import { theme } from "../constants/theme";
+import { fetchPostShareCount } from "../services/postSharesService";
+import { sharePostNative } from "../services/sharePostService";
 
 export type FeedItemPlaybackMetrics = {
   durationMs?: number;
@@ -71,6 +73,8 @@ type Props = {
  * 40–44dp audio). Video kon hier niet worden uitgemeten — stuur desnoods screenshots.
  */
 const ACTION_ICON = 28;
+const SHARE_ICON = 30;
+const SHARE_ROTATION_DEG = -14;
 const MORE_ICON = 24;
 const ICON_TO_LABEL = 3;
 const GROUP_GAP = 20;
@@ -289,7 +293,12 @@ export function FeedItem({
   const [commentsCount, setCommentsCount] = useState(() =>
     resolveCommentsCount(item)
   );
-  const shareCount = item.shares ?? "—";
+  const [shareCount, setShareCount] = useState(() => {
+    const raw = item.shares ?? "0";
+    const digits = String(raw).replace(/[^\d]/g, "");
+    const parsed = parseInt(digits, 10);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  });
   const ownerLabel =
     item.ownerUsername && item.ownerUsername.length > 0
       ? `@${item.ownerUsername}`
@@ -624,12 +633,44 @@ export function FeedItem({
     setCommentsVisible(true);
   };
 
-  const onSharePress = () => {
-    if (user == null) {
-      openAuthPrompt({
-        message: "Log in om te delen.",
-      });
+  useEffect(() => {
+    if (!isPersistablePostId(item.id)) {
+      return;
     }
+    let cancelled = false;
+    void fetchPostShareCount(item.id)
+      .then((count) => {
+        if (!cancelled && count > 0) {
+          setShareCount(count);
+        }
+      })
+      .catch(() => {
+        /* stil falen */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id]);
+
+  const shareBusyRef = useRef(false);
+
+  const onSharePress = () => {
+    if (shareBusyRef.current) {
+      return;
+    }
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    shareBusyRef.current = true;
+    void sharePostNative(item, { userId: user?.id ?? null })
+      .then((result) => {
+        if (result.success) {
+          setShareCount((c) => c + 1);
+        }
+      })
+      .finally(() => {
+        shareBusyRef.current = false;
+      });
   };
 
   const [isSaved, setIsSaved] = useState<boolean>(
@@ -928,13 +969,22 @@ export function FeedItem({
           </Text>
         </PressableScale>
 
-        <PressableScale style={styles.railAction} scaleTo={0.9} onPress={onSharePress}>
+        <PressableScale
+          style={styles.railAction}
+          scaleTo={0.93}
+          onPress={onSharePress}
+          accessibilityRole="button"
+          accessibilityLabel="Deel deze reel"
+        >
           <Ionicons
             name="paper-plane-outline"
-            size={ACTION_ICON}
+            size={SHARE_ICON}
             color={theme.text}
+            style={styles.shareIcon}
           />
-          <Text style={styles.railCount}>{shareCount}</Text>
+          <Text style={styles.railCount}>
+            {formatLikesForDisplay(shareCount)}
+          </Text>
         </PressableScale>
 
         <PressableScale
@@ -1051,6 +1101,7 @@ export function FeedItem({
           setCommentsCount((c) => Math.max(0, c - 1))
         }
       />
+
     </View>
   );
 }
@@ -1096,6 +1147,9 @@ const styles = StyleSheet.create({
   railAction: {
     alignItems: "center",
     gap: ICON_TO_LABEL,
+  },
+  shareIcon: {
+    transform: [{ rotate: `${SHARE_ROTATION_DEG}deg` }],
   },
   railMoreRow: {
     gap: 0,

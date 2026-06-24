@@ -10,10 +10,11 @@ import {
   type SellerOnboarding,
   type SellerOnboardingRow,
   type SellerOnboardingStatus,
+  type SellerType,
 } from "../types/sellerOnboarding";
 
 const SELLER_ONBOARDING_COLUMNS =
-  "id, seller_onboarding_status, seller_type, business_name, kvk_number, vat_number, business_email, business_phone, business_country, business_city, business_postal_code, business_street, business_house_number, stripe_connect_account_id, stripe_connect_onboarding_complete, stripe_charges_enabled, stripe_payouts_enabled, seller_verified_at, seller_rejection_reason, display_name, kvk_verified_at, kvk_verification_source";
+  "id, seller_onboarding_status, seller_type, business_name, kvk_number, vat_number, business_email, business_phone, business_country, business_city, business_postal_code, business_street, business_house_number, stripe_connect_account_id, stripe_connect_onboarding_complete, stripe_charges_enabled, stripe_payouts_enabled, stripe_requirements_currently_due, stripe_requirements_disabled_reason, stripe_status_updated_at, seller_verified_at, seller_rejection_reason, display_name, kvk_verified_at, kvk_verification_source";
 
 function clean(value: string | null | undefined): string {
   return value?.trim() ?? "";
@@ -95,25 +96,109 @@ function validateBusinessPayload(payload: BusinessInfoPayload): BusinessInfoPayl
   };
 }
 
-/** Verkoper mag officiële uitbetalingen ontvangen (live-modus). */
-export function canSellerReceivePayments(
+/** Minimale velden voor payout-ready check (client UX; server/RLS is bron van waarheid). */
+export type SellerPayoutReadyPick = Pick<
+  SellerOnboarding,
+  | "stripeConnectAccountId"
+  | "stripeConnectOnboardingComplete"
+  | "stripeChargesEnabled"
+  | "stripePayoutsEnabled"
+> & {
+  status?: SellerOnboardingStatus;
+  sellerOnboardingStatus?: SellerOnboardingStatus;
+};
+
+/** Koper-zichtbare verified business badge (payout-ready + KVK geverifieerd). */
+export type BuyerVisibleSellerPick = SellerPayoutReadyPick & {
+  sellerType?: SellerType | null;
+  kvkVerifiedAt?: string | null;
+  /** Alias wanneer data uit ProductSeller komt. */
+  sellerOnboardingStatus?: SellerOnboardingStatus;
+};
+
+function resolveSellerStatus(
+  seller: BuyerVisibleSellerPick | SellerOnboarding | SellerPayoutReadyPick
+): SellerOnboardingStatus {
+  if ("status" in seller && seller.status) {
+    return seller.status;
+  }
+  if ("sellerOnboardingStatus" in seller && seller.sellerOnboardingStatus) {
+    return seller.sellerOnboardingStatus;
+  }
+  return "not_started";
+}
+
+/** Alle Stripe/seller-voorwaarden voor live verkoop en publiceren. */
+export function isSellerPayoutReadyForSales(
   onboarding:
+    | SellerPayoutReadyPick
+    | BuyerVisibleSellerPick
     | SellerOnboarding
-    | Pick<
-        SellerOnboarding,
-        "status" | "stripeChargesEnabled" | "stripePayoutsEnabled"
-      >
     | null
     | undefined
 ): boolean {
   if (!onboarding) {
     return false;
   }
+  const status = resolveSellerStatus(onboarding);
+  const accountId = (onboarding.stripeConnectAccountId ?? "").trim();
   return (
-    onboarding.status === "verified" &&
-    onboarding.stripePayoutsEnabled &&
-    onboarding.stripeChargesEnabled
+    status === "verified" &&
+    accountId.startsWith("acct_") &&
+    onboarding.stripeConnectOnboardingComplete === true &&
+    onboarding.stripeChargesEnabled === true &&
+    onboarding.stripePayoutsEnabled === true
   );
+}
+
+export function isVerifiedBusinessSellerForBuyers(
+  seller: BuyerVisibleSellerPick | SellerOnboarding | null | undefined
+): boolean {
+  if (!seller) {
+    return false;
+  }
+  if (seller.sellerType && seller.sellerType !== "business") {
+    return false;
+  }
+  return isSellerPayoutReadyForSales(seller) && !!seller.kvkVerifiedAt;
+}
+
+export function getPublicSellerBusinessName(
+  seller: {
+    businessName?: string | null;
+    displayName?: string | null;
+    username?: string | null;
+  },
+  verifiedBusiness: boolean
+): string {
+  if (verifiedBusiness) {
+    const business = clean(seller.businessName);
+    if (business) {
+      return business;
+    }
+  }
+  return clean(seller.displayName) || clean(seller.username) || "Verkoper";
+}
+
+export function formatPublicBusinessLocation(
+  seller: Pick<
+    SellerOnboarding,
+    "businessCity" | "businessPostalCode" | "businessCountry"
+  >
+): string | null {
+  const parts = [
+    clean(seller.businessCity),
+    clean(seller.businessPostalCode),
+    clean(seller.businessCountry),
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+/** Verkoper mag officiële uitbetalingen ontvangen (live-modus). */
+export function canSellerReceivePayments(
+  onboarding: SellerPayoutReadyPick | SellerOnboarding | null | undefined
+): boolean {
+  return isSellerPayoutReadyForSales(onboarding);
 }
 
 /** Account handmatig goedgekeurd voor verkoop. */
@@ -123,25 +208,25 @@ export function isSellerVerified(
   return onboarding?.status === "verified";
 }
 
-/** Producten toevoegen/beheren — alleen na goedkeuring. */
+/** Producten publiceren (actief zetten) — zelfde eisen als checkout. */
 export function canSellerManageProducts(
   onboarding: SellerOnboarding | null | undefined
 ): boolean {
-  return isSellerVerified(onboarding);
+  return isSellerPayoutReadyForSales(onboarding);
 }
 
-/** Echte verkoop/checkout — verified + Stripe Connect volledig actief. */
-export function canSellerAcceptSales(
-  onboarding:
-    | SellerOnboarding
-    | Pick<
-        SellerOnboarding,
-        "status" | "stripeChargesEnabled" | "stripePayoutsEnabled"
-      >
-    | null
-    | undefined
+/** Concept/draft voorbereiden in eigen shop (zonder publieke activering). */
+export function canSellerPrepareProducts(
+  onboarding: SellerOnboarding | null | undefined
 ): boolean {
-  return canSellerReceivePayments(onboarding);
+  return onboarding?.sellerType === "business";
+}
+
+/** Echte verkoop/checkout — verified + volledige Stripe Connect. */
+export function canSellerAcceptSales(
+  onboarding: SellerPayoutReadyPick | SellerOnboarding | null | undefined
+): boolean {
+  return isSellerPayoutReadyForSales(onboarding);
 }
 
 export function hasCompletedStripePayoutSetup(
@@ -163,11 +248,11 @@ export function isStripePayoutFullyActive(
   );
 }
 
-/** Ideale live-verkoop: handmatige verified + Stripe Connect volledig actief. */
+/** Ideale live-verkoop: verified + Stripe Connect volledig actief. */
 export function isSellerFullyReadyForLiveSales(
   onboarding: SellerOnboarding | null | undefined
 ): boolean {
-  return isSellerVerified(onboarding) && isStripePayoutFullyActive(onboarding);
+  return isSellerPayoutReadyForSales(onboarding);
 }
 
 export function getKvkStatusLabel(
@@ -310,60 +395,122 @@ export type SellerStatusCardContent = {
   tone: "default" | "success" | "warning" | "danger";
 };
 
-export function getSellerStatusCardContent(
-  status: SellerOnboardingStatus,
-  rejectionReason?: string | null
-): SellerStatusCardContent {
-  switch (status) {
-    case "not_started":
-      return {
-        title: "Verkoopaccount instellen",
-        message:
-          "Vul je verkopersgegevens in voordat je officiële betalingen kunt ontvangen.",
-        buttonLabel: "Start verificatie",
-        tone: "default",
-      };
-    case "needs_business_info":
-      return {
-        title: "Gegevens aanvullen",
-        message:
-          "Vul KVK en bedrijfsgegevens in en stel daarna je uitbetalingen in via Stripe.",
-        buttonLabel: "Verder met verificatie",
-        tone: "warning",
-      };
-    case "pending_review":
-      return {
-        title: "In controle",
-        message:
-          "We controleren je gegevens. Je kunt nog geen producten toevoegen of verkopen tot je account is goedgekeurd.",
-        buttonLabel: "Status bekijken",
-        tone: "warning",
-      };
-    case "verified":
-      return {
-        title: "Verkoopaccount actief",
-        message:
-          "Je bedrijfsgegevens zijn goedgekeurd. Controleer of Stripe-uitbetalingen ook actief zijn.",
-        buttonLabel: "Gegevens bekijken",
-        tone: "success",
-      };
-    case "rejected":
-      return {
-        title: "Verificatie afgewezen",
-        message:
-          rejectionReason?.trim() ||
-          "Je gegevens voldoen nog niet. Pas je gegevens aan en dien opnieuw in.",
-        buttonLabel: "Gegevens aanpassen",
-        tone: "danger",
-      };
-    default:
-      return {
-        title: "Verkoopaccount instellen",
-        message: "Vul je verkopersgegevens in om te kunnen verkopen.",
-        buttonLabel: "Start verificatie",
-        tone: "default",
-      };
+export type SellerDashboardUI = {
+  title: string;
+  message: string;
+  buttonLabel: string;
+  tone: "default" | "success" | "warning" | "danger";
+  showPayoutManage?: boolean;
+};
+
+function hasStripeRequirementsDue(onboarding: SellerOnboarding): boolean {
+  return onboarding.stripeRequirementsCurrentlyDue.length > 0;
+}
+
+/** UI-teksten voor seller dashboard (geen nepclaims over bankverificatie). */
+export function resolveSellerDashboardUI(
+  onboarding: SellerOnboarding | null | undefined
+): SellerDashboardUI {
+  if (!onboarding || onboarding.status === "not_started") {
+    return {
+      title: "Stel je verkoopaccount in",
+      message:
+        "Vul je bedrijfsgegevens in en rond Stripe-verificatie af voordat je kunt verkopen.",
+      buttonLabel: "Start verificatie",
+      tone: "default",
+    };
   }
+
+  if (onboarding.status === "rejected") {
+    return {
+      title: "Verificatie afgewezen",
+      message:
+        onboarding.sellerRejectionReason?.trim() ||
+        "Je gegevens voldoen nog niet. Pas je gegevens aan en probeer opnieuw.",
+      buttonLabel: "Gegevens aanpassen",
+      tone: "danger",
+    };
+  }
+
+  if (isSellerFullyReadyForLiveSales(onboarding)) {
+    return {
+      title: "Je verkoopaccount is actief",
+      message:
+        "Uitbetalingen gaan veilig via Stripe naar je opgegeven rekening.",
+      buttonLabel: "Verkoopaccount bekijken",
+      tone: "success",
+      showPayoutManage: true,
+    };
+  }
+
+  if (
+    onboarding.sellerType === "business" &&
+    onboarding.kvkNumber &&
+    !onboarding.kvkVerifiedAt
+  ) {
+    return {
+      title: "Vul je bedrijfsgegevens aan",
+      message:
+        "Je KVK-gegevens moeten worden geverifieerd voordat je kunt verkopen.",
+      buttonLabel: "Bedrijfsgegevens invullen",
+      tone: "warning",
+    };
+  }
+
+  if (hasStripeRequirementsDue(onboarding)) {
+    return {
+      title: "Stripe heeft aanvullende gegevens nodig",
+      message:
+        "Rond je Stripe-verificatie af. Uitbetalingen worden verwerkt via Stripe.",
+      buttonLabel: "Open Stripe om dit af te ronden",
+      tone: "warning",
+      showPayoutManage: true,
+    };
+  }
+
+  if (
+    onboarding.stripeConnectAccountId &&
+    !isStripePayoutFullyActive(onboarding)
+  ) {
+    return {
+      title: "Rond je Stripe-verificatie af",
+      message:
+        "Stripe controleert je gegevens of wacht op aanvullende informatie. Uitbetalingen worden verwerkt via Stripe.",
+      buttonLabel: "Doorgaan met Stripe",
+      tone: "warning",
+      showPayoutManage: true,
+    };
+  }
+
+  if (!onboarding.stripeConnectAccountId) {
+    return {
+      title: "Stel je verkoopaccount in",
+      message:
+        "Koppel Stripe om betalingen en uitbetalingen veilig te regelen. Kwaapo slaat geen bankgegevens op.",
+      buttonLabel: "Uitbetalingen instellen",
+      tone: "default",
+    };
+  }
+
+  return {
+    title: "Verkoopaccount nog niet actief",
+    message:
+      "Rond bedrijfsgegevens en Stripe-verificatie af om te kunnen verkopen.",
+    buttonLabel: "Verder met verificatie",
+    tone: "warning",
+  };
+}
+
+export function getSellerStatusCardContent(
+  onboarding: SellerOnboarding
+): SellerStatusCardContent {
+  const ui = resolveSellerDashboardUI(onboarding);
+  return {
+    title: ui.title,
+    message: ui.message,
+    buttonLabel: ui.buttonLabel,
+    tone: ui.tone,
+  };
 }
 
 export async function fetchMySellerOnboarding(): Promise<SellerOnboarding | null> {
@@ -448,23 +595,27 @@ export async function updateMyBusinessInfo(
   if (error) {
     throw error;
   }
-  return mapSellerOnboardingRow(data);
+  const mapped = mapSellerOnboardingRow(data);
+  void refreshSellerReadinessFromWorker().catch(() => undefined);
+  return mapped;
 }
 
 export async function markSellerPendingReview(): Promise<SellerOnboarding> {
   const userId = await getCurrentUserId();
 
-  const { data: current, error: readError } = await supabase
+  await refreshSellerReadinessFromWorker();
+
+  const { data, error } = await supabase
     .from("profiles")
     .select(SELLER_ONBOARDING_COLUMNS)
     .eq("id", userId)
     .single<SellerOnboardingRow>();
 
-  if (readError) {
-    throw readError;
+  if (error) {
+    throw error;
   }
 
-  const onboarding = mapSellerOnboardingRow(current);
+  const onboarding = mapSellerOnboardingRow(data);
   if (!onboarding.sellerType) {
     throw new Error("Kies eerst hoe je verkoopt.");
   }
@@ -481,37 +632,21 @@ export async function markSellerPendingReview(): Promise<SellerOnboarding> {
     throw new Error("Stel eerst je uitbetalingen via Stripe in.");
   }
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .update({
-      seller_onboarding_status: "pending_review",
-      seller_rejection_reason: null,
-    })
-    .eq("id", userId)
-    .select(SELLER_ONBOARDING_COLUMNS)
-    .single<SellerOnboardingRow>();
-
-  if (error) {
-    throw error;
+  if (onboarding.status === "verified" && isSellerFullyReadyForLiveSales(onboarding)) {
+    return onboarding;
   }
-  return mapSellerOnboardingRow(data);
+
+  if (onboarding.status === "verified") {
+    return onboarding;
+  }
+
+  throw new Error(
+    "Je verkoopaccount is nog niet volledig actief. Rond Stripe en bedrijfsgegevens af."
+  );
 }
 
-/**
- * Testmodus: markeer Stripe-uitbetalingen als voorbereid (geen echte Connect API).
- */
-export async function markMyStripePayoutSetupPrepared(): Promise<SellerOnboarding> {
-  const userId = await getCurrentUserId();
-
-  const { data, error } = await supabase
-    .from("profiles")
-    .update({ stripe_connect_onboarding_complete: true })
-    .eq("id", userId)
-    .select(SELLER_ONBOARDING_COLUMNS)
-    .single<SellerOnboardingRow>();
-
-  if (error) {
-    throw error;
-  }
-  return mapSellerOnboardingRow(data);
+/** Server-side readiness herberekenen (Stripe API + profielstatus). */
+export async function refreshSellerReadinessFromWorker(): Promise<void> {
+  const { refreshStripeConnectStatus } = await import("./stripeConnectService");
+  await refreshStripeConnectStatus();
 }

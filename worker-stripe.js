@@ -1,5 +1,10 @@
+import {
+  handleStripeAccountUpdated,
+  isSellerReadyForCheckout,
+} from "./worker-seller-readiness.js";
+
 /**
- * Stripe Checkout (test mode) — server-side only.
+ * Stripe Checkout — server-side only.
  * Secrets: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, CHECKOUT_SUCCESS_URL, CHECKOUT_CANCEL_URL
  */
 
@@ -89,7 +94,7 @@ async function fetchFirstOrderItem(env, orderId) {
 const PLATFORM_FEE_RATE = 0.125;
 
 const SELLER_CHECKOUT_COLUMNS =
-  "id,seller_onboarding_status,stripe_connect_account_id,stripe_charges_enabled,stripe_payouts_enabled";
+  "id,account_type,seller_type,seller_onboarding_status,stripe_connect_account_id,stripe_connect_onboarding_complete,stripe_charges_enabled,stripe_payouts_enabled,kvk_number,kvk_verified_at,business_name,business_email,business_country,business_city,business_postal_code,business_street,business_house_number";
 
 async function fetchSellerProfileForCheckout(env, sellerId) {
   const rows = await supabaseRequest(
@@ -103,17 +108,8 @@ async function fetchSellerProfileForCheckout(env, sellerId) {
   return null;
 }
 
-function isSellerReadyForDestinationCharge(profile) {
-  if (!profile) {
-    return false;
-  }
-  const accountId = String(profile.stripe_connect_account_id || "").trim();
-  return (
-    profile.seller_onboarding_status === "verified" &&
-    accountId.startsWith("acct_") &&
-    profile.stripe_charges_enabled === true &&
-    profile.stripe_payouts_enabled === true
-  );
+function isSellerReadyForDestinationCharge(env, profile) {
+  return isSellerReadyForCheckout(env, profile);
 }
 
 /** Platform fee in cents; min 1 cent naar connected account. */
@@ -443,7 +439,7 @@ export async function handleStripeCheckout(request, env, cors = {}) {
     }
 
     const sellerProfile = await fetchSellerProfileForCheckout(env, order.seller_id);
-    if (!isSellerReadyForDestinationCharge(sellerProfile)) {
+    if (!isSellerReadyForDestinationCharge(env, sellerProfile)) {
       console.log(logPrefix, "seller not ready for destination charge", {
         sellerId: order.seller_id,
         status: sellerProfile?.seller_onboarding_status,
@@ -458,7 +454,7 @@ export async function handleStripeCheckout(request, env, cors = {}) {
           error: "Seller payouts are not ready",
           step: "seller_connect_not_ready",
           message:
-            "Deze verkoper kan nog geen betalingen ontvangen. Stripe-uitbetalingen moeten eerst actief zijn.",
+            "Deze verkoper kan momenteel nog geen betalingen ontvangen.",
         },
         400,
         cors
@@ -605,6 +601,20 @@ export async function handleStripeWebhook(request, env) {
       if (isStandardUuid(orderId)) {
         await markOrderPaymentFailed(env, orderId);
       }
+    } else if (event.type === "account.updated") {
+      const account = event.data.object;
+      const result = await handleStripeAccountUpdated(env, account);
+      console.log(logPrefix, "account.updated", {
+        accountId: account?.id,
+        handled: result.handled,
+        payoutReady: result.payoutReady,
+      });
+    } else if (event.type === "charge.refunded") {
+      const charge = event.data.object;
+      console.log(logPrefix, "charge.refunded", {
+        chargeId: charge?.id,
+        paymentIntent: charge?.payment_intent ?? null,
+      });
     }
 
     return new Response(JSON.stringify({ received: true, type: event.type }), {

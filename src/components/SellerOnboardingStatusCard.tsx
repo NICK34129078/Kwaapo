@@ -5,6 +5,7 @@ import { theme } from "../constants/theme";
 import {
   getSellerOnboardingDashboardLines,
   getSellerStatusCardContent,
+  resolveSellerDashboardUI,
 } from "../services/sellerOnboardingService";
 import type { SellerOnboarding } from "../types/sellerOnboarding";
 
@@ -14,10 +15,8 @@ type Props = {
 };
 
 export function SellerOnboardingStatusCard({ onboarding, onPress }: Props) {
-  const content = getSellerStatusCardContent(
-    onboarding.status,
-    onboarding.sellerRejectionReason
-  );
+  const content = getSellerStatusCardContent(onboarding);
+  const dashboard = resolveSellerDashboardUI(onboarding);
   const dashboardLines = getSellerOnboardingDashboardLines(onboarding);
 
   const toneStyles =
@@ -56,7 +55,7 @@ export function SellerOnboardingStatusCard({ onboarding, onPress }: Props) {
             {line}
           </Text>
         ))}
-        <Text style={styles.cta}>{content.buttonLabel} →</Text>
+        <Text style={styles.cta}>{dashboard.buttonLabel} →</Text>
       </View>
     </Pressable>
   );

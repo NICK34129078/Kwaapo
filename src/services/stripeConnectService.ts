@@ -34,6 +34,10 @@ export type StripeConnectStatus = {
 
   statusLabel: string;
 
+  payoutReady: boolean;
+
+  sellerOnboardingStatus: string | null;
+
 };
 
 
@@ -198,6 +202,16 @@ function normalizeStatus(json: WorkerJson): StripeConnectStatus {
 
         : userFriendly,
 
+    payoutReady: json.payoutReady === true,
+
+    sellerOnboardingStatus:
+
+      typeof json.sellerOnboardingStatus === "string"
+
+        ? json.sellerOnboardingStatus
+
+        : null,
+
   };
 
 }
@@ -347,6 +361,102 @@ export async function startStripeConnectOnboarding(): Promise<StartStripeConnect
     const status = await refreshStripeConnectStatus();
 
     return { ok: true, status };
+
+  } catch (e) {
+
+    const msg = e instanceof Error ? e.message : "Status ophalen mislukt.";
+
+    return { ok: false, message: msg };
+
+  }
+
+}
+
+
+
+export type StartPayoutManageResult =
+
+  | { ok: true }
+
+  | { ok: false; message: string };
+
+
+
+/**
+
+ * Opent Stripe om uitbetalingsrekening te beheren (geen IBAN in Kwaapo).
+
+ */
+
+export async function startStripePayoutManagement(): Promise<StartPayoutManageResult> {
+
+  const userId = await getAuthUserId();
+
+  const linkUrl = new URL(CLOUD_VIDEO_WORKER_BASE);
+
+  linkUrl.searchParams.set("stripeConnectPayoutManageLink", "1");
+
+
+
+  const linkRes = await fetch(linkUrl.toString(), {
+
+    method: "POST",
+
+    headers: {
+
+      "Content-Type": "application/json",
+
+      "X-App-User-Id": userId,
+
+    },
+
+    body: "{}",
+
+  });
+
+  const linkJson = await parseWorkerResponse(linkRes);
+
+  if (!linkRes.ok || typeof linkJson.error === "string") {
+
+    return {
+
+      ok: false,
+
+      message: formatWorkerError(linkJson, linkRes.status),
+
+    };
+
+  }
+
+
+
+  const manageUrl =
+
+    typeof linkJson.manageUrl === "string" ? linkJson.manageUrl : null;
+
+  if (!manageUrl) {
+
+    return { ok: false, message: "Geen Stripe beheer-URL ontvangen." };
+
+  }
+
+
+
+  await WebBrowser.openAuthSessionAsync(
+
+    manageUrl,
+
+    STRIPE_CONNECT_RETURN_PREFIX
+
+  );
+
+
+
+  try {
+
+    await refreshStripeConnectStatus();
+
+    return { ok: true };
 
   } catch (e) {
 

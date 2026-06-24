@@ -1,9 +1,11 @@
 {
-    // Post metadata + Stripe Checkout: set secrets (not in repo):
+    // Post metadata + Stripe Checkout + KVK: set secrets (not in repo):
     //   npx wrangler secret put SUPABASE_URL
     //   npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
     //   npx wrangler secret put STRIPE_SECRET_KEY
     //   npx wrangler secret put STRIPE_WEBHOOK_SECRET
+    //   npx wrangler secret put KVK_API_KEY
+    //   npx wrangler secret put KVK_API_BASE   (https://api.kvk.nl/api/v1 — optioneel, dit is de default)
     // Local: .dev.vars from .dev.vars.example
     "name": "wild-mountain-072a",
     "main": "worker.js",
