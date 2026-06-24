@@ -442,7 +442,28 @@ type WorkerPostsPayload = {
   success?: boolean;
   posts?: PostRow[];
   message?: string;
+  nextCursor?: string | null;
+  hasMore?: boolean;
 };
+
+export type GlobalPostsPage = {
+  posts: UserVideoPost[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export type FetchGlobalPostsOptions = {
+  limit?: number;
+  cursor?: string | null;
+};
+
+const DEFAULT_GLOBAL_PAGE_SIZE = 30;
+const MAX_GLOBAL_PAGE_SIZE = 100;
+
+function clampGlobalPageLimit(limit?: number): number {
+  const raw = limit ?? DEFAULT_GLOBAL_PAGE_SIZE;
+  return Math.min(Math.max(raw, 1), MAX_GLOBAL_PAGE_SIZE);
+}
 
 async function fetchWorkerPostsJson(
   url: string,
@@ -661,8 +682,49 @@ export async function mapSupabasePostRowsToGlobalUserVideoPosts(
 }
 
 /**
- * Globale Reels-feed: Worker haalt metadata uit Supabase `public.posts` (`?posts=1`).
- * Like-tellers in de app komen uit `public.post_likes` (zie `fetchLikeCountsForPosts`), niet uit `posts.likes_count`.
+ * Globale Reels-feed (gepagineerd): Worker `?posts=1&limit=&cursor=`.
+ */
+export async function fetchGlobalPostsPage(
+  options: FetchGlobalPostsOptions = {}
+): Promise<GlobalPostsPage> {
+  const limit = clampGlobalPageLimit(options.limit);
+  const workerUrl = new URL(CLOUD_VIDEO_WORKER_BASE);
+  workerUrl.searchParams.set("posts", "1");
+  workerUrl.searchParams.set("limit", String(limit));
+  if (options.cursor) {
+    workerUrl.searchParams.set("cursor", options.cursor);
+  }
+
+  const { res, json } = await fetchWorkerPostsJson(workerUrl.toString(), {
+    method: "GET",
+  });
+
+  if (!res.ok || json.success === false) {
+    throw new Error(json.message || "Worker fetch failed");
+  }
+  if (!Array.isArray(json.posts)) {
+    return { posts: [], nextCursor: null, hasMore: false };
+  }
+
+  const ownerProfilesById = await fetchOwnerProfilesByIds(json.posts);
+  const mapped = await mapWorkerPostsToUserVideoPosts(
+    json.posts,
+    "global",
+    ownerProfilesById
+  );
+
+  return {
+    posts: mapped,
+    nextCursor:
+      typeof json.nextCursor === "string" && json.nextCursor.length > 0
+        ? json.nextCursor
+        : null,
+    hasMore: json.hasMore === true,
+  };
+}
+
+/**
+ * Volledige globale batch (legacy). Gebruik `fetchGlobalPostsPage` voor infinite scroll.
  *
  * @returns `undefined` als `json.posts` ontbreekt — caller moet state niet leegmaken.
  */

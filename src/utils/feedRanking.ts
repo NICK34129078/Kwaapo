@@ -135,8 +135,42 @@ export const hasFeedTags = hasUsefulTags;
 /** @deprecated Use buildControlledForYouMix */
 export const partitionTaggedFirst = buildControlledForYouMix;
 
+/** Verwijdert dubbele post-ids; behoudt eerste voorkomen. */
+export function dedupeFeedPosts(posts: UserVideoPost[]): UserVideoPost[] {
+  const seen = new Set<string>();
+  const out: UserVideoPost[] = [];
+  for (const p of posts) {
+    if (seen.has(p.id)) {
+      continue;
+    }
+    seen.add(p.id);
+    out.push(p);
+  }
+  return out;
+}
+
+/** Voegt nieuwe posts achteraan toe zonder bestaande volgorde te wijzigen. */
+export function appendUniqueFeedPosts(
+  existing: UserVideoPost[],
+  append: UserVideoPost[]
+): UserVideoPost[] {
+  if (append.length === 0) {
+    return existing;
+  }
+  const seen = new Set(existing.map((p) => p.id));
+  const out = [...existing];
+  for (const p of append) {
+    if (seen.has(p.id)) {
+      continue;
+    }
+    seen.add(p.id);
+    out.push(p);
+  }
+  return out;
+}
+
 /**
- * Merge personalized RPC + global Worker, daarna controlled mix.
+ * Merge personalized/explore RPC + global Worker-pagina, één controlled mix (alleen bij refresh).
  */
 export function mergePersonalizedAndGlobalFeed(
   personalized: UserVideoPost[],

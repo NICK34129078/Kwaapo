@@ -211,7 +211,7 @@ export function useCloudImageCarouselUpload() {
           /* upload gelukt */
         }
         try {
-          await refreshGlobalFeed();
+          await refreshGlobalFeed({ force: true });
         } catch {
           /* idem */
         }

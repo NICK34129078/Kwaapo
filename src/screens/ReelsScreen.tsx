@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import type { ViewToken } from "react-native";
 import {
+  ActivityIndicator,
   Dimensions,
   FlatList,
   LayoutChangeEvent,
   ListRenderItem,
   Platform,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   View,
@@ -29,11 +31,6 @@ import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { isPersistablePostId } from "../services/postLikesService";
 import { fetchSavedPostIdsForCurrentUser } from "../services/savedPostsService";
-import {
-  buildControlledForYouMix,
-  logForYouControlledMix,
-  logForYouFinalTop20,
-} from "../utils/feedRanking";
 import { capWatchedMs, recordVideoView } from "../services/videoViewsService";
 
 const INITIAL_H = Dimensions.get("window").height;
@@ -51,10 +48,6 @@ type AggregatedPlaybackMetrics = {
   completed: boolean;
 };
 
-/**
- * Bepaalt de actieve reel. Bij ≥70% zichtbaar is er meestal één; bij overlap
- * kiezen we de viewable met de hoogste index (onderste cel in verticale feed).
- */
 function ReelsFeedTopBar() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -144,20 +137,46 @@ function ReelNextPreloader({ videoUrl }: { videoUrl: string | undefined | null }
   );
 }
 
-/**
- * Reels: één actieve speler, 70% zichtbaarheid, snap, preload volgende video.
- */
+function FeedListFooter({
+  loading,
+  endReached,
+}: {
+  loading: boolean;
+  endReached: boolean;
+}) {
+  if (loading) {
+    return (
+      <View style={styles.footerWrap}>
+        <ActivityIndicator color={theme.accent} />
+      </View>
+    );
+  }
+  if (endReached) {
+    return (
+      <View style={styles.footerWrap}>
+        <Text style={styles.footerText}>Geen nieuwe posts</Text>
+      </View>
+    );
+  }
+  return null;
+}
+
 export function ReelsScreen() {
   const {
     globalFeedPosts,
     refreshGlobalFeed,
     loadMoreGlobalFeed,
+    globalFeedLoading,
     isLoadingMoreFeed,
+    globalFeedError,
+    hasMoreFeed,
+    feedEndReached,
   } = useGlobalFeed();
   const { interactionRevision } = useLikes();
   const { user } = useAuth();
   const [pageH, setPageH] = useState(INITIAL_H);
   const [activeReelId, setActiveReelId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const isFocused = useIsFocused();
   const viewTimingRef = useRef<{ postId: string; startedAt: number } | null>(
     null
@@ -166,6 +185,8 @@ export function ReelsScreen() {
   const playbackMetricsRef = useRef<Map<string, AggregatedPlaybackMetrics>>(
     new Map()
   );
+
+  const finalFeedData = globalFeedPosts;
 
   const onPlaybackMetrics = useCallback(
     (postId: string, metrics: FeedItemPlaybackMetrics) => {
@@ -252,12 +273,21 @@ export function ReelsScreen() {
     }, [refreshGlobalFeed])
   );
 
+  const onPullRefresh = useCallback(() => {
+    setRefreshing(true);
+    void refreshGlobalFeed({ force: true }).finally(() => {
+      setRefreshing(false);
+    });
+  }, [refreshGlobalFeed]);
+
   useEffect(() => {
     if (isFocused) {
       return;
     }
     finalizeActiveView();
-    console.log("[Reels] screen blurred: stopping all videos");
+    if (__DEV__) {
+      console.log("[Reels] screen blurred: stopping all videos");
+    }
     setActiveReelId(null);
   }, [isFocused, finalizeActiveView]);
 
@@ -288,36 +318,6 @@ export function ReelsScreen() {
     };
   }, [finalizeActiveView]);
 
-  const dedupedFeedData = useMemo(() => {
-    const seen = new Set<string>();
-    const out: UserVideoPost[] = [];
-    for (const p of globalFeedPosts) {
-      if (!seen.has(p.id)) {
-        seen.add(p.id);
-        out.push(p);
-      }
-    }
-    return out;
-  }, [globalFeedPosts]);
-
-  const finalFeedData = useMemo(() => {
-    const mixed = buildControlledForYouMix(dedupedFeedData);
-    logForYouControlledMix(mixed);
-    logForYouFinalTop20(mixed);
-    return mixed;
-  }, [dedupedFeedData]);
-
-  useEffect(() => {
-    if (__DEV__) {
-      console.log("[Reels] render source: finalFeedData from globalFeedPosts", {
-        globalCount: globalFeedPosts.length,
-        dedupedCount: dedupedFeedData.length,
-        finalCount: finalFeedData.length,
-      });
-    }
-  }, [globalFeedPosts.length, dedupedFeedData.length, finalFeedData.length]);
-
-  // Batch: vul de saved-status cache voor alle geladen posts in één request.
   useEffect(() => {
     if (user == null || finalFeedData.length === 0) {
       return;
@@ -362,7 +362,7 @@ export function ReelsScreen() {
     if (activeIndex < finalFeedData.length - 4) {
       return;
     }
-    if (isLoadingMoreFeed) {
+    if (isLoadingMoreFeed || !hasMoreFeed) {
       return;
     }
     void loadMoreGlobalFeed();
@@ -371,6 +371,7 @@ export function ReelsScreen() {
     activeIndex,
     finalFeedData.length,
     isLoadingMoreFeed,
+    hasMoreFeed,
     loadMoreGlobalFeed,
   ]);
 
@@ -389,7 +390,6 @@ export function ReelsScreen() {
     }
   }, []);
 
-  // Stabiel voor FlatList (zelfde function identity elke render)
   const onViewableItemsChanged = useCallback((info: ViewableInfo) => {
     const best = pickActiveViewable(info.viewableItems);
     if (best?.item) {
@@ -428,32 +428,84 @@ export function ReelsScreen() {
     [pageH]
   );
 
+  const listFooter = useMemo(
+    () => (
+      <FeedListFooter
+        loading={isLoadingMoreFeed}
+        endReached={feedEndReached}
+      />
+    ),
+    [isLoadingMoreFeed, feedEndReached]
+  );
+
+  const showInitialLoading =
+    globalFeedLoading && finalFeedData.length === 0 && !refreshing;
+
   return (
     <View style={styles.root} onLayout={onRootLayout}>
       <ReelsFeedTopBar />
       <ReelNextPreloader videoUrl={nextVideoForPreload} />
-      <FlatList
-        data={finalFeedData}
-        extraData={`${activeReelId}:${interactionRevision}`}
-        renderItem={renderItem}
-        keyExtractor={keyExtractor}
-        pagingEnabled
-        showsVerticalScrollIndicator={false}
-        snapToInterval={pageH}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        getItemLayout={getItemLayout}
-        initialNumToRender={2}
-        maxToRenderPerBatch={2}
-        windowSize={5}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        removeClippedSubviews={false}
-        bounces={false}
-        overScrollMode="never"
-        scrollEventThrottle={SCROLL_THROTTLE}
-        {...(Platform.OS === "android" ? { disableIntervalMomentum: true } : {})}
-      />
+      {showInitialLoading ? (
+        <View style={styles.centerState}>
+          <ActivityIndicator size="large" color={theme.accent} />
+        </View>
+      ) : globalFeedError && finalFeedData.length === 0 ? (
+        <View style={styles.centerState}>
+          <Text style={styles.errorText}>{globalFeedError}</Text>
+          <Pressable
+            style={styles.retryBtn}
+            onPress={() => void refreshGlobalFeed({ force: true })}
+            accessibilityRole="button"
+            accessibilityLabel="Opnieuw proberen"
+          >
+            <Text style={styles.retryBtnText}>Opnieuw proberen</Text>
+          </Pressable>
+        </View>
+      ) : finalFeedData.length === 0 ? (
+        <View style={styles.centerState}>
+          <Text style={styles.emptyText}>Nog geen posts in de feed</Text>
+          <Pressable
+            style={styles.retryBtn}
+            onPress={onPullRefresh}
+            accessibilityRole="button"
+            accessibilityLabel="Feed vernieuwen"
+          >
+            <Text style={styles.retryBtnText}>Vernieuwen</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <FlatList
+          data={finalFeedData}
+          extraData={`${activeReelId}:${interactionRevision}`}
+          renderItem={renderItem}
+          keyExtractor={keyExtractor}
+          pagingEnabled
+          showsVerticalScrollIndicator={false}
+          snapToInterval={pageH}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          getItemLayout={getItemLayout}
+          initialNumToRender={2}
+          maxToRenderPerBatch={2}
+          windowSize={5}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          removeClippedSubviews={false}
+          bounces={false}
+          overScrollMode="never"
+          scrollEventThrottle={SCROLL_THROTTLE}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onPullRefresh}
+              tintColor={theme.accent}
+              colors={[theme.accent]}
+            />
+          }
+          ListFooterComponent={listFooter}
+          {...(Platform.OS === "android" ? { disableIntervalMomentum: true } : {})}
+        />
+      )}
     </View>
   );
 }
@@ -462,6 +514,43 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
+  },
+  centerState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    gap: 16,
+  },
+  errorText: {
+    color: theme.textMuted,
+    fontSize: 15,
+    textAlign: "center",
+  },
+  emptyText: {
+    color: theme.textMuted,
+    fontSize: 15,
+    textAlign: "center",
+  },
+  retryBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: theme.accent,
+  },
+  retryBtnText: {
+    color: theme.bg,
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  footerWrap: {
+    paddingVertical: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  footerText: {
+    color: theme.textMuted,
+    fontSize: 13,
   },
   feedTopBar: {
     position: "absolute",

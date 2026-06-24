@@ -1153,6 +1153,84 @@ async function fetchPostsForUser(env) {
 }
 
 /**
+ * @param {string | null | undefined} raw
+ * @returns {number}
+ */
+function parseFeedPageLimit(raw) {
+  const n = parseInt(String(raw ?? ""), 10);
+  if (!Number.isFinite(n)) {
+    return 25;
+  }
+  return Math.min(Math.max(n, 1), 100);
+}
+
+/**
+ * @param {string | null | undefined} raw
+ * @returns {{ createdAt: string; id: string } | null}
+ */
+function parseFeedPageCursor(raw) {
+  if (!raw || typeof raw !== "string") {
+    return null;
+  }
+  const sep = raw.indexOf("|");
+  if (sep <= 0 || sep >= raw.length - 1) {
+    return null;
+  }
+  const createdAt = raw.slice(0, sep);
+  const id = raw.slice(sep + 1);
+  if (!createdAt || !id) {
+    return null;
+  }
+  return { createdAt, id };
+}
+
+/**
+ * Keyset-paginatie op created_at desc, id desc (stabiel voor infinite scroll).
+ * @param {any} env
+ * @param {{ limit: number; cursor: { createdAt: string; id: string } | null }} options
+ */
+async function fetchPostsPage(env, options) {
+  const fetchLimit = options.limit + 1;
+  let path =
+    "/posts?select=*" +
+    "&is_deleted=eq.false" +
+    "&order=created_at.desc,id.desc" +
+    "&limit=" + String(fetchLimit);
+
+  if (options.cursor) {
+    const createdEnc = encodeURIComponent(options.cursor.createdAt);
+    const idEnc = encodeURIComponent(options.cursor.id);
+    path +=
+      "&or=(and(created_at.eq." +
+      createdEnc +
+      ",id.lt." +
+      idEnc +
+      "),created_at.lt." +
+      createdEnc +
+      ")";
+  }
+
+  return await supabaseRequest(env, "GET", path);
+}
+
+/**
+ * @param {any[]} rows
+ * @param {number} limit
+ * @returns {{ posts: any[]; nextCursor: string | null; hasMore: boolean }}
+ */
+function buildFeedPageResponse(rows, limit) {
+  const list = Array.isArray(rows) ? rows : [];
+  const hasMore = list.length > limit;
+  const page = hasMore ? list.slice(0, limit) : list;
+  const last = page.length > 0 ? page[page.length - 1] : null;
+  const nextCursor =
+    hasMore && last && last.created_at && last.id
+      ? String(last.created_at) + "|" + String(last.id)
+      : null;
+  return { posts: page, nextCursor, hasMore };
+}
+
+/**
  * Profiel (?userPosts=1): alleen posts van één gebruiker.
  * @param {any} env
  * @param {string} userId
@@ -1451,6 +1529,34 @@ export default {
 
     if (request.method === "GET" && url.searchParams.get("posts") === "1") {
       try {
+        const hasPageParams =
+          url.searchParams.has("limit") || url.searchParams.has("cursor");
+
+        if (hasPageParams) {
+          const limit = parseFeedPageLimit(url.searchParams.get("limit"));
+          const cursor = parseFeedPageCursor(url.searchParams.get("cursor"));
+          const posts = await fetchPostsPage(env, { limit, cursor });
+          const page = buildFeedPageResponse(posts, limit);
+          console.log("[posts] fetched", {
+            mode: "global_page",
+            limit,
+            cursor: cursor ? "set" : null,
+            returned: page.posts.length,
+            hasMore: page.hasMore,
+          });
+          return new Response(
+            JSON.stringify({
+              success: true,
+              posts: page.posts,
+              nextCursor: page.nextCursor,
+              hasMore: page.hasMore,
+            }),
+            {
+              headers: { "Content-Type": "application/json", ...cors },
+            }
+          );
+        }
+
         const posts = await fetchPostsForUser(env);
         const rawPosts = Array.isArray(posts) ? posts : [];
         const validPosts = orderGlobalFeedControlledExplore(rawPosts);

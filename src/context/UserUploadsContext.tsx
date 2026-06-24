@@ -98,7 +98,7 @@ export function UserUploadsProvider({ children }: { children: React.ReactNode })
       }
       await deleteMyPost(id);
       setUploadedVideoPosts((prev) => prev.filter((p) => p.id !== id));
-      await refreshGlobalFeed();
+      await refreshGlobalFeed({ force: true });
     },
     [authUserId, refreshGlobalFeed]
   );
