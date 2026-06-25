@@ -171,6 +171,8 @@ export function ReelsScreen() {
     globalFeedError,
     hasMoreFeed,
     feedEndReached,
+    removePostFromFeed,
+    muteAuthor,
   } = useGlobalFeed();
   const { interactionRevision } = useLikes();
   const { user } = useAuth();
@@ -405,6 +407,20 @@ export function ReelsScreen() {
     []
   );
 
+  const onRequestRemove = useCallback(
+    (postId: string) => {
+      removePostFromFeed(postId);
+    },
+    [removePostFromFeed]
+  );
+
+  const onRequestRemoveAuthor = useCallback(
+    (profileId: string) => {
+      muteAuthor(profileId);
+    },
+    [muteAuthor]
+  );
+
   const renderItem: ListRenderItem<FeedPost> = useCallback(
     ({ item }) => (
       <FeedItem
@@ -412,9 +428,18 @@ export function ReelsScreen() {
         pageHeight={pageH}
         isActive={isFocused && activeReelId != null && item.id === activeReelId}
         onPlaybackMetrics={onPlaybackMetrics}
+        onRequestRemove={onRequestRemove}
+        onRequestRemoveAuthor={onRequestRemoveAuthor}
       />
     ),
-    [pageH, activeReelId, isFocused, onPlaybackMetrics]
+    [
+      pageH,
+      activeReelId,
+      isFocused,
+      onPlaybackMetrics,
+      onRequestRemove,
+      onRequestRemoveAuthor,
+    ]
   );
 
   const keyExtractor = useCallback((item: FeedPost) => item.id, []);

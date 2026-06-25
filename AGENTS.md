@@ -77,3 +77,26 @@ Project skills live in `.agents/skills/`. Locked versions are listed in `skills-
 - Prefer `fetch` over axios (see `native-data-fetching` skill).
 - All new features should include unit tests when practical.
 - Update changelog on pull requests when the project uses one.
+
+## Learned User Preferences
+
+- Communicate in Dutch when the user writes in Dutch.
+- Keep agent guidance and skill config project-scoped (repo `AGENTS.md`, `.agents/skills/`) — not global user config.
+- For feed and social UI, target Instagram-like patterns in the Kwaapo theme (dark `#0B0B0B`, pastel blue `#B9D9F7`, bottom sheets like `CommentsSheet`).
+- Stay on the stated task; avoid scope drift into unrelated infra (e.g. Supabase CLI linking) unless the user asks.
+- Use relevant skills from `.agents/skills/` proactively — manual skill attachment is optional, not required.
+- When implementing an attached plan, do not edit the plan file itself.
+
+## Learned Workspace Facts
+
+- App display name is **Lumen** (`lumen-fashion`); repository/project name is Kwaapo.
+- Supabase production project ref: `mvngamvkdtcprgiizcvk`; linked via `supabase/.temp/project-ref`. (Eerdere sessies linkten per ongeluk naar `xshnwnxvmdtvqcfglfzy` — negeer dat project.)
+- Primary Cloudflare Worker base URL: `wild-mountain-072a.n-vandullemen.workers.dev` (see `src/constants/cloudVideo.ts`).
+- KVK credentials (`KVK_API_KEY`, `KVK_API_BASE`) live on the Cloudflare Worker via `wrangler secret put` or `.dev.vars` for local dev — not in Expo `.env`.
+- Feed: `ReelsScreen` + `GlobalFeedContext`; global posts paginate via worker `?posts=1&limit=&cursor=`; guests use `get_explore_feed`, logged-in users use `get_personalized_feed`.
+- Feed moderation (`0029_feed_moderation.sql`): tables `user_blocks`, `post_reports`, `feed_not_interested`; RPCs `block_user`, `unblock_user`, `report_post`, `mark_not_interested`; client in `feedModerationService.ts`, `PostMoreSheet`, `ReportReasonSheet`, `GlobalFeedContext` mute layer.
+- Block/report/not-interested filters run server-side in `get_personalized_feed` only; worker global feed has no user context — enforce mutes client-side via `feedMuteFilter.ts`. Prod gebruikt creator-affinity `get_personalized_feed` + moderatiefilters via `0032_personalized_feed_moderation_filters.sql`.
+- `public.follows` (`0031_follows.sql`): `follower_id` / `following_id` → `profiles(id)`; used by FeedItem, ProfileScreen, ActivityScreen; `block_user` unfollows both directions when table exists; `0030` still guards with `to_regclass` for legacy setups.
+- If remote DB has schema but empty `schema_migrations`, run `supabase migration repair --status applied` for existing versions before `db push`.
+- Install Expo skills with `npx skills@latest add expo/skills` — do not use `--skill '*'` (not treated as a wildcard).
+- Phone preview on LAN: `npm run start:phone` or `start-phone.cmd` (sets real LAN IP; avoids `127.0.0.1` QR codes).

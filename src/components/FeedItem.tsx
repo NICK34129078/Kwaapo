@@ -27,6 +27,8 @@ import {
   resolveCommentsCount,
 } from "../data/placeholder";
 import { CommentsSheet } from "./CommentsSheet";
+import { PostMoreSheet } from "./PostMoreSheet";
+import { ReportReasonSheet } from "./ReportReasonSheet";
 import { AvatarImage } from "./AvatarImage";
 import {
   DoubleTapHeartAnimation,
@@ -49,7 +51,21 @@ import { formatPriceEur } from "../utils/formatPrice";
 import { PressableScale } from "./PressableScale";
 import { theme } from "../constants/theme";
 import { fetchPostShareCount } from "../services/postSharesService";
-import { sharePostNative } from "../services/sharePostService";
+import {
+  buildPublicPostShareUrl,
+  resolvePostUsername,
+  sharePostNative,
+} from "../services/sharePostService";
+import * as Clipboard from "expo-clipboard";
+import { supabase } from "../lib/supabase";
+import { deleteMyPost } from "../services/postsService";
+import {
+  blockUser,
+  markNotInterested,
+  reportPost,
+  type ReportReason,
+} from "../services/feedModerationService";
+import { getReadableErrorMessage } from "../utils/getReadableErrorMessage";
 
 export type FeedItemPlaybackMetrics = {
   durationMs?: number;
@@ -66,6 +82,10 @@ type Props = {
   onPlaybackMetrics?: (postId: string, metrics: FeedItemPlaybackMetrics) => void;
   /** Bron voor product-click tracking (feed, shop, profile_reels, …). */
   clickSource?: string;
+  /** Na succesvol verwijderen uit de feedlijst halen. */
+  onRequestRemove?: (postId: string) => void;
+  /** Na blokkeren alle posts van deze auteur uit de feed halen. */
+  onRequestRemoveAuthor?: (profileId: string) => void;
 };
 
 /**
@@ -278,6 +298,8 @@ export function FeedItem({
   isActive = true,
   onPlaybackMetrics,
   clickSource = "feed",
+  onRequestRemove,
+  onRequestRemoveAuthor,
 }: Props) {
   const navigation = useNavigation<any>();
   const { user } = useAuth();
@@ -290,6 +312,12 @@ export function FeedItem({
   const carouselDotsBottom = reelsBottomInset + 108;
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const [commentsVisible, setCommentsVisible] = useState(false);
+  const [moreVisible, setMoreVisible] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [reportReasonVisible, setReportReasonVisible] = useState(false);
+  const [moderationBusy, setModerationBusy] = useState(false);
   const [commentsCount, setCommentsCount] = useState(() =>
     resolveCommentsCount(item)
   );
@@ -743,6 +771,261 @@ export function FeedItem({
       });
   };
 
+  const isOwnPost =
+    !!user?.id &&
+    !!item.ownerProfileId &&
+    item.ownerProfileId === user.id;
+  const targetProfileId = item.ownerProfileId ?? null;
+
+  useEffect(() => {
+    if (!user?.id || !targetProfileId || isOwnPost) {
+      setIsFollowing(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("follows")
+        .select("follower_id")
+        .eq("follower_id", user.id)
+        .eq("following_id", targetProfileId)
+        .maybeSingle();
+      if (!cancelled && !error) {
+        setIsFollowing(!!data);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, targetProfileId, isOwnPost]);
+
+  const requireAuth = useCallback(
+    (message: string) => {
+      openAuthPrompt({ message });
+    },
+    [openAuthPrompt]
+  );
+
+  const onMorePress = useCallback(() => {
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    setMoreVisible(true);
+  }, []);
+
+  const onCopyLink = useCallback(() => {
+    void (async () => {
+      try {
+        await Clipboard.setStringAsync(buildPublicPostShareUrl(item));
+        Alert.alert("Link gekopieerd", "De link staat op je klembord.");
+      } catch {
+        Alert.alert("Kopiëren mislukt", "Probeer het opnieuw.");
+      }
+    })();
+  }, [item]);
+
+  const onToggleFollow = useCallback(() => {
+    if (user == null) {
+      requireAuth("Log in om creators te volgen.");
+      return;
+    }
+    if (!targetProfileId || isOwnPost || followBusy) {
+      return;
+    }
+    const next = !isFollowing;
+    setFollowBusy(true);
+    setIsFollowing(next);
+    void (async () => {
+      try {
+        if (next) {
+          const { error } = await supabase.from("follows").insert({
+            follower_id: user.id,
+            following_id: targetProfileId,
+          });
+          if (error) {
+            if (error.code === "23505") {
+              return;
+            }
+            throw error;
+          }
+        } else {
+          const { error } = await supabase
+            .from("follows")
+            .delete()
+            .eq("follower_id", user.id)
+            .eq("following_id", targetProfileId);
+          if (error) {
+            throw error;
+          }
+        }
+      } catch (e) {
+        setIsFollowing(!next);
+        const msg = getReadableErrorMessage(e, "Volgen mislukt.");
+        Alert.alert("Fout", msg);
+      } finally {
+        setFollowBusy(false);
+      }
+    })();
+  }, [
+    followBusy,
+    isFollowing,
+    isOwnPost,
+    requireAuth,
+    targetProfileId,
+    user,
+  ]);
+
+  const onViewStats = useCallback(() => {
+    navigation.navigate("CreatorStats");
+  }, [navigation]);
+
+  const onConfirmDelete = useCallback(() => {
+    if (!isOwnPost || !isPersistablePostId(item.id) || deleteBusy) {
+      return;
+    }
+    Alert.alert(
+      "Post verwijderen?",
+      "Weet je zeker dat je deze post wilt verwijderen?",
+      [
+        { text: "Annuleren", style: "cancel" },
+        {
+          text: "Verwijderen",
+          style: "destructive",
+          onPress: () => {
+            setDeleteBusy(true);
+            void (async () => {
+              try {
+                await deleteMyPost(item.id);
+                onRequestRemove?.(item.id);
+              } catch (e) {
+                const msg =
+                  e instanceof Error ? e.message : "Verwijderen mislukt";
+                Alert.alert("Fout", msg);
+              } finally {
+                setDeleteBusy(false);
+              }
+            })();
+          },
+        },
+      ]
+    );
+  }, [deleteBusy, isOwnPost, item.id, onRequestRemove]);
+
+  const onNotInterested = useCallback(() => {
+    if (user == null) {
+      requireAuth("Log in om je feed te personaliseren.");
+      return;
+    }
+    if (!isPersistablePostId(item.id) || moderationBusy) {
+      return;
+    }
+    setModerationBusy(true);
+    void (async () => {
+      try {
+        await markNotInterested(item.id);
+        onRequestRemove?.(item.id);
+        Alert.alert(
+          "Niet geïnteresseerd",
+          "We tonen deze post en vergelijkbare content minder vaak."
+        );
+      } catch (e) {
+        Alert.alert(
+          "Fout",
+          getReadableErrorMessage(e, "Voorkeur kon niet worden opgeslagen.")
+        );
+      } finally {
+        setModerationBusy(false);
+      }
+    })();
+  }, [item.id, moderationBusy, onRequestRemove, requireAuth, user]);
+
+  const onReport = useCallback(() => {
+    if (user == null) {
+      requireAuth("Log in om content te melden.");
+      return;
+    }
+    setReportReasonVisible(true);
+  }, [requireAuth, user]);
+
+  const onSubmitReport = useCallback(
+    (reason: ReportReason) => {
+      if (!isPersistablePostId(item.id) || moderationBusy) {
+        return;
+      }
+      setModerationBusy(true);
+      void (async () => {
+        try {
+          await reportPost(item.id, reason);
+          onRequestRemove?.(item.id);
+          Alert.alert(
+            "Bedankt voor je melding",
+            "We bekijken deze content zo snel mogelijk."
+          );
+        } catch (e) {
+          Alert.alert(
+            "Fout",
+            getReadableErrorMessage(e, "Melden mislukt.")
+          );
+        } finally {
+          setModerationBusy(false);
+        }
+      })();
+    },
+    [item.id, moderationBusy, onRequestRemove]
+  );
+
+  const onBlock = useCallback(() => {
+    if (user == null) {
+      requireAuth("Log in om gebruikers te blokkeren.");
+      return;
+    }
+    if (!targetProfileId || moderationBusy) {
+      return;
+    }
+    const handle = resolvePostUsername(item);
+    Alert.alert(
+      `@${handle} blokkeren?`,
+      "Je ziet geen posts meer van deze gebruiker en jullie volgen elkaar niet meer.",
+      [
+        { text: "Annuleren", style: "cancel" },
+        {
+          text: "Blokkeren",
+          style: "destructive",
+          onPress: () => {
+            setModerationBusy(true);
+            void (async () => {
+              try {
+                await blockUser(targetProfileId);
+                setIsFollowing(false);
+                onRequestRemoveAuthor?.(targetProfileId);
+                onRequestRemove?.(item.id);
+                Alert.alert(
+                  "Geblokkeerd",
+                  `Je ziet geen content meer van @${handle}.`
+                );
+              } catch (e) {
+                Alert.alert(
+                  "Fout",
+                  getReadableErrorMessage(e, "Blokkeren mislukt.")
+                );
+              } finally {
+                setModerationBusy(false);
+              }
+            })();
+          },
+        },
+      ]
+    );
+  }, [
+    item,
+    moderationBusy,
+    onRequestRemove,
+    onRequestRemoveAuthor,
+    requireAuth,
+    targetProfileId,
+    user,
+  ]);
+
   const onOwnerPress = useCallback(() => {
     const ownerProfileId = item.ownerProfileId;
     if (!ownerProfileId) {
@@ -1002,7 +1285,13 @@ export function FeedItem({
           />
         </PressableScale>
 
-        <PressableScale style={[styles.railAction, styles.railMoreRow]} scaleTo={0.9}>
+        <PressableScale
+          style={[styles.railAction, styles.railMoreRow]}
+          scaleTo={0.9}
+          onPress={onMorePress}
+          accessibilityRole="button"
+          accessibilityLabel="Meer opties"
+        >
           <Ionicons
             name="ellipsis-horizontal"
             size={MORE_ICON}
@@ -1100,6 +1389,33 @@ export function FeedItem({
         onCommentDeleted={() =>
           setCommentsCount((c) => Math.max(0, c - 1))
         }
+      />
+
+      <PostMoreSheet
+        visible={moreVisible}
+        post={item}
+        isOwnPost={isOwnPost}
+        isFollowing={isFollowing}
+        followBusy={followBusy}
+        deleteBusy={deleteBusy}
+        onClose={() => setMoreVisible(false)}
+        onCopyLink={onCopyLink}
+        onViewProfile={item.ownerProfileId ? onOwnerPress : undefined}
+        onToggleFollow={
+          !isOwnPost && targetProfileId ? onToggleFollow : undefined
+        }
+        onViewStats={isOwnPost ? onViewStats : undefined}
+        onDelete={isOwnPost ? onConfirmDelete : undefined}
+        onNotInterested={!isOwnPost ? onNotInterested : undefined}
+        onReport={!isOwnPost ? onReport : undefined}
+        onBlock={!isOwnPost ? onBlock : undefined}
+      />
+
+      <ReportReasonSheet
+        visible={reportReasonVisible}
+        onClose={() => setReportReasonVisible(false)}
+        onSubmit={onSubmitReport}
+        busy={moderationBusy}
       />
 
     </View>

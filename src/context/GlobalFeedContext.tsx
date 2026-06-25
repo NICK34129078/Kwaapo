@@ -20,6 +20,11 @@ import {
   logForYouControlledMix,
   mergePersonalizedAndGlobalFeed,
 } from "../utils/feedRanking";
+import {
+  fetchFeedMuteSets,
+  filterFeedPostsByMuteSets,
+  type FeedMuteSets,
+} from "../services/feedModerationService";
 
 const PERSONALIZED_BATCH = 10;
 const GLOBAL_PAGE_SIZE = 30;
@@ -39,6 +44,8 @@ type GlobalFeedValue = {
   /** False wanneer personalized én global geen nieuwe posts meer hebben. */
   hasMoreFeed: boolean;
   feedEndReached: boolean;
+  removePostFromFeed: (postId: string) => void;
+  muteAuthor: (profileId: string) => void;
 };
 
 const GlobalFeedContext = createContext<GlobalFeedValue | null>(null);
@@ -56,7 +63,26 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
   const globalFeedPostsRef = useRef<UserVideoPost[]>([]);
   const globalCursorRef = useRef<string | null>(null);
   const loadMoreInFlightRef = useRef(false);
+  const muteSetsRef = useRef<FeedMuteSets>({
+    blockedProfileIds: new Set(),
+    hiddenPostIds: new Set(),
+  });
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+
+  const applyMuteFilter = useCallback((posts: UserVideoPost[]) => {
+    return filterFeedPostsByMuteSets(posts, muteSetsRef.current);
+  }, []);
+
+  const loadMuteSets = useCallback(async () => {
+    if (!user?.id) {
+      muteSetsRef.current = {
+        blockedProfileIds: new Set(),
+        hiddenPostIds: new Set(),
+      };
+      return;
+    }
+    muteSetsRef.current = await fetchFeedMuteSets();
+  }, [user?.id]);
 
   const resetPaginationState = useCallback(() => {
     globalCursorRef.current = null;
@@ -68,7 +94,8 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
     setHasLoadedOnce(false);
     setGlobalFeedPosts([]);
     resetPaginationState();
-  }, [user?.id, resetPaginationState]);
+    void loadMuteSets();
+  }, [user?.id, resetPaginationState, loadMuteSets]);
 
   useEffect(() => {
     globalFeedPostsRef.current = globalFeedPosts;
@@ -94,11 +121,14 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
       resetPaginationState();
 
       try {
+        await loadMuteSets();
         const isLoggedIn = user?.id != null;
         let primaryBatch: UserVideoPost[] = [];
 
         if (isLoggedIn) {
-          primaryBatch = await fetchPersonalizedFeed(PERSONALIZED_BATCH, []);
+          primaryBatch = applyMuteFilter(
+            await fetchPersonalizedFeed(PERSONALIZED_BATCH, [])
+          );
           setHasMorePersonalizedFeed(primaryBatch.length >= PERSONALIZED_BATCH);
         } else {
           primaryBatch = await fetchExploreFeed(PERSONALIZED_BATCH, []);
@@ -113,7 +143,7 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
 
         const merged = mergePersonalizedAndGlobalFeed(
           primaryBatch,
-          globalPage.posts
+          applyMuteFilter(globalPage.posts)
         );
         logForYouControlledMix(merged);
         setGlobalFeedPosts(merged);
@@ -129,7 +159,7 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
         setGlobalFeedLoading(false);
       }
     },
-    [user?.id, resetPaginationState, hasLoadedOnce]
+    [user?.id, resetPaginationState, hasLoadedOnce, loadMuteSets, applyMuteFilter]
   );
 
   const loadMoreGlobalFeed = useCallback(async () => {
@@ -149,7 +179,9 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
       if (hasMorePersonalizedFeed) {
         const batch =
           user?.id != null
-            ? await fetchPersonalizedFeed(PERSONALIZED_BATCH, exclude)
+            ? applyMuteFilter(
+                await fetchPersonalizedFeed(PERSONALIZED_BATCH, exclude)
+              )
             : await fetchExploreFeed(PERSONALIZED_BATCH, exclude);
 
         if (batch.length > 0) {
@@ -171,7 +203,7 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
         setHasMoreGlobalFeed(globalPage.hasMore);
 
         const seen = new Set(exclude);
-        append = globalPage.posts.filter((p) => !seen.has(p.id));
+        append = applyMuteFilter(globalPage.posts).filter((p) => !seen.has(p.id));
       }
 
       if (append.length === 0) {
@@ -193,7 +225,19 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
       loadMoreInFlightRef.current = false;
       setIsLoadingMoreFeed(false);
     }
-  }, [hasMoreFeed, hasMoreGlobalFeed, hasMorePersonalizedFeed, user?.id]);
+  }, [hasMoreFeed, hasMoreGlobalFeed, hasMorePersonalizedFeed, user?.id, applyMuteFilter]);
+
+  const removePostFromFeed = useCallback((postId: string) => {
+    muteSetsRef.current.hiddenPostIds.add(postId);
+    setGlobalFeedPosts((prev) => prev.filter((p) => p.id !== postId));
+  }, []);
+
+  const muteAuthor = useCallback((profileId: string) => {
+    muteSetsRef.current.blockedProfileIds.add(profileId);
+    setGlobalFeedPosts((prev) =>
+      prev.filter((p) => p.ownerProfileId !== profileId)
+    );
+  }, []);
 
   useEffect(() => {
     if (globalFeedPosts.length === 0) {
@@ -212,6 +256,8 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
       globalFeedError,
       hasMoreFeed,
       feedEndReached,
+      removePostFromFeed,
+      muteAuthor,
     }),
     [
       globalFeedPosts,
@@ -222,6 +268,8 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
       globalFeedError,
       hasMoreFeed,
       feedEndReached,
+      removePostFromFeed,
+      muteAuthor,
     ]
   );
 

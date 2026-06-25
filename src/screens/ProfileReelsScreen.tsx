@@ -133,11 +133,30 @@ export function ProfileReelsScreen() {
   const didFallbackScrollRef = useRef(false);
 
   const params = (route.params ?? {}) as Partial<ProfileReelsRouteParams>;
-  const feedData = useMemo(() => params.posts ?? [], [params.posts]);
+  const [feedData, setFeedData] = useState<UserVideoPost[]>(
+    () => params.posts ?? []
+  );
   const initialPostId = params.initialPostId ?? "";
   const isOwnProfile =
     params.isOwnProfile === true ||
     (!!user?.id && params.profileId === user.id);
+
+  useEffect(() => {
+    setFeedData(params.posts ?? []);
+  }, [params.posts]);
+
+  const onRequestRemove = useCallback(
+    (postId: string) => {
+      setFeedData((prev) => {
+        const next = prev.filter((p) => p.id !== postId);
+        if (next.length === 0) {
+          navigation.goBack();
+        }
+        return next;
+      });
+    },
+    [navigation]
+  );
 
   const initialIndex = useMemo(() => {
     if (feedData.length === 0) {
@@ -278,9 +297,10 @@ export function ProfileReelsScreen() {
         pageHeight={pageH}
         isActive={isFocused && activePostId != null && item.id === activePostId}
         clickSource="profile_reels"
+        onRequestRemove={onRequestRemove}
       />
     ),
-    [pageH, activePostId, isFocused]
+    [pageH, activePostId, isFocused, onRequestRemove]
   );
 
   const keyExtractor = useCallback((item: UserVideoPost) => item.id, []);
