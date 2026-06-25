@@ -19,6 +19,7 @@ import type { BuyerOrder } from "../types/order";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
   BUYER_ORDER_FILTERS,
+  formatOrderItemSizeLine,
   matchesBuyerOrderFilter,
   paymentStatusLabel,
   shippingStatusLabel,
@@ -47,6 +48,7 @@ function BuyerOrderCard({
   const firstItem = buyerOrder.items[0];
   const product = firstItem?.product;
   const order = buyerOrder.order;
+  const sizeLine = formatOrderItemSizeLine(firstItem);
 
   return (
     <Pressable
@@ -71,6 +73,9 @@ function BuyerOrderCard({
             {formatPriceEur(order.subtotalAmount)}
           </Text>
         </View>
+        {sizeLine ? (
+          <Text style={styles.orderCardMeta}>{sizeLine}</Text>
+        ) : null}
         <Text style={styles.orderCardDate}>{formatOrderDate(order.createdAt)}</Text>
         <View style={styles.orderBadgeRow}>
           <View
@@ -349,6 +354,11 @@ const styles = StyleSheet.create({
     color: theme.accent,
     fontSize: 14,
     fontWeight: "900",
+  },
+  orderCardMeta: {
+    color: theme.textMuted,
+    fontSize: 12,
+    marginTop: 4,
   },
   orderCardDate: {
     color: theme.textMuted,

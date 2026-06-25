@@ -11,7 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
@@ -107,15 +107,16 @@ export function SellerOnboardingScreen() {
       setBusinessPostalCode(row.businessPostalCode ?? "");
       setBusinessStreet(row.businessStreet ?? "");
       setBusinessHouseNumber(row.businessHouseNumber ?? "");
-      if (row.status !== "pending_review" && row.status !== "verified") {
-        setStep(resolveSellerOnboardingStep(row));
-      }
+      setStep(resolveSellerOnboardingStep(row));
     }
   }, []);
 
-  useEffect(() => {
-    void load().finally(() => setLoading(false));
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      void load().finally(() => setLoading(false));
+    }, [load])
+  );
 
   const buildPayload = useCallback((): BusinessInfoPayload => {
     return {
@@ -160,19 +161,25 @@ export function SellerOnboardingScreen() {
     businessStreet,
   ]);
 
-  const onContinueToStripe = useCallback(async () => {
+  const onContinueFromStep1 = useCallback(async () => {
+    const resumeStep = resolveSellerOnboardingStep(onboarding);
+    if (resumeStep >= 2) {
+      setStep(resumeStep);
+      return;
+    }
+
     setSubmitting(true);
     try {
       const updated = await updateMyBusinessInfo(buildPayload());
       setOnboarding(updated);
-      setStep(2);
+      setStep(resolveSellerOnboardingStep(updated));
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Opslaan mislukt.";
       Alert.alert("Fout", msg);
     } finally {
       setSubmitting(false);
     }
-  }, [buildPayload]);
+  }, [buildPayload, onboarding]);
 
   const refreshOnboardingFromServer = useCallback(async () => {
     const row = await fetchMySellerOnboarding();
@@ -267,15 +274,15 @@ export function SellerOnboardingScreen() {
     }
   }, [refreshOnboardingFromServer]);
 
-  const isPending = onboarding?.status === "pending_review";
-  const isVerified = onboarding?.status === "verified";
-  const isReadOnly = isPending || isVerified;
+  const onboardingComplete = isSellerFullyReadyForLiveSales(onboarding);
+  const showWizard = !onboardingComplete;
+  const resumeStep = resolveSellerOnboardingStep(onboarding);
 
   useEffect(() => {
-    if (step === 2 && !isReadOnly) {
+    if (step === 2 && showWizard) {
       void refreshOnboardingFromServer().catch(() => undefined);
     }
-  }, [isReadOnly, refreshOnboardingFromServer, step]);
+  }, [refreshOnboardingFromServer, showWizard, step]);
 
   const stepTitle =
     step === 1
@@ -322,14 +329,14 @@ export function SellerOnboardingScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {isPending ? (
+          {!onboardingComplete && onboarding ? (
             <View style={styles.infoBox}>
               <Text style={styles.infoTitle}>{dashboardUI.title}</Text>
               <Text style={styles.infoText}>{dashboardUI.message}</Text>
             </View>
           ) : null}
 
-          {isVerified ? (
+          {onboardingComplete ? (
             <View style={[styles.infoBox, styles.infoBoxSuccess]}>
               <Text style={styles.infoTitle}>Je verkoopaccount is actief</Text>
               <Text style={styles.infoText}>
@@ -338,7 +345,7 @@ export function SellerOnboardingScreen() {
             </View>
           ) : null}
 
-          {step === 1 && !isReadOnly ? (
+          {step === 1 && showWizard ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>KVK & bedrijfsgegevens</Text>
               <Text style={styles.helperBlock}>
@@ -414,7 +421,7 @@ export function SellerOnboardingScreen() {
             </View>
           ) : null}
 
-          {step === 2 && !isReadOnly ? (
+          {step === 2 && showWizard ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Uitbetalingen instellen</Text>
               {!hasConnectAccount ? (
@@ -472,7 +479,7 @@ export function SellerOnboardingScreen() {
             </View>
           ) : null}
 
-          {step === 3 && !isReadOnly ? (
+          {step === 3 && showWizard ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Controle</Text>
               <Text style={styles.reviewHint}>
@@ -510,7 +517,7 @@ export function SellerOnboardingScreen() {
             </View>
           ) : null}
 
-          {isReadOnly && onboarding ? (
+          {onboardingComplete && onboarding ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Jouw gegevens</Text>
               <View style={styles.reviewRow}>
@@ -523,42 +530,44 @@ export function SellerOnboardingScreen() {
               </View>
               <View style={styles.reviewRow}>
                 <Text style={styles.reviewLabel}>Status</Text>
-                <Text style={styles.reviewValue}>
-                  {isVerified ? "Actief" : dashboardUI.title}
-                </Text>
+                <Text style={styles.reviewValue}>Actief</Text>
               </View>
-              {isVerified ? (
-                <Pressable
-                  style={[styles.secondaryBtn, styles.inlineManageBtn]}
-                  onPress={() => void onManagePayoutAccount()}
-                  disabled={submitting}
-                  accessibilityRole="button"
-                  accessibilityLabel="Uitbetalingsrekening beheren"
-                >
-                  <Text style={styles.secondaryBtnText}>
-                    Uitbetalingsrekening beheren
-                  </Text>
-                </Pressable>
-              ) : null}
+              <Pressable
+                style={[styles.secondaryBtn, styles.inlineManageBtn]}
+                onPress={() => void onManagePayoutAccount()}
+                disabled={submitting}
+                accessibilityRole="button"
+                accessibilityLabel="Uitbetalingsrekening beheren"
+              >
+                <Text style={styles.secondaryBtnText}>
+                  Uitbetalingsrekening beheren
+                </Text>
+              </Pressable>
             </View>
           ) : null}
         </ScrollView>
       )}
 
-      {!loading && !isPending && !isVerified ? (
+      {!loading && showWizard ? (
         <View style={[styles.stickyBar, { paddingBottom: insets.bottom + 10 }]}>
           {step === 1 ? (
             <Pressable
               style={[styles.primaryBtn, submitting && styles.btnDisabled]}
-              onPress={() => void onContinueToStripe()}
+              onPress={() => void onContinueFromStep1()}
               disabled={submitting}
               accessibilityRole="button"
-              accessibilityLabel="Ga verder naar uitbetalingen"
+              accessibilityLabel="Ga verder"
             >
               {submitting ? (
                 <ActivityIndicator size="small" color={theme.bg} />
               ) : (
-                <Text style={styles.primaryBtnText}>Ga verder</Text>
+                <Text style={styles.primaryBtnText}>
+                  {resumeStep >= 3
+                    ? "Ga verder naar controle"
+                    : resumeStep === 2
+                      ? "Ga verder naar uitbetalingen"
+                      : "Opslaan en verder"}
+                </Text>
               )}
             </Pressable>
           ) : null}

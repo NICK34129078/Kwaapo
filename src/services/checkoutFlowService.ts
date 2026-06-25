@@ -1,3 +1,4 @@
+import { emitProductCatalogEvent } from "./productCatalogRefresh";
 import {
   createStripeCheckoutSession,
   openStripeCheckoutAndConfirm,
@@ -15,6 +16,7 @@ export async function payOrderWithStripe(orderId: string): Promise<CheckoutPayme
   const payment = await openStripeCheckoutAndConfirm(checkoutUrl, orderId, sessionId);
 
   if (payment.ok) {
+    emitProductCatalogEvent({ kind: "refresh" });
     return { ok: true, orderId: payment.order.id };
   }
   if (payment.reason === "cancelled") {

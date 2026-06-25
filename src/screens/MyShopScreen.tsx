@@ -47,6 +47,7 @@ import { getProductStockStatus } from "../utils/productStock";
 import {
   buyerDisplayName,
   countSellerOrdersNeedingAttention,
+  formatOrderItemSizeLine,
   matchesSellerOrderFilter,
   paymentStatusLabel,
   SELLER_ORDER_FILTERS,
@@ -171,6 +172,7 @@ function SellerOrderCard({
   const order = sellerOrder.order;
   const buyerName = buyerDisplayName(sellerOrder);
   const paid = order.paymentStatus === "paid";
+  const sizeLine = formatOrderItemSizeLine(firstItem);
 
   return (
     <Pressable
@@ -198,6 +200,9 @@ function SellerOrderCard({
         <Text style={styles.orderCardBuyer} numberOfLines={1}>
           {buyerName}
         </Text>
+        {sizeLine ? (
+          <Text style={styles.orderCardMeta}>{sizeLine}</Text>
+        ) : null}
         <Text style={styles.orderCardDate}>
           {formatOrderDate(order.createdAt)} · #{order.id.slice(0, 8)}
         </Text>
@@ -821,6 +826,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     marginTop: 6,
+  },
+  orderCardMeta: {
+    color: theme.textMuted,
+    fontSize: 12,
+    marginTop: 2,
   },
   orderCardDate: {
     color: theme.textMuted,

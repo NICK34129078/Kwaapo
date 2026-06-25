@@ -1,10 +1,28 @@
 import type {
   BuyerOrder,
   Order,
+  OrderItem,
   PaymentStatus,
   ShippingStatus,
 } from "../types/order";
 import type { SellerOrder } from "../types/order";
+
+type OrderItemSizePick = Pick<OrderItem, "selectedVariantValue" | "size">;
+
+/** Gekozen maat voor weergave (variant of legacy size-kolom). */
+export function formatOrderItemSizeLabel(
+  item: OrderItemSizePick | null | undefined
+): string | null {
+  const label = item?.selectedVariantValue?.trim() || item?.size?.trim();
+  return label && label.length > 0 ? label : null;
+}
+
+export function formatOrderItemSizeLine(
+  item: OrderItemSizePick | null | undefined
+): string | null {
+  const label = formatOrderItemSizeLabel(item);
+  return label ? `Maat ${label}` : null;
+}
 
 export type SellerOrderFilter =
   | "all"

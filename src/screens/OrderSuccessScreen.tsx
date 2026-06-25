@@ -15,6 +15,7 @@ import { fetchBuyerOrderById } from "../services/ordersService";
 import type { BuyerOrder } from "../types/order";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
+  formatOrderItemSizeLabel,
   formatOrderShortAddress,
   paymentStatusLabel,
   sellerDisplayName,
@@ -116,6 +117,14 @@ export function OrderSuccessScreen() {
                 {firstItem?.product?.name ?? "Product"}
               </Text>
             </View>
+            {formatOrderItemSizeLabel(firstItem) ? (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Maat</Text>
+                <Text style={styles.summaryValue}>
+                  {formatOrderItemSizeLabel(firstItem)}
+                </Text>
+              </View>
+            ) : null}
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Totaal</Text>
               <Text style={styles.summaryValueAccent}>

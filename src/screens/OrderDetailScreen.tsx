@@ -27,6 +27,7 @@ import { PLATFORM_FEE_PERCENT_LABEL } from "../constants/platformFee";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
   buyerDisplayName,
+  formatOrderItemSizeLabel,
   formatOrderShortAddress,
   paymentStatusLabel,
   sellerDisplayName,
@@ -261,8 +262,8 @@ export function OrderDetailScreen() {
                 </Text>
                 <Text style={styles.productMeta}>
                   Aantal {firstItem?.quantity ?? 1}
-                  {firstItem?.selectedVariantValue || firstItem?.size
-                    ? ` · Maat ${firstItem.selectedVariantValue ?? firstItem.size}`
+                  {formatOrderItemSizeLabel(firstItem)
+                    ? ` · Maat ${formatOrderItemSizeLabel(firstItem)}`
                     : ""}
                 </Text>
                 <Text style={styles.productPriceLarge}>
