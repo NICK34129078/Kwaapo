@@ -51,13 +51,14 @@ export function shippingStatusLabel(status: ShippingStatus): string {
   }
 }
 
-export type BuyerOrderFilter = "all" | "waiting_ship" | "shipped" | "completed";
+export type BuyerOrderFilter = "all" | "unpaid" | "waiting_ship" | "shipped" | "completed";
 
 export const BUYER_ORDER_FILTERS: Array<{
   id: BuyerOrderFilter;
   label: string;
 }> = [
   { id: "all", label: "Alle" },
+  { id: "unpaid", label: "Niet betaald" },
   { id: "waiting_ship", label: "Wacht op verzending" },
   { id: "shipped", label: "Verzonden" },
   { id: "completed", label: "Afgerond" },
@@ -70,6 +71,8 @@ export function matchesBuyerOrderFilter(
   switch (filter) {
     case "all":
       return true;
+    case "unpaid":
+      return order.paymentStatus === "unpaid" || order.paymentStatus === "failed";
     case "waiting_ship":
       return (
         order.paymentStatus === "paid" && order.shippingStatus === "not_shipped"

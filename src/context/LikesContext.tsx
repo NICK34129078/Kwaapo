@@ -26,6 +26,8 @@ type LikesContextValue = {
   toggleLike: (postId: string, defaultLikesCount: number) => Promise<void>;
   /** Na feed-fetch: reset lokale count-delta’s + hydratie van eigen likes (uuid-posts). */
   syncFeedLikeState: (posts: Array<{ id: string }>) => void;
+  /** Verwijder like-cache voor posts die uit het rolling window zijn. */
+  prunePostIds: (postIds: string[]) => void;
   /**
    * Verhoogt bij elke like-state wijziging. Gebruik in FlatList `extraData` zodat rijen
    * opnieuw renderen (VirtualizedList rendert anders niet bij alleen context-updates).
@@ -121,6 +123,59 @@ export function LikesProvider({ children }: { children: React.ReactNode }) {
     },
     [user?.id]
   );
+
+  const prunePostIds = useCallback((postIds: string[]) => {
+    if (postIds.length === 0) {
+      return;
+    }
+    const drop = new Set(postIds);
+    setCountAdjust((prev) => {
+      const next = { ...prev };
+      for (const id of postIds) {
+        delete next[id];
+      }
+      return next;
+    });
+    setOptimistic((prev) => {
+      const next = { ...prev };
+      for (const id of postIds) {
+        delete next[id];
+      }
+      return next;
+    });
+    setDemoOverrides((prev) => {
+      const next = { ...prev };
+      for (const id of postIds) {
+        delete next[id];
+      }
+      return next;
+    });
+    setHydratedCounts((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const id of postIds) {
+        if (id in next) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setHydratedLiked((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const id of postIds) {
+        if (id in next) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    for (const id of postIds) {
+      toggleInFlight.current.delete(id);
+    }
+  }, []);
 
   const getLikeState = useCallback(
     (postId: string, defaultLikesCount: number): PerPost => {
@@ -233,9 +288,10 @@ export function LikesProvider({ children }: { children: React.ReactNode }) {
       getLikeState,
       toggleLike,
       syncFeedLikeState,
+      prunePostIds,
       interactionRevision,
     }),
-    [getLikeState, toggleLike, syncFeedLikeState, interactionRevision]
+    [getLikeState, toggleLike, syncFeedLikeState, prunePostIds, interactionRevision]
   );
 
   return (

@@ -64,6 +64,22 @@ export function setCachedSavedStatus(postId: string, saved: boolean): void {
   notifySavedStatusListeners();
 }
 
+/** Verwijder cache-entries voor posts die uit het feed-window zijn. */
+export function pruneSavedStatusCache(postIds: readonly string[]): void {
+  if (postIds.length === 0) {
+    return;
+  }
+  let changed = false;
+  for (const id of postIds) {
+    if (savedStatusCache.delete(id)) {
+      changed = true;
+    }
+  }
+  if (changed) {
+    notifySavedStatusListeners();
+  }
+}
+
 /** Wis de cache, bijv. bij uitloggen of accountwissel. */
 export function clearSavedStatusCache(): void {
   savedStatusCache.clear();

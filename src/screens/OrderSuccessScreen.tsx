@@ -17,6 +17,7 @@ import { formatPriceEur } from "../utils/formatPrice";
 import {
   formatOrderShortAddress,
   paymentStatusLabel,
+  sellerDisplayName,
   shippingStatusLabel,
 } from "../utils/orderDashboard";
 
@@ -102,6 +103,12 @@ export function OrderSuccessScreen() {
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Ordernummer</Text>
               <Text style={styles.summaryValue}>#{order.id.slice(0, 8)}</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Verkoper</Text>
+              <Text style={styles.summaryValue} numberOfLines={2}>
+                {buyerOrder ? sellerDisplayName(buyerOrder) : "Verkoper"}
+              </Text>
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Product</Text>

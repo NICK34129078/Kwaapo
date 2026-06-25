@@ -5,6 +5,9 @@ export type Product = {
   description: string | null;
   price: number;
   category: string | null;
+  mainCategory: string | null;
+  audience: string | null;
+  subcategory: string | null;
   brand: string | null;
   tags: string[];
   stock: number;
@@ -12,9 +15,12 @@ export type Product = {
   sizes: string[];
   isActive: boolean;
   createdAt: string;
-  /** Alleen gezet door get_personalized_shop_products (dev/logging). */
+  usesVariants: boolean;
+  variantsReady: boolean;
+  /** Alleen gezet door shop feed RPCs (dev/logging). */
   shopScore?: number;
   relevantTags?: string[];
+  feedBucket?: string;
 };
 
 export type ProductRow = {
@@ -24,6 +30,9 @@ export type ProductRow = {
   description: string | null;
   price: number | string;
   category: string | null;
+  main_category?: string | null;
+  audience?: string | null;
+  subcategory?: string | null;
   brand: string | null;
   tags?: unknown;
   stock: number;
@@ -31,6 +40,8 @@ export type ProductRow = {
   sizes: unknown;
   is_active: boolean;
   created_at: string;
+  uses_variants?: boolean;
+  variants_ready?: boolean;
 };
 
 export type ProductInput = {
@@ -38,13 +49,21 @@ export type ProductInput = {
   description?: string | null;
   price: number;
   category?: string | null;
+  mainCategory?: string | null;
+  audience?: string | null;
+  subcategory?: string | null;
   brand?: string | null;
   tags?: string[];
   stock: number;
   images: string[];
   sizes: string[];
   isActive?: boolean;
+  usesVariants?: boolean;
+  variantsReady?: boolean;
 };
+
+/** Productvelden zonder voorraad — voor gewone Opslaan-flow. */
+export type ProductDetailsInput = Omit<ProductInput, "stock">;
 
 function parseStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
@@ -64,6 +83,9 @@ export function mapProductRow(row: ProductRow): Product {
     description: row.description,
     price: Number.isFinite(price) ? price : 0,
     category: row.category,
+    mainCategory: row.main_category ?? null,
+    audience: row.audience ?? null,
+    subcategory: row.subcategory ?? null,
     brand: row.brand,
     tags: parseStringArray(row.tags),
     stock: Math.max(0, row.stock ?? 0),
@@ -71,5 +93,7 @@ export function mapProductRow(row: ProductRow): Product {
     sizes: parseStringArray(row.sizes),
     isActive: row.is_active,
     createdAt: row.created_at,
+    usesVariants: row.uses_variants === true,
+    variantsReady: row.variants_ready === true,
   };
 }

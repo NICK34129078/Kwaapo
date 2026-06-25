@@ -8,11 +8,16 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { ProductListingImage } from "./ProductListingImage";
 import { theme } from "../constants/theme";
-import { fetchActiveProductsByOwner } from "../services/productsService";
+import { fetchOwnerShopProducts } from "../services/productsService";
+import {
+  mergeProductIntoList,
+  removeProductFromList,
+  subscribeProductCatalog,
+} from "../services/productCatalogRefresh";
 import {
   canSellerPrepareProducts,
   fetchMySellerOnboarding,
@@ -33,10 +38,12 @@ function ProductCard({
   product,
   width,
   onPress,
+  isOwnProfile,
 }: {
   product: Product;
   width: number;
   onPress: () => void;
+  isOwnProfile: boolean;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const imageUri = product.images[0];
@@ -69,6 +76,11 @@ function ProductCard({
             style={styles.image}
             recyclingKey={`profile-shop-${product.id}`}
           />
+          {isOwnProfile && !product.isActive ? (
+            <View style={styles.conceptBadge}>
+              <Text style={styles.conceptBadgeText}>Concept</Text>
+            </View>
+          ) : null}
         </View>
         <View style={styles.cardBody}>
           <Text style={styles.productName} numberOfLines={2}>
@@ -95,24 +107,57 @@ export function ProfileShopGrid({
   const cardWidth = (width - 16 * 2 - GAP) / 2;
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const silentRefreshRef = useRef(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!silentRefreshRef.current) {
+      setLoading(true);
+    }
     try {
-      const rows = await fetchActiveProductsByOwner(ownerId);
+      const rows = await fetchOwnerShopProducts(ownerId, {
+        viewerIsOwner: isOwnProfile,
+      });
       setProducts(rows);
       onProductCountChange?.(rows.length);
     } catch {
       setProducts([]);
       onProductCountChange?.(0);
     } finally {
+      silentRefreshRef.current = false;
       setLoading(false);
     }
-  }, [onProductCountChange, ownerId]);
+  }, [isOwnProfile, onProductCountChange, ownerId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    return subscribeProductCatalog((event) => {
+      if (event.kind === "created" || event.kind === "updated") {
+        if (!isOwnProfile && !event.product.isActive) {
+          return;
+        }
+        setProducts((prev) => {
+          const next = mergeProductIntoList(prev, event.product);
+          onProductCountChange?.(next.length);
+          return next;
+        });
+        silentRefreshRef.current = true;
+        void load();
+      } else if (event.kind === "deleted") {
+        setProducts((prev) => {
+          const next = removeProductFromList(prev, event.productId);
+          onProductCountChange?.(next.length);
+          return next;
+        });
+      } else {
+        void load();
+      }
+    });
+  }, [isOwnProfile, load, onProductCountChange]);
 
   useEffect(() => {
     if (!isOwnProfile) {
@@ -188,6 +233,7 @@ export function ProfileShopGrid({
               product={product}
               width={cardWidth}
               onPress={() => openProduct(product)}
+              isOwnProfile={isOwnProfile}
             />
           ))}
         </View>
@@ -238,6 +284,22 @@ const styles = StyleSheet.create({
     aspectRatio: 0.82,
     backgroundColor: "#101010",
     overflow: "hidden",
+  },
+  conceptBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  conceptBadgeText: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
   },
   image: {
     width: "100%",

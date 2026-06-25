@@ -8,12 +8,14 @@ import {
 import {
   mapProductRow,
   type Product,
+  type ProductDetailsInput,
   type ProductInput,
   type ProductRow,
 } from "../types/product";
+import { addProductStock } from "./productStockService";
 
 const PRODUCT_COLUMNS =
-  "id, owner_id, name, description, price, category, brand, tags, stock, images, sizes, is_active, created_at";
+  "id, owner_id, name, description, price, category, main_category, audience, subcategory, brand, tags, stock, images, sizes, is_active, uses_variants, variants_ready, created_at";
 
 export type ProductSeller = {
   id: string;
@@ -38,6 +40,14 @@ function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     value
   );
+}
+
+function toServiceError(
+  error: { message?: string } | null | undefined,
+  fallback: string
+): Error {
+  const message = error?.message?.trim();
+  return new Error(message && message.length > 0 ? message : fallback);
 }
 
 export async function fetchProductsByIds(ids: string[]): Promise<Product[]> {
@@ -117,6 +127,16 @@ export async function fetchActiveProductsByOwner(
   return fetchProductsByOwner(ownerId, { includeInactive: false });
 }
 
+/** Profiel-winkel: eigen profiel toont ook concepten; anderen alleen actieve producten. */
+export async function fetchOwnerShopProducts(
+  ownerId: string,
+  options?: { viewerIsOwner?: boolean }
+): Promise<Product[]> {
+  return fetchProductsByOwner(ownerId, {
+    includeInactive: options?.viewerIsOwner === true,
+  });
+}
+
 export async function fetchProductSeller(
   ownerId: string
 ): Promise<ProductSeller | null> {
@@ -185,12 +205,17 @@ function rowToInsert(input: ProductInput, ownerId: string) {
     description: input.description?.trim() || null,
     price: input.price,
     category: input.category?.trim() || null,
+    main_category: input.mainCategory?.trim() || null,
+    audience: input.audience?.trim() || null,
+    subcategory: input.subcategory?.trim() || null,
     brand: input.brand?.trim() || null,
     tags: input.tags ?? [],
     stock: Math.max(0, Math.floor(input.stock)),
     images: input.images,
     sizes: input.sizes,
     is_active: input.isActive ?? true,
+    uses_variants: input.usesVariants ?? false,
+    variants_ready: input.variantsReady ?? false,
   };
 }
 
@@ -267,7 +292,7 @@ export async function createProduct(
     throw new Error("Niet ingelogd.");
   }
 
-  const payload = rowToInsert(input, user.id);
+  const payload = rowToInsert({ ...input, stock: 0 }, user.id);
   const { data, error } = await supabase
     .from("products")
     .insert(productId ? { ...payload, id: productId } : payload)
@@ -275,14 +300,22 @@ export async function createProduct(
     .single<ProductRow>();
 
   if (error) {
-    throw error;
+    throw toServiceError(error, "Product aanmaken mislukt.");
   }
-  return mapProductRow(data);
+
+  const product = mapProductRow(data);
+  const initialStock = Math.max(0, Math.floor(input.stock));
+  if (initialStock > 0) {
+    await addProductStock(product.id, initialStock);
+    return (await fetchProductById(product.id)) ?? product;
+  }
+
+  return product;
 }
 
-export async function updateProduct(
+export async function updateProductDetails(
   productId: string,
-  input: Partial<ProductInput>
+  input: Partial<ProductDetailsInput>
 ): Promise<Product> {
   const patch: Record<string, unknown> = {};
 
@@ -298,14 +331,20 @@ export async function updateProduct(
   if (input.category !== undefined) {
     patch.category = input.category?.trim() || null;
   }
+  if (input.mainCategory !== undefined) {
+    patch.main_category = input.mainCategory?.trim() || null;
+  }
+  if (input.audience !== undefined) {
+    patch.audience = input.audience?.trim() || null;
+  }
+  if (input.subcategory !== undefined) {
+    patch.subcategory = input.subcategory?.trim() || null;
+  }
   if (input.brand !== undefined) {
     patch.brand = input.brand?.trim() || null;
   }
   if (input.tags !== undefined) {
     patch.tags = input.tags;
-  }
-  if (input.stock !== undefined) {
-    patch.stock = Math.max(0, Math.floor(input.stock));
   }
   if (input.images !== undefined) {
     patch.images = input.images;
@@ -316,6 +355,12 @@ export async function updateProduct(
   if (input.isActive !== undefined) {
     patch.is_active = input.isActive;
   }
+  if (input.usesVariants !== undefined) {
+    patch.uses_variants = input.usesVariants;
+  }
+  if (input.variantsReady !== undefined) {
+    patch.variants_ready = input.variantsReady;
+  }
 
   const { data, error } = await supabase
     .from("products")
@@ -325,16 +370,30 @@ export async function updateProduct(
     .single<ProductRow>();
 
   if (error) {
-    throw error;
+    throw toServiceError(error, "Product bijwerken mislukt.");
   }
   return mapProductRow(data);
+}
+
+/** @deprecated Gebruik updateProductDetails — stock nooit via gewone update. */
+export async function updateProduct(
+  productId: string,
+  input: Partial<ProductInput>
+): Promise<Product> {
+  if (input.stock !== undefined) {
+    throw new Error(
+      "Voorraad kan alleen via voorraad beheer worden aangepast."
+    );
+  }
+  const { stock: _ignored, ...details } = input;
+  return updateProductDetails(productId, details);
 }
 
 export async function setProductActive(
   productId: string,
   isActive: boolean
 ): Promise<Product> {
-  return updateProduct(productId, { isActive });
+  return updateProductDetails(productId, { isActive });
 }
 
 export async function deleteProduct(productId: string): Promise<void> {
@@ -344,4 +403,4 @@ export async function deleteProduct(productId: string): Promise<void> {
   }
 }
 
-export type { Product, ProductInput };
+export type { Product, ProductDetailsInput, ProductInput };

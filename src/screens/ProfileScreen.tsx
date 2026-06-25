@@ -53,6 +53,10 @@ import { supabase } from "../lib/supabase";
 import { fetchUserPosts } from "../services/postsService";
 import { parseHashtagInput } from "../utils/hashtags";
 import { fetchMyActiveProducts } from "../services/productsService";
+import {
+  canSellerManageProducts,
+  fetchMySellerOnboarding,
+} from "../services/sellerOnboardingService";
 import type { Product } from "../types/product";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
@@ -233,6 +237,8 @@ function ProfileAuthenticatedScreen({
   const [productPickerVisible, setProductPickerVisible] = useState(false);
   const [uploadProducts, setUploadProducts] = useState<Product[]>([]);
   const [uploadProductsLoading, setUploadProductsLoading] = useState(false);
+  const [sellerCanLinkProducts, setSellerCanLinkProducts] = useState(false);
+  const [productPickerQuery, setProductPickerQuery] = useState("");
   const selectedUploadProduct = useMemo(
     () => uploadProducts.find((product) => product.id === selectedProductId) ?? null,
     [selectedProductId, uploadProducts]
@@ -321,6 +327,49 @@ function ProfileAuthenticatedScreen({
   }, []);
 
   useEffect(() => {
+    if (!uploadModalVisible || !isOwnProfile || !isBusinessProfile) {
+      setSellerCanLinkProducts(false);
+      return;
+    }
+    let cancelled = false;
+    void fetchMySellerOnboarding()
+      .then((row) => {
+        if (!cancelled) {
+          setSellerCanLinkProducts(canSellerManageProducts(row));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSellerCanLinkProducts(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isBusinessProfile, isOwnProfile, uploadModalVisible]);
+
+  useEffect(() => {
+    if (!uploadDraftMedia || !sellerCanLinkProducts) {
+      return;
+    }
+    let cancelled = false;
+    void fetchMyActiveProducts()
+      .then((rows) => {
+        if (!cancelled) {
+          setUploadProducts(rows.filter((product) => product.stock > 0));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUploadProducts([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sellerCanLinkProducts, uploadDraftMedia]);
+
+  useEffect(() => {
     if (!productPickerVisible || !isOwnProfile || !isBusinessProfile) {
       return;
     }
@@ -330,7 +379,7 @@ function ProfileAuthenticatedScreen({
       try {
         const rows = await fetchMyActiveProducts();
         if (!cancelled) {
-          setUploadProducts(rows);
+          setUploadProducts(rows.filter((product) => product.stock > 0));
         }
       } catch {
         if (!cancelled) {
@@ -347,17 +396,32 @@ function ProfileAuthenticatedScreen({
     };
   }, [isBusinessProfile, isOwnProfile, productPickerVisible]);
 
+  const filteredUploadProducts = useMemo(() => {
+    const q = productPickerQuery.trim().toLowerCase();
+    if (!q) {
+      return uploadProducts;
+    }
+    return uploadProducts.filter((product) => {
+      const haystack = [product.name, product.brand, product.category]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [productPickerQuery, uploadProducts]);
+
   const dismissUploadModal = useCallback(() => {
     setUploadModalVisible(false);
     resetUploadDrafts();
   }, [resetUploadDrafts]);
 
   const openProductPicker = useCallback(() => {
-    if (!isBusinessProfile) {
+    if (!sellerCanLinkProducts) {
       return;
     }
+    setProductPickerQuery("");
     setProductPickerVisible(true);
-  }, [isBusinessProfile]);
+  }, [sellerCanLinkProducts]);
 
   const selectUploadProduct = useCallback((product: Product) => {
     setSelectedProductId(product.id);
@@ -1458,13 +1522,17 @@ function ProfileAuthenticatedScreen({
                     </Text>
                   ) : null}
                 </View>
-                {isBusinessProfile ? (
+                {sellerCanLinkProducts && uploadProducts.length > 0 ? (
                   <>
+                    <Text style={styles.uploadSheetSectionLabel}>Product toevoegen</Text>
+                    <Text style={styles.uploadSheetHashtagHelp}>
+                      Maak je video direct shoppable door een product te koppelen.
+                    </Text>
                     {selectedUploadProduct ? (
                       <View style={styles.linkedProductCard}>
                         <View style={styles.linkedProductHeader}>
                           <Text style={styles.linkedProductEyebrow}>
-                            Gekoppeld product
+                            Geselecteerd product
                           </Text>
                           <Ionicons
                             name="bag-handle-outline"
@@ -1500,18 +1568,27 @@ function ProfileAuthenticatedScreen({
                         </View>
                       </View>
                     ) : (
-                      <Pressable
-                        style={styles.addProductTagButton}
-                        onPress={openProductPicker}
-                        accessibilityRole="button"
-                        accessibilityLabel="Product toevoegen"
-                      >
-                        <Ionicons name="pricetag-outline" size={18} color={theme.accent} />
-                        <Text style={styles.addProductTagText}>
-                          Product toevoegen
-                        </Text>
-                        <Text style={styles.addProductTagOptional}>optioneel</Text>
-                      </Pressable>
+                      <View style={styles.uploadProductChoices}>
+                        <Pressable
+                          style={styles.addProductTagButton}
+                          onPress={openProductPicker}
+                          accessibilityRole="button"
+                          accessibilityLabel="Kies een product"
+                        >
+                          <Ionicons name="pricetag-outline" size={18} color={theme.accent} />
+                          <Text style={styles.addProductTagText}>Kies een product</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.skipProductBtn}
+                          onPress={() => setSelectedProductId(null)}
+                          accessibilityRole="button"
+                          accessibilityLabel="Deze video heeft geen product"
+                        >
+                          <Text style={styles.skipProductBtnText}>
+                            Deze video heeft geen product
+                          </Text>
+                        </Pressable>
+                      </View>
                     )}
                   </>
                 ) : null}
@@ -1545,7 +1622,7 @@ function ProfileAuthenticatedScreen({
         </Modal>
       ) : null}
 
-      {isOwnProfile && isBusinessProfile ? (
+      {isOwnProfile && isBusinessProfile && sellerCanLinkProducts ? (
         <Modal
           visible={productPickerVisible}
           transparent
@@ -1556,8 +1633,10 @@ function ProfileAuthenticatedScreen({
             <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
               <View style={styles.modalHeader}>
                 <View>
-                  <Text style={styles.modalTitle}>Koppel product</Text>
-                  <Text style={styles.productPickerSubtitle}>Mijn producten</Text>
+                  <Text style={styles.modalTitle}>Kies een product</Text>
+                  <Text style={styles.productPickerSubtitle}>
+                    Alleen je actieve producten met voorraad
+                  </Text>
                 </View>
                 <Pressable
                   style={styles.iconButton}
@@ -1569,13 +1648,23 @@ function ProfileAuthenticatedScreen({
                 </Pressable>
               </View>
 
+              <TextInput
+                style={styles.productPickerSearch}
+                value={productPickerQuery}
+                onChangeText={setProductPickerQuery}
+                placeholder="Zoek in jouw producten"
+                placeholderTextColor={theme.textMuted}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+
               {uploadProductsLoading ? (
                 <View style={styles.productPickerLoading}>
                   <ActivityIndicator size="small" color={theme.accent} />
                 </View>
               ) : (
                 <FlatList
-                  data={uploadProducts}
+                  data={filteredUploadProducts}
                   keyExtractor={(item) => item.id}
                   keyboardShouldPersistTaps="handled"
                   contentContainerStyle={styles.productPickerList}
@@ -2416,7 +2505,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     borderRadius: 12,
     paddingHorizontal: 12,
-    marginBottom: 14,
+    marginBottom: 0,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
     backgroundColor: "rgba(255,255,255,0.04)",
@@ -2434,6 +2523,31 @@ const styles = StyleSheet.create({
     color: theme.textMuted,
     fontSize: 12,
     fontWeight: "600",
+  },
+  uploadProductChoices: {
+    gap: 8,
+    marginBottom: 14,
+  },
+  skipProductBtn: {
+    minHeight: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  skipProductBtnText: {
+    color: theme.textMuted,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  productPickerSearch: {
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: theme.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    color: theme.text,
+    paddingHorizontal: 12,
+    fontSize: 15,
+    marginBottom: 12,
   },
   linkedProductCard: {
     borderRadius: 14,

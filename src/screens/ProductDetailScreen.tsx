@@ -21,6 +21,7 @@ import { AvatarImage } from "../components/AvatarImage";
 import { ProductListingImage } from "../components/ProductListingImage";
 import { ProductSellerBusinessInfoModal } from "../components/ProductSellerBusinessInfoModal";
 import { useAuth } from "../context/AuthContext";
+import { useAuthPrompt } from "../context/AuthPromptContext";
 import {
   deleteProduct,
   fetchProductById,
@@ -33,11 +34,18 @@ import type { Product } from "../types/product";
 import type { UserVideoPost } from "../types/userVideoPost";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
+  isProductSaved,
+  saveProductLocally,
+  unsaveProductLocally,
+} from "../services/savedProductsService";
+import {
   canSellerAcceptSales,
   getPublicSellerBusinessName,
   isVerifiedBusinessSellerForBuyers,
   shouldWarnUnverifiedSeller,
 } from "../services/sellerOnboardingService";
+import { fetchProductVariants } from "../services/productVariantService";
+import type { ProductVariant } from "../types/productVariant";
 
 const THUMB_CHIP_SIZE = 58;
 const THUMB_CHIP_GAP = 8;
@@ -144,6 +152,7 @@ export function ProductDetailScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { user } = useAuth();
+  const { openAuthPrompt } = useAuthPrompt();
   const productId: string | undefined = route.params?.productId;
   const canManage: boolean = route.params?.canManage === true;
 
@@ -154,7 +163,10 @@ export function ProductDetailScreen() {
   const [busy, setBusy] = useState(false);
   const [imageIndex, setImageIndex] = useState(0);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [variants, setVariants] = useState<ProductVariant[]>([]);
   const [businessInfoVisible, setBusinessInfoVisible] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
   const thumbListRef = useRef<FlatList<string>>(null);
 
   const heroHeight = Math.min(width * 1.05, 460);
@@ -167,7 +179,14 @@ export function ProductDetailScreen() {
     }
     const row = await fetchProductById(productId);
     setProduct(row);
-    setSelectedSize(row?.sizes[0] ?? null);
+    setSelectedSize(null);
+    setSelectedVariantId(null);
+    setVariants([]);
+
+    if (row?.usesVariants && row.variantsReady) {
+      const variantRows = await fetchProductVariants(productId);
+      setVariants(variantRows);
+    }
 
     if (row) {
       const [sellerRow, posts] = await Promise.all([
@@ -186,6 +205,14 @@ export function ProductDetailScreen() {
     setLoading(true);
     void load().finally(() => setLoading(false));
   }, [load]);
+
+  useEffect(() => {
+    if (!product?.id || canManage) {
+      setIsSaved(false);
+      return;
+    }
+    void isProductSaved(product.id).then(setIsSaved).catch(() => setIsSaved(false));
+  }, [canManage, product?.id]);
 
   const images = product?.images ?? [];
   const heroUri = images[imageIndex] ?? images[0];
@@ -283,10 +310,41 @@ export function ProductDetailScreen() {
     );
   }, [navigation, product]);
 
-  const sellerSalesActive = useMemo(
-    () => (seller ? canSellerAcceptSales(seller) : false),
-    [seller]
+  const usesVariantCheckout = useMemo(
+    () => !!(product?.usesVariants && product?.variantsReady),
+    [product]
   );
+
+  const selectedVariant = useMemo(
+    () => variants.find((v) => v.id === selectedVariantId) ?? null,
+    [selectedVariantId, variants]
+  );
+
+  const sellerSalesActive = useMemo(() => {
+    if (!seller || !product) {
+      return false;
+    }
+    if (!canSellerAcceptSales(seller) || !product.isActive) {
+      return false;
+    }
+    if (usesVariantCheckout) {
+      return variants.some((v) => v.isActive && v.stock > 0);
+    }
+    return product.stock > 0;
+  }, [product, seller, usesVariantCheckout, variants]);
+
+  const buyBlockedBySize = useMemo(() => {
+    if (!product) {
+      return true;
+    }
+    if (usesVariantCheckout) {
+      return !selectedVariant || selectedVariant.stock <= 0;
+    }
+    if (product.sizes.length > 0) {
+      return !selectedSize;
+    }
+    return false;
+  }, [product, selectedSize, selectedVariant, usesVariantCheckout]);
 
   const onBuyNow = useCallback(() => {
     if (!product) {
@@ -294,21 +352,49 @@ export function ProductDetailScreen() {
     }
     if (!sellerSalesActive) {
       Alert.alert(
-        "Betaling niet mogelijk",
-        "Deze verkoper kan nog geen betalingen ontvangen."
+        "Niet beschikbaar",
+        "Dit product is momenteel tijdelijk niet beschikbaar voor aankoop."
       );
       return;
     }
-    if (product.sizes.length > 0 && !selectedSize) {
+    if (buyBlockedBySize) {
       Alert.alert("Maat kiezen", "Kies eerst een maat.");
       return;
     }
-    navigation.navigate("CheckoutInfo", {
+    navigation.navigate("CheckoutReview", {
       productId: product.id,
       quantity: 1,
-      size: selectedSize,
+      size: selectedVariant?.optionValue ?? selectedSize,
+      productVariantId: selectedVariant?.id ?? null,
+      selectedVariantType: selectedVariant ? "size" : null,
+      selectedVariantValue: selectedVariant?.optionValue ?? selectedSize,
     });
-  }, [navigation, product, selectedSize, sellerSalesActive]);
+  }, [
+    buyBlockedBySize,
+    navigation,
+    product,
+    selectedSize,
+    selectedVariant,
+    sellerSalesActive,
+  ]);
+
+  const onToggleSave = useCallback(() => {
+    if (!product) {
+      return;
+    }
+    if (!user) {
+      openAuthPrompt({ message: "Log in om producten te bewaren." });
+      return;
+    }
+    const next = !isSaved;
+    setIsSaved(next);
+    void (next ? saveProductLocally(product.id) : unsaveProductLocally(product.id)).catch(
+      () => {
+        setIsSaved(!next);
+        Alert.alert("Opslaan mislukt", "Probeer het opnieuw.");
+      }
+    );
+  }, [isSaved, openAuthPrompt, product, user]);
 
   const onSellerPress = useCallback(() => {
     if (!seller?.id) {
@@ -560,9 +646,59 @@ export function ProductDetailScreen() {
                 </View>
               </View>
 
-              {product.sizes.length > 0 ? (
+              {usesVariantCheckout && variants.length > 0 ? (
                 <View style={styles.section}>
-                  <Text style={styles.sectionLabel}>Maten</Text>
+                  <Text style={styles.sectionLabel}>Kies je maat</Text>
+                  <View style={styles.sizeRow}>
+                    {variants.map((variant) => {
+                      const selected = selectedVariantId === variant.id;
+                      const out = variant.stock <= 0;
+                      return (
+                        <Pressable
+                          key={variant.id}
+                          style={[
+                            styles.sizeChip,
+                            selected && styles.sizeChipSelected,
+                            out && styles.sizeChipDisabled,
+                          ]}
+                          onPress={() => {
+                            if (out) {
+                              return;
+                            }
+                            setSelectedVariantId(variant.id);
+                            setSelectedSize(variant.optionValue);
+                          }}
+                          disabled={out}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Maat ${variant.optionValue}`}
+                        >
+                          <Text
+                            style={[
+                              styles.sizeChipText,
+                              selected && styles.sizeChipTextSelected,
+                              out && styles.sizeChipTextDisabled,
+                              out && styles.sizeChipTextStrike,
+                            ]}
+                          >
+                            {variant.optionValue}
+                          </Text>
+                          {out ? (
+                            <Text style={styles.sizeOutLabel}>Uitverkocht</Text>
+                          ) : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  {selectedVariant && selectedVariant.stock > 0 ? (
+                    <Text style={styles.sizeStockHint}>
+                      Nog {selectedVariant.stock} beschikbaar in maat{" "}
+                      {selectedVariant.optionValue}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : product.sizes.length > 0 && !usesVariantCheckout ? (
+                <View style={styles.section}>
+                  <Text style={styles.sectionLabel}>Kies je maat</Text>
                   <View style={styles.sizeRow}>
                     {product.sizes.map((size) => {
                       const selected = selectedSize === size;
@@ -684,20 +820,45 @@ export function ProductDetailScreen() {
 
           {!canManage ? (
             <View style={[styles.stickyBar, { paddingBottom: insets.bottom + 10 }]}>
-              <Pressable
-                style={[
-                  styles.buyBtn,
-                  !sellerSalesActive && styles.buyBtnDisabled,
-                ]}
-                onPress={onBuyNow}
-                disabled={!sellerSalesActive}
-                accessibilityRole="button"
-                accessibilityLabel={sellerSalesActive ? "Koop nu" : "Kopen niet beschikbaar"}
-              >
-                <Text style={styles.buyBtnText}>
-                  {sellerSalesActive ? "Koop nu" : "Nog niet te koop"}
-                </Text>
-              </Pressable>
+              <View style={styles.stickyActions}>
+                <Pressable
+                  style={styles.saveBtn}
+                  onPress={onToggleSave}
+                  accessibilityRole="button"
+                  accessibilityLabel={isSaved ? "Verwijder uit bewaard" : "Bewaar product"}
+                >
+                  <Ionicons
+                    name={isSaved ? "bookmark" : "bookmark-outline"}
+                    size={22}
+                    color={theme.text}
+                  />
+                  <Text style={styles.saveBtnText}>Bewaar</Text>
+                </Pressable>
+                  <Pressable
+                  style={[
+                    styles.buyBtn,
+                    (!sellerSalesActive || buyBlockedBySize) && styles.buyBtnDisabled,
+                  ]}
+                  onPress={onBuyNow}
+                  disabled={!sellerSalesActive}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    sellerSalesActive
+                      ? buyBlockedBySize
+                        ? "Kies eerst een maat"
+                        : "Koop nu"
+                      : "Kopen niet beschikbaar"
+                  }
+                >
+                  <Text style={styles.buyBtnText}>
+                    {!sellerSalesActive
+                      ? "Nog niet te koop"
+                      : buyBlockedBySize
+                        ? "Kies eerst een maat"
+                        : "Koop nu"}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
           ) : null}
           <ProductSellerBusinessInfoModal
@@ -885,29 +1046,55 @@ const styles = StyleSheet.create({
   sizeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: 10,
   },
   sizeChip: {
-    minWidth: 46,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
+    minWidth: 52,
+    minHeight: 52,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
     backgroundColor: theme.bgElevated,
     alignItems: "center",
+    justifyContent: "center",
   },
   sizeChipSelected: {
     borderColor: theme.accent,
     backgroundColor: theme.accentSoft,
+    borderWidth: 1.5,
   },
   sizeChipText: {
     color: theme.text,
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "800",
   },
   sizeChipTextSelected: {
     color: theme.accent,
+  },
+  sizeChipDisabled: {
+    opacity: 0.5,
+    backgroundColor: "rgba(255,255,255,0.02)",
+  },
+  sizeChipTextDisabled: {
+    color: theme.textMuted,
+  },
+  sizeChipTextStrike: {
+    textDecorationLine: "line-through",
+  },
+  sizeOutLabel: {
+    color: theme.textMuted,
+    fontSize: 9,
+    fontWeight: "700",
+    marginTop: 2,
+    textTransform: "uppercase",
+  },
+  sizeStockHint: {
+    color: theme.textMuted,
+    fontSize: 13,
+    marginTop: 10,
+    fontWeight: "600",
   },
   description: {
     color: "rgba(255,255,255,0.88)",
@@ -1121,7 +1308,30 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: theme.border,
   },
+  stickyActions: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+  },
+  saveBtn: {
+    minWidth: 84,
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    backgroundColor: theme.bgElevated,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    gap: 4,
+  },
+  saveBtnText: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
+  },
   buyBtn: {
+    flex: 1,
     minHeight: 52,
     borderRadius: 16,
     backgroundColor: theme.accent,

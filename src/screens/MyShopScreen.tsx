@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -23,6 +23,12 @@ import {
   fetchMyProducts,
   setProductActive,
 } from "../services/productsService";
+import {
+  emitProductCatalogEvent,
+  mergeProductIntoList,
+  removeProductFromList,
+  subscribeProductCatalog,
+} from "../services/productCatalogRefresh";
 import { fetchSellerOrders } from "../services/ordersService";
 import {
   canSellerPrepareProducts,
@@ -37,6 +43,7 @@ import type { SellerOnboarding } from "../types/sellerOnboarding";
 import type { Product } from "../types/product";
 import type { SellerOrder } from "../types/order";
 import { formatPriceEur } from "../utils/formatPrice";
+import { getProductStockStatus } from "../utils/productStock";
 import {
   buyerDisplayName,
   countSellerOrdersNeedingAttention,
@@ -67,15 +74,18 @@ function ProductManageRow({
   onPress,
   onToggleActive,
   onDelete,
+  onAddStock,
   toggleBusy,
 }: {
   product: Product;
   onPress: () => void;
   onToggleActive: (next: boolean) => void;
   onDelete: () => void;
+  onAddStock: () => void;
   toggleBusy: boolean;
 }) {
   const imageUri = product.images[0];
+  const stockStatus = getProductStockStatus(product.stock);
 
   return (
     <Pressable
@@ -104,11 +114,36 @@ function ProductManageRow({
               {product.category}
             </Text>
           ) : null}
-          <Text style={styles.rowStock}>Voorraad: {product.stock}</Text>
+          <Text
+            style={[
+              styles.rowStock,
+              stockStatus.tone === "out" && styles.rowStockOut,
+              stockStatus.tone === "low" && styles.rowStockLow,
+            ]}
+          >
+            {stockStatus.label}
+          </Text>
+          {stockStatus.sublabel ? (
+            <Text style={styles.rowStockHint}>{stockStatus.sublabel}</Text>
+          ) : null}
         </View>
+        {stockStatus.tone === "out" ? (
+          <Pressable
+            style={styles.addStockBtn}
+            onPress={(event) => {
+              event.stopPropagation();
+              onAddStock();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Voorraad toevoegen"
+          >
+            <Ionicons name="add-circle-outline" size={16} color={theme.accent} />
+            <Text style={styles.addStockBtnText}>Voorraad toevoegen</Text>
+          </Pressable>
+        ) : null}
         <View style={styles.activeRow}>
           <Text style={styles.activeLabel}>
-            {product.isActive ? "Actief" : "Inactief"}
+            {product.isActive ? "Actief" : "Concept"}
           </Text>
           <Switch
             value={product.isActive}
@@ -242,6 +277,18 @@ export function MyShopScreen() {
     }, [load])
   );
 
+  useEffect(() => {
+    return subscribeProductCatalog((event) => {
+      if (event.kind === "created" || event.kind === "updated") {
+        setProducts((prev) => mergeProductIntoList(prev, event.product));
+      } else if (event.kind === "deleted") {
+        setProducts((prev) => removeProductFromList(prev, event.productId));
+      } else {
+        void load();
+      }
+    });
+  }, [load]);
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     void load().finally(() => setRefreshing(false));
@@ -270,6 +317,7 @@ export function MyShopScreen() {
                 try {
                   await deleteProduct(product.id);
                   setProducts((prev) => prev.filter((p) => p.id !== product.id));
+                  emitProductCatalogEvent({ kind: "deleted", productId: product.id });
                 } catch (e) {
                   const msg =
                     e instanceof Error ? e.message : "Verwijderen mislukt.";
@@ -303,6 +351,7 @@ export function MyShopScreen() {
         setProducts((prev) =>
           prev.map((p) => (p.id === product.id ? updated : p))
         );
+        emitProductCatalogEvent({ kind: "updated", product: updated });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Status wijzigen mislukt.";
         Alert.alert("Fout", msg);
@@ -325,6 +374,12 @@ export function MyShopScreen() {
         }
         onToggleActive={(next) => void onToggleActive(item, next)}
         onDelete={() => confirmDelete(item)}
+        onAddStock={() =>
+          navigation.navigate("ProductForm", {
+            productId: item.id,
+            openStockAdd: true,
+          })
+        }
         toggleBusy={toggleBusyId === item.id}
       />
     ),
@@ -855,6 +910,36 @@ const styles = StyleSheet.create({
   rowStock: {
     color: theme.textMuted,
     fontSize: 12,
+    fontWeight: "700",
+  },
+  rowStockLow: {
+    color: "#d4a017",
+  },
+  rowStockOut: {
+    color: "#e07a5f",
+  },
+  rowStockHint: {
+    color: theme.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  addStockBtn: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: theme.accentSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.accentBorderMuted,
+  },
+  addStockBtnText: {
+    color: theme.accent,
+    fontSize: 13,
+    fontWeight: "800",
   },
   rowMetaLine: {
     color: theme.textMuted,

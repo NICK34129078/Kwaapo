@@ -26,6 +26,7 @@ import {
   isVideoReelItem,
   resolveCommentsCount,
 } from "../data/placeholder";
+import { ProductReelShopCard } from "./ProductReelShopCard";
 import { CommentsSheet } from "./CommentsSheet";
 import { PostMoreSheet } from "./PostMoreSheet";
 import { ReportReasonSheet } from "./ReportReasonSheet";
@@ -327,6 +328,11 @@ export function FeedItem({
     const parsed = parseInt(digits, 10);
     return Number.isNaN(parsed) ? 0 : parsed;
   });
+  const [shopCardVisible, setShopCardVisible] = useState(true);
+
+  useEffect(() => {
+    setShopCardVisible(true);
+  }, [item.id]);
   const ownerLabel =
     item.ownerUsername && item.ownerUsername.length > 0
       ? `@${item.ownerUsername}`
@@ -1034,20 +1040,24 @@ export function FeedItem({
     navigation.navigate("PublicProfile", { profileId: ownerProfileId });
   }, [item.ownerProfileId, navigation]);
 
-  const showLinkedProductCta = !!item.linkedProduct;
   const showLegacyShopCta =
     !item.linkedProduct &&
     item.isShopPost === true &&
     typeof item.productUrl === "string" &&
     item.productUrl.length > 0;
-  const showShopCta = showLinkedProductCta || showLegacyShopCta;
+  const showShopCta = showLegacyShopCta;
 
   const onShopPress = useCallback(() => {
     if (item.linkedProduct) {
-      navigation.navigate("ProductDetail", {
-        productId: item.linkedProduct.id,
-        canManage: false,
-      });
+      void (async () => {
+        if (user != null && isPersistablePostId(item.id)) {
+          await recordProductClick(item.id, clickSource);
+        }
+        navigation.navigate("ProductDetail", {
+          productId: item.linkedProduct!.id,
+          canManage: false,
+        });
+      })();
       return;
     }
 
@@ -1417,6 +1427,16 @@ export function FeedItem({
         onSubmit={onSubmitReport}
         busy={moderationBusy}
       />
+
+      {item.linkedProduct ? (
+        <ProductReelShopCard
+          product={item.linkedProduct}
+          bottomInset={reelsBottomInset}
+          visible={shopCardVisible}
+          onPress={onShopPress}
+          onDismiss={() => setShopCardVisible(false)}
+        />
+      ) : null}
 
     </View>
   );

@@ -21,6 +21,7 @@ import {
   markSellerOrderAsShipped,
   type SellerOrder,
 } from "../services/ordersService";
+import { payOrderWithStripe } from "../services/checkoutFlowService";
 import type { BuyerOrder } from "../types/order";
 import { PLATFORM_FEE_PERCENT_LABEL } from "../constants/platformFee";
 import { formatPriceEur } from "../utils/formatPrice";
@@ -57,6 +58,7 @@ export function OrderDetailScreen() {
   const [buyerOrder, setBuyerOrder] = useState<BuyerOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [shipBusy, setShipBusy] = useState(false);
+  const [payBusy, setPayBusy] = useState(false);
   const [trackingCode, setTrackingCode] = useState("");
 
   const load = useCallback(async () => {
@@ -135,6 +137,36 @@ export function OrderDetailScreen() {
       setShipBusy(false);
     }
   }, [mode, order, trackingCode]);
+
+  const onPayOrder = useCallback(async () => {
+    if (!order || mode !== "buyer") {
+      return;
+    }
+    setPayBusy(true);
+    try {
+      const payment = await payOrderWithStripe(order.id);
+      if (payment.ok) {
+        navigation.reset({
+          index: 1,
+          routes: [
+            { name: "MainTabs", params: { screen: "Shop" } },
+            { name: "OrderSuccess", params: { orderId: payment.orderId } },
+          ],
+        });
+        return;
+      }
+      navigation.navigate("CheckoutFailed", {
+        reason: payment.reason,
+        orderId: payment.orderId,
+        productId: firstItem?.productId,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Betaling starten mislukt.";
+      Alert.alert("Fout", msg);
+    } finally {
+      setPayBusy(false);
+    }
+  }, [firstItem?.productId, mode, navigation, order]);
 
   const screenTitle =
     mode === "buyer" ? "Mijn bestelling" : mode === "seller" ? "Bestelling" : "Bestelling";
@@ -229,7 +261,9 @@ export function OrderDetailScreen() {
                 </Text>
                 <Text style={styles.productMeta}>
                   Aantal {firstItem?.quantity ?? 1}
-                  {firstItem?.size ? ` · Maat ${firstItem.size}` : ""}
+                  {firstItem?.selectedVariantValue || firstItem?.size
+                    ? ` · Maat ${firstItem.selectedVariantValue ?? firstItem.size}`
+                    : ""}
                 </Text>
                 <Text style={styles.productPriceLarge}>
                   {formatPriceEur(order.subtotalAmount)}
@@ -273,6 +307,21 @@ export function OrderDetailScreen() {
                     ? ` — betaald op ${formatDate(order.paidAt)}`
                     : ""}
                 </Text>
+                {needsPayment ? (
+                  <Pressable
+                    style={[styles.primaryBtn, styles.buyerPayBtn]}
+                    onPress={() => void onPayOrder()}
+                    disabled={payBusy}
+                    accessibilityRole="button"
+                    accessibilityLabel="Opnieuw betalen"
+                  >
+                    {payBusy ? (
+                      <ActivityIndicator size="small" color={theme.bg} />
+                    ) : (
+                      <Text style={styles.primaryBtnText}>Opnieuw betalen</Text>
+                    )}
+                  </Pressable>
+                ) : null}
               </View>
 
               <View style={styles.section}>
@@ -663,5 +712,8 @@ const styles = StyleSheet.create({
     color: theme.bg,
     fontSize: 15,
     fontWeight: "900",
+  },
+  buyerPayBtn: {
+    marginTop: 12,
   },
 });

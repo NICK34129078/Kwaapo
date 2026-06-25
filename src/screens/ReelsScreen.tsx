@@ -32,6 +32,8 @@ import { useAuthPrompt } from "../context/AuthPromptContext";
 import { isPersistablePostId } from "../services/postLikesService";
 import { fetchSavedPostIdsForCurrentUser } from "../services/savedPostsService";
 import { capWatchedMs, recordVideoView } from "../services/videoViewsService";
+import { addToBoundedSet } from "../utils/boundedSeenIds";
+import { REELS_WINDOW } from "../utils/feedRollingWindow";
 
 const INITIAL_H = Dimensions.get("window").height;
 const VISIBLE_PCT = 70;
@@ -166,6 +168,7 @@ export function ReelsScreen() {
     globalFeedPosts,
     refreshGlobalFeed,
     loadMoreGlobalFeed,
+    trimFeedWindow,
     globalFeedLoading,
     isLoadingMoreFeed,
     globalFeedError,
@@ -184,6 +187,7 @@ export function ReelsScreen() {
     null
   );
   const recordedViewPostIdsRef = useRef<Set<string>>(new Set());
+  const recordedViewOrderRef = useRef<string[]>([]);
   const playbackMetricsRef = useRef<Map<string, AggregatedPlaybackMetrics>>(
     new Map()
   );
@@ -246,7 +250,12 @@ export function ReelsScreen() {
     if (cappedWatchedMs < 500) {
       return;
     }
-    recordedViewPostIdsRef.current.add(postId);
+    addToBoundedSet(
+      recordedViewPostIdsRef.current,
+      recordedViewOrderRef.current,
+      postId,
+      REELS_WINDOW.RECORDED_VIEW_MAX
+    );
 
     let watchedPercent: number | undefined;
     if (durationMs > 0) {
@@ -361,7 +370,7 @@ export function ReelsScreen() {
     if (finalFeedData.length < 6) {
       return;
     }
-    if (activeIndex < finalFeedData.length - 4) {
+    if (activeIndex < finalFeedData.length - REELS_WINDOW.LOAD_MORE_TRIGGER_FROM_END) {
       return;
     }
     if (isLoadingMoreFeed || !hasMoreFeed) {
@@ -375,6 +384,20 @@ export function ReelsScreen() {
     isLoadingMoreFeed,
     hasMoreFeed,
     loadMoreGlobalFeed,
+  ]);
+
+  useEffect(() => {
+    if (!isFocused || finalFeedData.length <= REELS_WINDOW.MAX) {
+      return;
+    }
+    trimFeedWindow(activeReelId);
+  }, [
+    activeReelId,
+    activeIndex,
+    finalFeedData.length,
+    isFocused,
+    isLoadingMoreFeed,
+    trimFeedWindow,
   ]);
 
   const nextVideoForPreload = useMemo(() => {
@@ -513,6 +536,11 @@ export function ReelsScreen() {
           initialNumToRender={2}
           maxToRenderPerBatch={2}
           windowSize={5}
+          maintainVisibleContentPosition={
+            Platform.OS === "ios" || Platform.OS === "android"
+              ? { minIndexForVisible: 0, autoscrollToTopThreshold: 10 }
+              : undefined
+          }
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
           removeClippedSubviews={false}

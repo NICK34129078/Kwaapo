@@ -23,6 +23,8 @@ import { ProductDetailScreen } from "./src/screens/ProductDetailScreen";
 import { OrderDetailScreen } from "./src/screens/OrderDetailScreen";
 import { OrderSuccessScreen } from "./src/screens/OrderSuccessScreen";
 import { MyOrdersScreen } from "./src/screens/MyOrdersScreen";
+import { CheckoutReviewScreen } from "./src/screens/CheckoutReviewScreen";
+import { CheckoutFailedScreen } from "./src/screens/CheckoutFailedScreen";
 import { CheckoutInfoScreen } from "./src/screens/CheckoutInfoScreen";
 import { SellerOnboardingScreen } from "./src/screens/SellerOnboardingScreen";
 import { BottomNavbar } from "./src/components/BottomNavbar";
@@ -147,9 +149,19 @@ function AppGate() {
                   options={{ animation: "slide_from_right" }}
                 />
                 <RootStack.Screen
+                  name="CheckoutReview"
+                  component={CheckoutReviewScreen}
+                  options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
                   name="CheckoutInfo"
                   component={CheckoutInfoScreen}
                   options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="CheckoutFailed"
+                  component={CheckoutFailedScreen}
+                  options={{ animation: "fade" }}
                 />
                 <RootStack.Screen
                   name="OrderDetail"

@@ -83,7 +83,7 @@ async function fetchFirstOrderItem(env, orderId) {
   const rows = await supabaseRequest(
     env,
     "GET",
-    `/order_items?order_id=eq.${encodeURIComponent(orderId)}&select=product_id,quantity,unit_price&limit=1`
+    `/order_items?order_id=eq.${encodeURIComponent(orderId)}&select=id,product_id,product_variant_id,selected_variant_type,selected_variant_value,quantity,unit_price,size&limit=1`
   );
   if (!Array.isArray(rows) || rows.length === 0) {
     return null;
@@ -91,7 +91,199 @@ async function fetchFirstOrderItem(env, orderId) {
   return rows[0];
 }
 
+async function fetchProductVariantForCheckout(env, variantId, productId) {
+  if (!isStandardUuid(variantId)) {
+    return null;
+  }
+  const rows = await supabaseRequest(
+    env,
+    "GET",
+    `/product_variants?id=eq.${encodeURIComponent(variantId)}&product_id=eq.${encodeURIComponent(productId)}&select=id,product_id,option_value,stock,is_active&limit=1`
+  );
+  if (Array.isArray(rows) && rows.length > 0) {
+    return rows[0];
+  }
+  return null;
+}
+
+async function fetchProductForCheckout(env, productId) {
+  if (!isStandardUuid(productId)) {
+    return null;
+  }
+  const rows = await supabaseRequest(
+    env,
+    "GET",
+    `/products?id=eq.${encodeURIComponent(productId)}&select=id,name,price,stock,is_active,owner_id,uses_variants,variants_ready&limit=1`
+  );
+  if (Array.isArray(rows) && rows.length > 0) {
+    return rows[0];
+  }
+  return null;
+}
+
+function roundMoney(amount) {
+  const n = typeof amount === "number" ? amount : parseFloat(String(amount));
+  if (!Number.isFinite(n)) {
+    return 0;
+  }
+  return Math.round(n * 100) / 100;
+}
+
+function computePlatformFeeAmount(subtotal) {
+  const raw = roundMoney(subtotal * PLATFORM_FEE_RATE);
+  return Math.min(raw, Math.max(0, roundMoney(subtotal - 0.01)));
+}
+
+function computeSellerAmount(subtotal, platformFee) {
+  return roundMoney(subtotal - platformFee);
+}
+
+/**
+ * Valideer order tegen live product DB; sync prijs/voorraad server-side.
+ * @returns {{ ok: true, subtotalCents: number, productName: string, feeCents: number } | { ok: false, error: string, step: string }}
+ */
+async function validateAndSyncOrderForCheckout(env, order, orderItem) {
+  if (!orderItem?.product_id) {
+    return { ok: false, error: "Bestelling heeft geen product.", step: "no_product" };
+  }
+
+  const product = await fetchProductForCheckout(env, orderItem.product_id);
+  if (!product) {
+    return { ok: false, error: "Product niet gevonden.", step: "product_not_found" };
+  }
+  if (product.is_active !== true) {
+    return {
+      ok: false,
+      error: "Dit product is momenteel niet beschikbaar.",
+      step: "product_inactive",
+    };
+  }
+  if (product.owner_id !== order.seller_id) {
+    return { ok: false, error: "Verkoper komt niet overeen.", step: "seller_mismatch" };
+  }
+
+  const quantity = Math.max(1, Math.floor(Number(orderItem.quantity) || 1));
+  const usesVariantCheckout =
+    product.uses_variants === true && product.variants_ready === true;
+
+  let stock = Math.floor(Number(product.stock) || 0);
+
+  if (usesVariantCheckout) {
+    if (!orderItem.product_variant_id) {
+      return {
+        ok: false,
+        error: "Kies eerst een maat.",
+        step: "variant_required",
+      };
+    }
+    const variant = await fetchProductVariantForCheckout(
+      env,
+      orderItem.product_variant_id,
+      orderItem.product_id
+    );
+    if (!variant || variant.is_active !== true) {
+      return {
+        ok: false,
+        error: "De gekozen maat is niet beschikbaar.",
+        step: "variant_not_found",
+      };
+    }
+    stock = Math.floor(Number(variant.stock) || 0);
+    if (stock < quantity) {
+      return {
+        ok: false,
+        error: "De gekozen maat is niet op voorraad.",
+        step: "out_of_stock",
+      };
+    }
+  } else if (stock < quantity) {
+    return {
+      ok: false,
+      error: "Dit product is niet op voorraad.",
+      step: "out_of_stock",
+    };
+  }
+
+  const unitPrice = roundMoney(parseFloat(String(product.price)));
+  const subtotal = roundMoney(unitPrice * quantity);
+  const platformFee = computePlatformFeeAmount(subtotal);
+  const sellerAmount = computeSellerAmount(subtotal, platformFee);
+
+  const storedSubtotal = roundMoney(parseFloat(String(order.subtotal_amount)));
+  const storedUnit = roundMoney(parseFloat(String(orderItem.unit_price)));
+
+  if (storedSubtotal !== subtotal || storedUnit !== unitPrice) {
+    await supabaseRequest(
+      env,
+      "PATCH",
+      `/orders?id=eq.${encodeURIComponent(order.id)}`,
+      JSON.stringify({
+        subtotal_amount: subtotal,
+        platform_fee_amount: platformFee,
+        seller_amount: sellerAmount,
+      }),
+      { preferRepresentation: false }
+    );
+    if (orderItem.id) {
+      await supabaseRequest(
+        env,
+        "PATCH",
+        `/order_items?id=eq.${encodeURIComponent(orderItem.id)}`,
+        JSON.stringify({ unit_price: unitPrice, quantity }),
+        { preferRepresentation: false }
+      );
+    }
+    console.log("[stripeCheckout] synced order amounts from product DB", {
+      orderId: order.id,
+      subtotal,
+      unitPrice,
+    });
+  }
+
+  const subtotalCents = amountToCents(subtotal);
+  if (subtotalCents < 50) {
+    return {
+      ok: false,
+      error: "Order amount too low for Stripe",
+      step: "amount_too_low",
+    };
+  }
+
+  return {
+    ok: true,
+    subtotalCents,
+    productName: String(product.name || "Bestelling"),
+    feeCents: applicationFeeCents(subtotalCents),
+    productId: product.id,
+  };
+}
+
+async function callOrderStockRpc(env, functionName, orderId) {
+  const result = await supabaseRequest(
+    env,
+    "POST",
+    `/rpc/${functionName}`,
+    JSON.stringify({ p_order_id: orderId }),
+    { preferRepresentation: false }
+  );
+  return result === true;
+}
+
+async function reserveProductStockForOrder(env, orderId) {
+  return callOrderStockRpc(env, "reserve_product_stock_for_order", orderId);
+}
+
+async function commitProductStockForOrder(env, orderId) {
+  return callOrderStockRpc(env, "commit_product_stock_for_order", orderId);
+}
+
+async function releaseProductStockForOrder(env, orderId) {
+  return callOrderStockRpc(env, "release_product_stock_for_order", orderId);
+}
+
 const PLATFORM_FEE_RATE = 0.125;
+/** Stripe Checkout Session TTL (min 30 min per Stripe API). */
+const CHECKOUT_SESSION_EXPIRES_SECONDS = 30 * 60;
 
 const SELLER_CHECKOUT_COLUMNS =
   "id,account_type,seller_type,seller_onboarding_status,stripe_connect_account_id,stripe_connect_onboarding_complete,stripe_charges_enabled,stripe_payouts_enabled,kvk_number,kvk_verified_at,business_name,business_email,business_country,business_city,business_postal_code,business_street,business_house_number";
@@ -217,6 +409,19 @@ function amountToCents(amount) {
 }
 
 async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
+  const order = await fetchOrderById(env, orderId);
+  if (order?.payment_status === "paid") {
+    console.log("[markOrderPaid] already paid", orderId);
+    return;
+  }
+
+  const committed = await commitProductStockForOrder(env, orderId);
+  if (!committed) {
+    throw new Error(
+      `[markOrderPaid] stock commit failed for order ${orderId} — refusing to mark paid without active reservation`
+    );
+  }
+
   const patch = {
     status: "paid",
     payment_status: "paid",
@@ -241,14 +446,9 @@ async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
   console.log("[markOrderPaid] ok", orderId);
 }
 
-async function markOrderPaymentFailed(env, orderId) {
-  await supabaseRequest(
-    env,
-    "PATCH",
-    `/orders?id=eq.${encodeURIComponent(orderId)}`,
-    JSON.stringify({ payment_status: "failed" }),
-    { preferRepresentation: false }
-  );
+async function releaseStockForExpiredCheckout(env, orderId) {
+  await releaseProductStockForOrder(env, orderId);
+  console.log("[checkout] stock released after session expired", orderId);
 }
 
 function webhookSecretBytes(secret) {
@@ -352,8 +552,13 @@ async function syncOrderFromStripeSession(env, session) {
     session.payment_status === "unpaid" &&
     session.status === "expired"
   ) {
-    await markOrderPaymentFailed(env, orderId);
-    return { orderId, paid: false, paymentStatus: "failed", status: "pending_payment" };
+    await releaseStockForExpiredCheckout(env, orderId);
+    return {
+      orderId,
+      paid: false,
+      paymentStatus: "unpaid",
+      status: "pending_payment",
+    };
   }
   const order = await fetchOrderById(env, orderId);
   return {
@@ -429,14 +634,62 @@ export async function handleStripeCheckout(request, env, cors = {}) {
       return jsonStripe({ error: "Order already paid" }, 400, cors);
     }
 
-    const first = await fetchFirstOrderItem(env, orderId);
-    const productName = first?.product_id
-      ? await fetchProductName(env, first.product_id)
-      : "Bestelling";
-    const subtotalCents = amountToCents(order.subtotal_amount);
-    if (subtotalCents < 50) {
-      return jsonStripe({ error: "Order amount too low for Stripe" }, 400, cors);
+    if (order.payment_status === "paid") {
+      return jsonStripe({ error: "Order already paid" }, 400, cors);
     }
+
+    const existingSessionId = String(order.stripe_checkout_session_id || "").trim();
+    if (existingSessionId.startsWith("cs_") && order.payment_status === "unpaid") {
+      try {
+        const existing = await stripeRequest(
+          env,
+          "GET",
+          `/checkout/sessions/${encodeURIComponent(existingSessionId)}`,
+          null
+        );
+        if (existing.status === "open" && existing.url) {
+          console.log(logPrefix, "reusing open checkout session", existingSessionId);
+          return jsonStripe(
+            {
+              checkoutUrl: existing.url,
+              sessionId: existing.id,
+              orderId,
+              reused: true,
+            },
+            200,
+            cors
+          );
+        }
+        if (existing.status === "expired") {
+          console.log(logPrefix, "existing session expired, releasing stock", existingSessionId);
+          await releaseStockForExpiredCheckout(env, orderId);
+        }
+        if (checkoutSessionIsPaid(existing)) {
+          await syncOrderFromStripeSession(env, existing);
+          return jsonStripe({ error: "Order already paid" }, 400, cors);
+        }
+      } catch (reuseErr) {
+        console.warn(logPrefix, "could not reuse session", (reuseErr && reuseErr.message) || String(reuseErr));
+      }
+    }
+
+    const first = await fetchFirstOrderItem(env, orderId);
+    const validation = await validateAndSyncOrderForCheckout(env, order, first);
+    if (!validation.ok) {
+      return jsonStripe(
+        {
+          error: validation.error,
+          step: validation.step,
+          message: validation.error,
+        },
+        400,
+        cors
+      );
+    }
+
+    const productName = validation.productName;
+    const subtotalCents = validation.subtotalCents;
+    const feeCents = validation.feeCents;
 
     const sellerProfile = await fetchSellerProfileForCheckout(env, order.seller_id);
     if (!isSellerReadyForDestinationCharge(env, sellerProfile)) {
@@ -464,7 +717,6 @@ export async function handleStripeCheckout(request, env, cors = {}) {
     const destinationAccountId = String(
       sellerProfile.stripe_connect_account_id
     ).trim();
-    const feeCents = applicationFeeCents(subtotalCents);
 
     const urls = checkoutReturnUrls(env, {
       successUrl:
@@ -476,8 +728,10 @@ export async function handleStripeCheckout(request, env, cors = {}) {
       success: urls.success.slice(0, 120),
       cancel: urls.cancel.slice(0, 120),
     });
+    const checkoutExpiresAt = Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_EXPIRES_SECONDS;
     const params = {
       mode: "payment",
+      expires_at: String(checkoutExpiresAt),
       success_url: urls.success,
       cancel_url: `${urls.cancel}${urls.cancel.includes("?") ? "&" : "?"}order_id=${encodeURIComponent(orderId)}`,
       customer_email: order.buyer_email || undefined,
@@ -491,8 +745,11 @@ export async function handleStripeCheckout(request, env, cors = {}) {
       "line_items[0][price_data][product_data][name]": productName.slice(0, 120),
       "payment_intent_data[application_fee_amount]": String(feeCents),
       "payment_intent_data[transfer_data][destination]": destinationAccountId,
+      "payment_intent_data[metadata][order_id]": orderId,
     };
-    if (first?.product_id && isStandardUuid(first.product_id)) {
+    if (validation.productId && isStandardUuid(validation.productId)) {
+      params["metadata[product_id]"] = validation.productId;
+    } else if (first?.product_id && isStandardUuid(first.product_id)) {
       params["metadata[product_id]"] = first.product_id;
     }
 
@@ -502,9 +759,29 @@ export async function handleStripeCheckout(request, env, cors = {}) {
       feeCents,
       destinationAccountId,
       productName: productName.slice(0, 40),
+      expiresAt: checkoutExpiresAt,
     });
 
-    const session = await stripeRequest(env, "POST", "/checkout/sessions", params);
+    const reserved = await reserveProductStockForOrder(env, orderId);
+    if (!reserved) {
+      return jsonStripe(
+        {
+          error: "Dit product is niet op voorraad.",
+          step: "out_of_stock",
+          message: "Dit product is niet op voorraad.",
+        },
+        400,
+        cors
+      );
+    }
+
+    let session;
+    try {
+      session = await stripeRequest(env, "POST", "/checkout/sessions", params);
+    } catch (sessionErr) {
+      await releaseProductStockForOrder(env, orderId);
+      throw sessionErr;
+    }
 
     console.log(logPrefix, "Stripe session", {
       id: session.id,
@@ -514,6 +791,7 @@ export async function handleStripeCheckout(request, env, cors = {}) {
     });
 
     if (!session.id || !session.url) {
+      await releaseProductStockForOrder(env, orderId);
       return jsonStripe(
         {
           error: "Stripe Checkout Session heeft geen url (controleer Stripe-dashboard / account)",
@@ -593,14 +871,14 @@ export async function handleStripeWebhook(request, env) {
       const session = event.data.object;
       const orderId = await resolveOrderIdFromSession(env, session);
       if (isStandardUuid(orderId)) {
-        await markOrderPaymentFailed(env, orderId);
+        await releaseStockForExpiredCheckout(env, orderId);
       }
     } else if (event.type === "payment_intent.payment_failed") {
       const pi = event.data.object;
-      const orderId = pi.metadata?.order_id;
-      if (isStandardUuid(orderId)) {
-        await markOrderPaymentFailed(env, orderId);
-      }
+      console.log(logPrefix, "payment_intent.payment_failed (no stock release)", {
+        paymentIntentId: pi?.id ?? null,
+        orderId: pi?.metadata?.order_id ?? null,
+      });
     } else if (event.type === "account.updated") {
       const account = event.data.object;
       const result = await handleStripeAccountUpdated(env, account);

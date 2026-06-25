@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,18 +15,17 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
-import { createTestOrderFromProduct } from "../services/ordersService";
+import { ProductListingImage } from "../components/ProductListingImage";
+import { createOrderFromProduct } from "../services/ordersService";
+import { payOrderWithStripe } from "../services/checkoutFlowService";
 import {
   canSellerAcceptSales,
   fetchSellerOnboardingByProfileId,
 } from "../services/sellerOnboardingService";
 import { fetchProductById } from "../services/productsService";
-import {
-  createStripeCheckoutSession,
-  openStripeCheckoutAndConfirm,
-} from "../services/stripeCheckoutService";
 import type { Product } from "../types/product";
 import { formatPriceEur } from "../utils/formatPrice";
+import { productUsesVariantCheckout } from "../utils/productStock";
 
 function FormField({
   label,
@@ -67,6 +65,10 @@ export function CheckoutInfoScreen() {
   const productId: string | undefined = route.params?.productId;
   const routeQuantity = Number(route.params?.quantity ?? 1);
   const routeSize: string | null = route.params?.size ?? null;
+  const routeProductVariantId: string | null = route.params?.productVariantId ?? null;
+  const routeSelectedVariantType: string | null = route.params?.selectedVariantType ?? null;
+  const routeSelectedVariantValue: string | null = route.params?.selectedVariantValue ?? null;
+  const submittingRef = useRef(false);
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,7 +81,10 @@ export function CheckoutInfoScreen() {
   const [street, setStreet] = useState("");
   const [houseNumber, setHouseNumber] = useState("");
   const [phone, setPhone] = useState("");
-  const [selectedSize, setSelectedSize] = useState<string | null>(routeSize);
+  const [selectedSize, setSelectedSize] = useState<string | null>(
+    routeSelectedVariantValue ?? routeSize
+  );
+  const [selectedVariantId] = useState<string | null>(routeProductVariantId);
   const [quantity, setQuantity] = useState(
     String(Number.isFinite(routeQuantity) && routeQuantity > 0 ? routeQuantity : 1)
   );
@@ -98,7 +103,9 @@ export function CheckoutInfoScreen() {
           return;
         }
         setProduct(row);
-        setSelectedSize((prev) => prev ?? row?.sizes[0] ?? null);
+        if (!routeProductVariantId) {
+          setSelectedSize((prev) => prev ?? row?.sizes[0] ?? null);
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Product laden mislukt.";
         Alert.alert("Fout", msg);
@@ -111,7 +118,12 @@ export function CheckoutInfoScreen() {
     return () => {
       mounted = false;
     };
-  }, [productId]);
+  }, [productId, routeProductVariantId]);
+
+  const usesVariantCheckout = useMemo(
+    () => (product ? productUsesVariantCheckout(product) : false),
+    [product]
+  );
 
   const total = useMemo(() => {
     const count = Math.max(1, Math.floor(Number(quantity) || 1));
@@ -119,26 +131,39 @@ export function CheckoutInfoScreen() {
   }, [product?.price, quantity]);
 
   const onSubmit = useCallback(async () => {
-    if (!product) {
+    if (!product || submittingRef.current) {
       return;
     }
-      if (product.sizes.length > 0 && !selectedSize) {
+    if (usesVariantCheckout) {
+      if (!selectedVariantId) {
+        Alert.alert("Maat kiezen", "Kies eerst een maat.");
+        return;
+      }
+    } else if (product.sizes.length > 0 && !selectedSize) {
       Alert.alert("Maat kiezen", "Kies eerst een maat.");
+      return;
+    }
+    if (!usesVariantCheckout && product.stock <= 0) {
+      Alert.alert(
+        "Niet op voorraad",
+        "Dit product is momenteel tijdelijk niet beschikbaar voor aankoop."
+      );
       return;
     }
 
     const sellerOnboarding = await fetchSellerOnboardingByProfileId(product.ownerId);
     if (!canSellerAcceptSales(sellerOnboarding)) {
       Alert.alert(
-        "Betaling niet mogelijk",
-        "Deze verkoper kan nog geen betalingen ontvangen."
+        "Niet beschikbaar",
+        "Dit product is momenteel tijdelijk niet beschikbaar voor aankoop."
       );
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     try {
-      const order = await createTestOrderFromProduct(product, {
+      const order = await createOrderFromProduct(product, {
         buyerFullName: fullName,
         buyerEmail: email,
         shippingCountry: country,
@@ -149,20 +174,13 @@ export function CheckoutInfoScreen() {
         shippingPhone: phone,
         quantity: Number(quantity),
         size: selectedSize,
+        productVariantId: selectedVariantId,
+        selectedVariantType:
+          routeSelectedVariantType ?? (selectedVariantId ? "size" : null),
+        selectedVariantValue: routeSelectedVariantValue ?? selectedSize,
       });
 
-      const { checkoutUrl, sessionId } = await createStripeCheckoutSession(order.id);
-      const payment = await openStripeCheckoutAndConfirm(
-        checkoutUrl,
-        order.id,
-        sessionId
-      );
-
-      console.log("[Checkout] payment result", {
-        ok: payment.ok,
-        reason: payment.ok ? "paid" : payment.reason,
-        orderId: order.id,
-      });
+      const payment = await payOrderWithStripe(order.id);
 
       if (payment.ok) {
         navigation.reset({
@@ -171,31 +189,23 @@ export function CheckoutInfoScreen() {
             { name: "MainTabs", params: { screen: "Shop" } },
             {
               name: "OrderSuccess",
-              params: { orderId: payment.order.id },
+              params: { orderId: payment.orderId },
             },
           ],
         });
         return;
       }
 
-      if (payment.reason === "cancelled") {
-        Alert.alert(
-          "Betaling geannuleerd",
-          "Je bestelling staat nog open. Je kunt later opnieuw betalen via Mijn bestellingen."
-        );
-        navigation.goBack();
-        return;
-      }
-
-      Alert.alert(
-        "Betaling mislukt",
-        payment.message ??
-          "De betaling is niet afgerond. Controleer Mijn bestellingen of probeer het opnieuw."
-      );
+      navigation.replace("CheckoutFailed", {
+        reason: payment.reason,
+        orderId: payment.orderId,
+        productId: product.id,
+      });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Order aanmaken mislukt.";
+      const msg = e instanceof Error ? e.message : "Betaling voorbereiden mislukt.";
       Alert.alert("Fout", msg);
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }, [
@@ -209,8 +219,12 @@ export function CheckoutInfoScreen() {
     postalCode,
     product,
     quantity,
+    routeSelectedVariantType,
+    routeSelectedVariantValue,
     selectedSize,
+    selectedVariantId,
     street,
+    usesVariantCheckout,
   ]);
 
   return (
@@ -228,7 +242,7 @@ export function CheckoutInfoScreen() {
         >
           <Ionicons name="chevron-back" size={26} color={theme.text} />
         </Pressable>
-        <Text style={styles.screenTitle}>Afrekenen</Text>
+        <Text style={styles.screenTitle}>Verzendgegevens</Text>
         <View style={styles.topBarSide} />
       </View>
 
@@ -248,7 +262,11 @@ export function CheckoutInfoScreen() {
         >
           <View style={styles.productCard}>
             {product.images[0] ? (
-              <Image source={{ uri: product.images[0] }} style={styles.productImage} />
+              <ProductListingImage
+                uri={product.images[0]}
+                style={styles.productImage}
+                recyclingKey={`checkout-info-${product.id}`}
+              />
             ) : (
               <View style={[styles.productImage, styles.imageFallback]}>
                 <Ionicons name="image-outline" size={24} color={theme.textMuted} />
@@ -259,9 +277,7 @@ export function CheckoutInfoScreen() {
                 {product.name}
               </Text>
               <Text style={styles.productPrice}>{formatPriceEur(total)}</Text>
-              <Text style={styles.helperText}>
-                Na het invullen van je gegevens open je Stripe Checkout (testmodus).
-              </Text>
+              <Text style={styles.helperText}>Veilig betalen via Stripe.</Text>
             </View>
           </View>
 
@@ -275,7 +291,7 @@ export function CheckoutInfoScreen() {
               autoCapitalize="words"
             />
             <FormField
-              label="Email"
+              label="E-mail"
               value={email}
               onChangeText={setEmail}
               placeholder="naam@email.nl"
@@ -283,7 +299,7 @@ export function CheckoutInfoScreen() {
               autoCapitalize="none"
             />
             <FormField
-              label="Telefoon optioneel"
+              label="Telefoon (optioneel)"
               value={phone}
               onChangeText={setPhone}
               placeholder="+31..."
@@ -309,36 +325,41 @@ export function CheckoutInfoScreen() {
             />
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Productopties</Text>
-            {product.sizes.length > 0 ? (
-              <View style={styles.optionBlock}>
-                <Text style={styles.label}>Maat</Text>
-                <View style={styles.sizeRow}>
-                  {product.sizes.map((size) => {
-                    const selected = selectedSize === size;
-                    return (
-                      <Pressable
-                        key={size}
-                        style={[styles.sizeChip, selected && styles.sizeChipSelected]}
-                        onPress={() => setSelectedSize(size)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Maat ${size}`}
+          {usesVariantCheckout && selectedSize ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Maat</Text>
+              <Text style={styles.selectedSizeText}>{selectedSize}</Text>
+            </View>
+          ) : product.sizes.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Maat</Text>
+              <View style={styles.sizeRow}>
+                {product.sizes.map((size) => {
+                  const selected = selectedSize === size;
+                  return (
+                    <Pressable
+                      key={size}
+                      style={[styles.sizeChip, selected && styles.sizeChipSelected]}
+                      onPress={() => setSelectedSize(size)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Maat ${size}`}
+                    >
+                      <Text
+                        style={[
+                          styles.sizeChipText,
+                          selected && styles.sizeChipTextSelected,
+                        ]}
                       >
-                        <Text
-                          style={[
-                            styles.sizeChipText,
-                            selected && styles.sizeChipTextSelected,
-                          ]}
-                        >
-                          {size}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                        {size}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
-            ) : null}
+            </View>
+          ) : null}
+
+          <View style={styles.section}>
             <FormField
               label="Aantal"
               value={quantity}
@@ -356,12 +377,15 @@ export function CheckoutInfoScreen() {
             onPress={() => void onSubmit()}
             disabled={submitting}
             accessibilityRole="button"
-            accessibilityLabel="Doorgaan"
+            accessibilityLabel="Veilig betalen via Stripe"
           >
             {submitting ? (
-              <ActivityIndicator size="small" color={theme.bg} />
+              <>
+                <ActivityIndicator size="small" color={theme.bg} />
+                <Text style={styles.submitBtnTextLoading}>Betaling voorbereiden…</Text>
+              </>
             ) : (
-              <Text style={styles.submitBtnText}>Betalen met Stripe</Text>
+              <Text style={styles.submitBtnText}>Veilig betalen via Stripe</Text>
             )}
           </Pressable>
         </View>
@@ -484,9 +508,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 15,
   },
-  optionBlock: {
-    marginBottom: 12,
-  },
   sizeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -515,6 +536,11 @@ const styles = StyleSheet.create({
   sizeChipTextSelected: {
     color: theme.accent,
   },
+  selectedSizeText: {
+    color: theme.text,
+    fontSize: 16,
+    fontWeight: "800",
+  },
   stickyBar: {
     position: "absolute",
     left: 0,
@@ -532,6 +558,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.accent,
     alignItems: "center",
     justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
   },
   submitBtnDisabled: {
     opacity: 0.75,
@@ -540,5 +568,10 @@ const styles = StyleSheet.create({
     color: theme.bg,
     fontSize: 16,
     fontWeight: "900",
+  },
+  submitBtnTextLoading: {
+    color: theme.bg,
+    fontSize: 14,
+    fontWeight: "800",
   },
 });

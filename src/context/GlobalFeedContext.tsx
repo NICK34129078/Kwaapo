@@ -25,10 +25,20 @@ import {
   filterFeedPostsByMuteSets,
   type FeedMuteSets,
 } from "../services/feedModerationService";
+import {
+  BoundedSeenIds,
+  excludeIdsForRpc,
+} from "../utils/boundedSeenIds";
+import {
+  filterUnseenPosts,
+  REELS_WINDOW,
+  trimReelsFeedWindow,
+} from "../utils/feedRollingWindow";
+import { pruneSavedStatusCache } from "../services/savedPostsService";
 
-const PERSONALIZED_BATCH = 10;
+const PERSONALIZED_BATCH = REELS_WINDOW.LOAD_BATCH;
 const GLOBAL_PAGE_SIZE = 30;
-const GLOBAL_LOAD_MORE_SIZE = 25;
+const GLOBAL_LOAD_MORE_SIZE = REELS_WINDOW.LOAD_BATCH;
 
 type RefreshOptions = {
   force?: boolean;
@@ -38,10 +48,11 @@ type GlobalFeedValue = {
   globalFeedPosts: UserVideoPost[];
   refreshGlobalFeed: (options?: RefreshOptions) => Promise<void>;
   loadMoreGlobalFeed: () => Promise<void>;
+  /** Trim oude reels boven actieve positie (rolling window). */
+  trimFeedWindow: (activePostId: string | null) => void;
   globalFeedLoading: boolean;
   isLoadingMoreFeed: boolean;
   globalFeedError: string | null;
-  /** False wanneer personalized én global geen nieuwe posts meer hebben. */
   hasMoreFeed: boolean;
   feedEndReached: boolean;
   removePostFromFeed: (postId: string) => void;
@@ -52,7 +63,7 @@ const GlobalFeedContext = createContext<GlobalFeedValue | null>(null);
 
 export function GlobalFeedProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const { syncFeedLikeState } = useLikes();
+  const { syncFeedLikeState, prunePostIds } = useLikes();
   const [globalFeedPosts, setGlobalFeedPosts] = useState<UserVideoPost[]>([]);
   const [globalFeedLoading, setGlobalFeedLoading] = useState(false);
   const [isLoadingMoreFeed, setIsLoadingMoreFeed] = useState(false);
@@ -63,6 +74,7 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
   const globalFeedPostsRef = useRef<UserVideoPost[]>([]);
   const globalCursorRef = useRef<string | null>(null);
   const loadMoreInFlightRef = useRef(false);
+  const seenPostIdsRef = useRef(new BoundedSeenIds(REELS_WINDOW.SEEN_MAX));
   const muteSetsRef = useRef<FeedMuteSets>({
     blockedProfileIds: new Set(),
     hiddenPostIds: new Set(),
@@ -72,6 +84,21 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
   const applyMuteFilter = useCallback((posts: UserVideoPost[]) => {
     return filterFeedPostsByMuteSets(posts, muteSetsRef.current);
   }, []);
+
+  const registerPostsInSeen = useCallback((posts: readonly UserVideoPost[]) => {
+    seenPostIdsRef.current.addMany(posts.map((p) => p.id));
+  }, []);
+
+  const onPostsRemovedFromWindow = useCallback(
+    (removedIds: string[]) => {
+      if (removedIds.length === 0) {
+        return;
+      }
+      prunePostIds(removedIds);
+      pruneSavedStatusCache(removedIds);
+    },
+    [prunePostIds]
+  );
 
   const loadMuteSets = useCallback(async () => {
     if (!user?.id) {
@@ -93,6 +120,7 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     setHasLoadedOnce(false);
     setGlobalFeedPosts([]);
+    seenPostIdsRef.current.reset();
     resetPaginationState();
     void loadMuteSets();
   }, [user?.id, resetPaginationState, loadMuteSets]);
@@ -104,6 +132,19 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
   const hasMoreFeed = hasMorePersonalizedFeed || hasMoreGlobalFeed;
   const feedEndReached =
     hasLoadedOnce && !hasMoreFeed && globalFeedPosts.length > 0;
+
+  const trimFeedWindow = useCallback(
+    (activePostId: string | null) => {
+      const prev = globalFeedPostsRef.current;
+      const { trimmed, removedIds } = trimReelsFeedWindow(prev, activePostId);
+      if (removedIds.length === 0) {
+        return;
+      }
+      setGlobalFeedPosts(trimmed);
+      onPostsRemovedFromWindow(removedIds);
+    },
+    [onPostsRemovedFromWindow]
+  );
 
   const refreshGlobalFeed = useCallback(
     async (options?: RefreshOptions) => {
@@ -119,6 +160,7 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
       setGlobalFeedLoading(true);
       setGlobalFeedError(null);
       resetPaginationState();
+      seenPostIdsRef.current.reset();
 
       try {
         await loadMuteSets();
@@ -146,7 +188,9 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
           applyMuteFilter(globalPage.posts)
         );
         logForYouControlledMix(merged);
-        setGlobalFeedPosts(merged);
+        registerPostsInSeen(merged);
+        const initialWindow = merged.slice(0, REELS_WINDOW.TARGET);
+        setGlobalFeedPosts(initialWindow);
         setHasLoadedOnce(true);
       } catch (e) {
         const msg =
@@ -159,7 +203,14 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
         setGlobalFeedLoading(false);
       }
     },
-    [user?.id, resetPaginationState, hasLoadedOnce, loadMuteSets, applyMuteFilter]
+    [
+      user?.id,
+      resetPaginationState,
+      hasLoadedOnce,
+      loadMuteSets,
+      applyMuteFilter,
+      registerPostsInSeen,
+    ]
   );
 
   const loadMoreGlobalFeed = useCallback(async () => {
@@ -171,8 +222,7 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
     setGlobalFeedError(null);
 
     try {
-      const current = globalFeedPostsRef.current;
-      const exclude = current.map((p) => p.id);
+      const exclude = excludeIdsForRpc(seenPostIdsRef.current);
       let append: UserVideoPost[] = [];
       let personalizedExhausted = !hasMorePersonalizedFeed;
 
@@ -184,10 +234,7 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
               )
             : await fetchExploreFeed(PERSONALIZED_BATCH, exclude);
 
-        if (batch.length > 0) {
-          const seen = new Set(exclude);
-          append = batch.filter((p) => !seen.has(p.id));
-        }
+        append = filterUnseenPosts(batch, seenPostIdsRef.current);
         if (batch.length < PERSONALIZED_BATCH) {
           personalizedExhausted = true;
           setHasMorePersonalizedFeed(false);
@@ -202,8 +249,10 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
         globalCursorRef.current = globalPage.nextCursor;
         setHasMoreGlobalFeed(globalPage.hasMore);
 
-        const seen = new Set(exclude);
-        append = applyMuteFilter(globalPage.posts).filter((p) => !seen.has(p.id));
+        append = filterUnseenPosts(
+          applyMuteFilter(globalPage.posts),
+          seenPostIdsRef.current
+        );
       }
 
       if (append.length === 0) {
@@ -213,6 +262,7 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
         return;
       }
 
+      registerPostsInSeen(append);
       setGlobalFeedPosts((prev) => appendUniqueFeedPosts(prev, append));
     } catch (e) {
       const msg =
@@ -225,10 +275,18 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
       loadMoreInFlightRef.current = false;
       setIsLoadingMoreFeed(false);
     }
-  }, [hasMoreFeed, hasMoreGlobalFeed, hasMorePersonalizedFeed, user?.id, applyMuteFilter]);
+  }, [
+    hasMoreFeed,
+    hasMoreGlobalFeed,
+    hasMorePersonalizedFeed,
+    user?.id,
+    applyMuteFilter,
+    registerPostsInSeen,
+  ]);
 
   const removePostFromFeed = useCallback((postId: string) => {
     muteSetsRef.current.hiddenPostIds.add(postId);
+    seenPostIdsRef.current.add(postId);
     setGlobalFeedPosts((prev) => prev.filter((p) => p.id !== postId));
   }, []);
 
@@ -251,6 +309,7 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
       globalFeedPosts: dedupeFeedPosts(globalFeedPosts),
       refreshGlobalFeed,
       loadMoreGlobalFeed,
+      trimFeedWindow,
       globalFeedLoading,
       isLoadingMoreFeed,
       globalFeedError,
@@ -263,6 +322,7 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
       globalFeedPosts,
       refreshGlobalFeed,
       loadMoreGlobalFeed,
+      trimFeedWindow,
       globalFeedLoading,
       isLoadingMoreFeed,
       globalFeedError,

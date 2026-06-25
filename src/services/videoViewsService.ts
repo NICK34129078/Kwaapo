@@ -54,11 +54,20 @@ export async function recordVideoView({
     return;
   }
 
+  const resolvedDurationMs =
+    typeof durationMs === "number" && durationMs > 0 ? durationMs : 0;
+  const resolvedPercent =
+    typeof watchedPercent === "number"
+      ? watchedPercent
+      : resolvedDurationMs > 0
+        ? Math.min(100, Math.max(0, (cappedWatchedMs / resolvedDurationMs) * 100))
+        : 0;
+
   const { error } = await supabase.rpc("record_video_view", {
     p_post_id: postId,
     p_watched_ms: Math.round(cappedWatchedMs),
-    p_duration_ms: Math.round(durationMs ?? 0),
-    p_watched_percent: watchedPercent ?? null,
+    p_duration_ms: Math.round(resolvedDurationMs),
+    p_watched_percent: resolvedPercent,
     p_completed: completed ?? false,
   });
 

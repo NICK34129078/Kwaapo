@@ -18,11 +18,12 @@ import {
   computeSellerAmount,
 } from "../constants/platformFee";
 import { fetchProductsByIds } from "./productsService";
+import { fetchProductVariants } from "./productVariantService";
 
 const ORDER_COLUMNS =
   "id, buyer_id, seller_id, status, subtotal_amount, platform_fee_amount, seller_amount, payment_status, buyer_email, buyer_full_name, shipping_country, shipping_city, shipping_postal_code, shipping_street, shipping_house_number, shipping_phone, seller_note, shipping_status, tracking_code, shipped_at, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, created_at";
 const ORDER_ITEM_COLUMNS =
-  "id, order_id, product_id, quantity, unit_price, size, created_at";
+  "id, order_id, product_id, product_variant_id, selected_variant_type, selected_variant_value, quantity, unit_price, size, created_at";
 
 export type CheckoutOrderInput = {
   buyerFullName: string;
@@ -36,6 +37,9 @@ export type CheckoutOrderInput = {
   sellerNote?: string | null;
   quantity: number;
   size?: string | null;
+  productVariantId?: string | null;
+  selectedVariantType?: string | null;
+  selectedVariantValue?: string | null;
 };
 
 const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -100,6 +104,9 @@ function validateCheckoutInput(input: CheckoutOrderInput): CheckoutOrderInput {
     sellerNote,
     quantity,
     size: clean(input.size) || null,
+    productVariantId: input.productVariantId ?? null,
+    selectedVariantType: clean(input.selectedVariantType) || null,
+    selectedVariantValue: clean(input.selectedVariantValue) || null,
   };
 }
 
@@ -184,19 +191,13 @@ async function fetchItemsForOrders(
   return map;
 }
 
-export async function createTestOrderFromProduct(
+export async function createOrderFromProduct(
   product: Product,
   inputOrSize?: CheckoutOrderInput | string | null
 ): Promise<Order> {
   const buyerId = await getCurrentUserId();
   if (!product?.id) {
     throw new Error("Product ontbreekt.");
-  }
-  if (product.stock <= 0) {
-    throw new Error("Dit product is niet op voorraad.");
-  }
-  if (buyerId === product.ownerId) {
-    throw new Error("Je kunt je eigen product niet bestellen.");
   }
 
   const checkout =
@@ -213,6 +214,32 @@ export async function createTestOrderFromProduct(
           quantity: 1,
           size: inputOrSize ?? null,
         });
+
+  const usesVariantCheckout = product.usesVariants && product.variantsReady;
+  if (usesVariantCheckout) {
+    if (!checkout.productVariantId) {
+      throw new Error("Kies eerst een maat.");
+    }
+    const variants = await fetchProductVariants(product.id);
+    const variant = variants.find((v) => v.id === checkout.productVariantId);
+    if (!variant || !variant.isActive || variant.stock < checkout.quantity) {
+      throw new Error("De gekozen maat is niet meer op voorraad.");
+    }
+    if (variant.productId !== product.id) {
+      throw new Error("Ongeldige maatkeuze.");
+    }
+  } else {
+    if (product.stock <= 0) {
+      throw new Error("Dit product is niet op voorraad.");
+    }
+    if (product.sizes.length > 0 && !checkout.size) {
+      throw new Error("Kies eerst een maat.");
+    }
+  }
+
+  if (buyerId === product.ownerId) {
+    throw new Error("Je kunt je eigen product niet bestellen.");
+  }
 
   const subtotal = roundMoney(product.price * checkout.quantity);
   const platformFee = computePlatformFeeAmount(subtotal);
@@ -253,6 +280,9 @@ export async function createTestOrderFromProduct(
     quantity: checkout.quantity,
     unit_price: product.price,
     size: checkout.size,
+    product_variant_id: checkout.productVariantId,
+    selected_variant_type: checkout.selectedVariantType ?? (checkout.productVariantId ? "size" : null),
+    selected_variant_value: checkout.selectedVariantValue ?? checkout.size,
   });
 
   if (itemError) {
@@ -261,6 +291,9 @@ export async function createTestOrderFromProduct(
 
   return order;
 }
+
+/** @deprecated Gebruik createOrderFromProduct */
+export const createTestOrderFromProduct = createOrderFromProduct;
 
 export async function markSellerOrderAsShipped(
   orderId: string,

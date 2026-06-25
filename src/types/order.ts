@@ -44,6 +44,9 @@ export type OrderItem = {
   id: string;
   orderId: string;
   productId: string;
+  productVariantId: string | null;
+  selectedVariantType: string | null;
+  selectedVariantValue: string | null;
   quantity: number;
   unitPrice: number;
   size: string | null;
@@ -81,6 +84,9 @@ export type OrderItemRow = {
   id: string;
   order_id: string;
   product_id: string;
+  product_variant_id?: string | null;
+  selected_variant_type?: string | null;
+  selected_variant_value?: string | null;
   quantity: number;
   unit_price: number | string;
   size: string | null;
@@ -186,6 +192,9 @@ export function mapOrderItemRow(row: OrderItemRow): OrderItem {
     id: row.id,
     orderId: row.order_id,
     productId: row.product_id,
+    productVariantId: row.product_variant_id ?? null,
+    selectedVariantType: row.selected_variant_type ?? null,
+    selectedVariantValue: row.selected_variant_value ?? null,
     quantity: Math.max(1, row.quantity ?? 1),
     unitPrice: parseMoney(row.unit_price),
     size: row.size,
