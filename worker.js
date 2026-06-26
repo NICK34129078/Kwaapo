@@ -17,6 +17,7 @@
 
 import {
   handleCheckoutCancel,
+  handleCheckoutReleaseStock,
   handleCheckoutReturn,
   handleStripeCheckout,
   handleStripeConfirm,
@@ -29,20 +30,20 @@ import {
   handleStripeConnectRefresh,
   handleStripeConnectReturn,
   handleStripeConnectStatus,
-  handleStripeConnectDebug,
 } from "./worker-stripe-connect.js";
 import { handleKvkVerify } from "./worker-kvk.js";
+import { requireAuthUser } from "./worker-auth.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, OPTIONS",
   "Access-Control-Allow-Headers": [
     "Content-Type",
+    "Authorization",
     "Range",
     "If-Range",
     "If-Modified-Since",
     "If-None-Match",
-    "X-App-User-Id",
     "X-Post-Caption",
     "X-Post-Id",
   ].join(", "),
@@ -196,26 +197,19 @@ function isAllowedVideoContentType(ct) {
  * @param {any} env
  */
 async function handleUploadInit(request, url, env) {
-  const headerUserId = (
-    request.headers.get("X-App-User-Id") ||
-    request.headers.get("x-app-user-id") ||
-    ""
-  ).trim();
+  const auth = await requireAuthUser(request, env, cors);
+  if (auth.error) {
+    return auth.error;
+  }
+  const userId = auth.userId;
+
   let body = {};
   try {
     body = await request.json();
   } catch {
-    return json({ success: false, message: "Invalid JSON body" }, 400);
+    return json({ error: "Unauthorized" }, 400);
   }
   const postId = typeof body.postId === "string" ? body.postId.trim() : "";
-  const userId =
-    (typeof body.userId === "string" ? body.userId.trim() : "") || headerUserId;
-  if (!userId) {
-    return json({ success: false, message: "userId required" }, 400);
-  }
-  if (headerUserId && headerUserId !== userId) {
-    return json({ success: false, message: "userId mismatch with header" }, 403);
-  }
   if (!isStandardUuid(postId)) {
     return json({ success: false, message: "invalid postId (UUID required)" }, 400);
   }
@@ -238,7 +232,6 @@ async function handleUploadInit(request, url, env) {
   uploadUrl.search = "";
   uploadUrl.searchParams.set("videoPut", "1");
   uploadUrl.searchParams.set("r2Key", r2Key);
-  uploadUrl.searchParams.set("userId", userId);
   const publicVideoUrl = getPublicVideoUrl(request, r2Key);
   return json({
     success: true,
@@ -256,20 +249,12 @@ async function handleUploadInit(request, url, env) {
  * @param {any} env
  */
 async function handleVideoPut(request, url, env) {
+  const auth = await requireAuthUser(request, env, cors);
+  if (auth.error) {
+    return auth.error;
+  }
+
   const r2Key = url.searchParams.get("r2Key") || "";
-  const queryUserId = (url.searchParams.get("userId") || "").trim();
-  const headerUserId = (
-    request.headers.get("X-App-User-Id") ||
-    request.headers.get("x-app-user-id") ||
-    ""
-  ).trim();
-  const userId = headerUserId || queryUserId;
-  if (!userId) {
-    return json({ success: false, message: "userId required" }, 400);
-  }
-  if (queryUserId && headerUserId && queryUserId !== headerUserId) {
-    return json({ success: false, message: "userId mismatch" }, 403);
-  }
   if (!isAllowedDirectVideoR2Key(r2Key)) {
     return json({ success: false, message: "invalid r2Key" }, 400);
   }
@@ -302,27 +287,20 @@ async function handleVideoPut(request, url, env) {
  * @param {any} env
  */
 async function handleUploadComplete(request, env) {
-  const headerUserId = (
-    request.headers.get("X-App-User-Id") ||
-    request.headers.get("x-app-user-id") ||
-    ""
-  ).trim();
+  const auth = await requireAuthUser(request, env, cors);
+  if (auth.error) {
+    return auth.error;
+  }
+  const userId = auth.userId;
+
   let body = {};
   try {
     body = await request.json();
   } catch {
-    return json({ success: false, message: "Invalid JSON body" }, 400);
+    return json({ error: "Unauthorized" }, 400);
   }
   const postId = typeof body.postId === "string" ? body.postId.trim() : "";
-  const userId =
-    (typeof body.userId === "string" ? body.userId.trim() : "") || headerUserId;
   const r2Key = typeof body.r2Key === "string" ? body.r2Key.trim() : "";
-  if (!userId) {
-    return json({ success: false, message: "userId required" }, 400);
-  }
-  if (headerUserId && headerUserId !== userId) {
-    return json({ success: false, message: "userId mismatch with header" }, 403);
-  }
   if (!isStandardUuid(postId)) {
     return json({ success: false, message: "invalid postId" }, 400);
   }
@@ -414,14 +392,12 @@ async function handleUploadComplete(request, env) {
  * @param {any} env
  */
 async function handleUploadThumbnail(request, env) {
-  const userId = (
-    request.headers.get("X-App-User-Id") ||
-    request.headers.get("x-app-user-id") ||
-    ""
-  ).trim();
-  if (!userId) {
-    return json({ success: false, message: "userId required" }, 400);
+  const auth = await requireAuthUser(request, env, cors);
+  if (auth.error) {
+    return auth.error;
   }
+  const userId = auth.userId;
+
   const postId = (
     request.headers.get("X-Post-Id") ||
     request.headers.get("x-post-id") ||
@@ -1467,7 +1443,6 @@ export default {
     const file = url.searchParams.get("file");
     const thumb = url.searchParams.get("thumb");
     const img = url.searchParams.get("img");
-    const debugFile = url.searchParams.get("debugFile");
     if (request.method === "GET" && thumb) {
       if (!isAllowedThumbnailKey(thumb)) {
         return new Response("Invalid thumbnail", { status: 400, headers: { ...cors } });
@@ -1505,26 +1480,6 @@ export default {
         headers.set(k, v);
       }
       return new Response(object.body, { status: 200, headers });
-    }
-
-    if (request.method === "GET" && debugFile) {
-      if (!isAllowedVideoKey(debugFile)) {
-        return json({ error: "invalid debugFile" }, 400);
-      }
-      const object = await env.VIDEOS.get(debugFile);
-      if (object === null) {
-        return json({
-          exists: false,
-          file: debugFile,
-        });
-      }
-      return json({
-        exists: true,
-        size: object.size,
-        contentType: object.httpMetadata?.contentType || null,
-        uploaded: object.uploaded || null,
-        key: debugFile,
-      });
     }
 
     if (request.method === "GET" && url.searchParams.get("posts") === "1") {
@@ -1578,11 +1533,13 @@ export default {
       }
     }
 
+    if (request.method === "GET" && url.searchParams.get("health") === "1") {
+      return json({ ok: true });
+    }
+
     if (request.method === "GET" && url.searchParams.get("userPosts") === "1") {
-      const userId =
-        request.headers.get("X-App-User-Id") ||
-        url.searchParams.get("userId");
-      if (!userId || userId.length < 1) {
+      const userId = (url.searchParams.get("userId") || "").trim();
+      if (!isStandardUuid(userId)) {
         return new Response(JSON.stringify({ message: "userId required" }), {
           status: 400,
           headers: { "Content-Type": "application/json", ...cors },
@@ -1610,17 +1567,13 @@ export default {
 
     if (request.method === "GET" && url.searchParams.get("softDelete") === "1") {
       const postId = url.searchParams.get("postId");
-      const userId =
-        request.headers.get("X-App-User-Id") ||
-        url.searchParams.get("userId");
+      const auth = await requireAuthUser(request, env, cors);
+      if (auth.error) {
+        return auth.error;
+      }
+      const userId = auth.userId;
       if (!isUuidLike(postId || "")) {
         return new Response(JSON.stringify({ message: "invalid postId" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json", ...cors },
-        });
-      }
-      if (!userId || userId.length < 1) {
-        return new Response(JSON.stringify({ message: "userId required" }), {
           status: 400,
           headers: { "Content-Type": "application/json", ...cors },
         });
@@ -1636,15 +1589,6 @@ export default {
           { status: 500, headers: { "Content-Type": "application/json", ...cors } }
         );
       }
-    }
-
-    if (request.method === "GET" && url.searchParams.get("debugEnv") === "1") {
-      return json({
-        hasStripeSecret: hasSecret(env, "STRIPE_SECRET_KEY"),
-        hasWebhookSecret: hasSecret(env, "STRIPE_WEBHOOK_SECRET"),
-        hasSupabaseUrl: hasSecret(env, "SUPABASE_URL"),
-        hasServiceRole: hasSecret(env, "SUPABASE_SERVICE_ROLE_KEY"),
-      });
     }
 
     if ((request.method === "GET" || request.method === "HEAD") && file) {
@@ -1756,13 +1700,12 @@ export default {
       return handleStripeConnectStatus(request, env, cors);
     }
 
-    if (request.method === "GET" && url.searchParams.get("stripeConnectDebug") === "1") {
-      return handleStripeConnectDebug(request, env, cors);
-    }
-
     if (request.method === "POST") {
       if (url.searchParams.get("stripeCheckout") === "1") {
         return handleStripeCheckout(request, env, cors);
+      }
+      if (url.searchParams.get("checkoutReleaseStock") === "1") {
+        return handleCheckoutReleaseStock(request, env, cors);
       }
       if (url.searchParams.get("stripeConnectAccount") === "1") {
         return handleStripeConnectAccount(request, env, cors);
@@ -1789,20 +1732,12 @@ export default {
         return handleUploadThumbnail(request, env);
       }
 
-      const userId = (
-        request.headers.get("X-App-User-Id") ||
-        request.headers.get("x-app-user-id") ||
-        url.searchParams.get("userId") ||
-        ""
-      ).trim();
-      console.log("Worker userId:", userId);
-
-      if (!userId) {
-        return json(
-          { error: "X-App-User-Id header required (or userId query param)" },
-          400
-        );
+      const auth = await requireAuthUser(request, env, cors);
+      if (auth.error) {
+        return auth.error;
       }
+      const userId = auth.userId;
+
       const caption = request.headers.get("X-Post-Caption") || "";
       const explicitPostIdHeader = (
         request.headers.get("X-Post-Id") ||

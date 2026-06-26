@@ -15,6 +15,7 @@
 import {
   evaluateSellerPayoutReadiness,
 } from "./worker-seller-readiness.js";
+import { requireAuthUser } from "./worker-auth.js";
 
 const STRIPE_API = "https://api.stripe.com/v1";
 
@@ -636,13 +637,11 @@ export async function handleStripeConnectAccount(request, env, cors = {}) {
 
   try {
 
-    const userId = (request.headers.get("X-App-User-Id") || "").trim();
-
-    if (!isStandardUuid(userId)) {
-
-      return jsonStripe({ error: "X-App-User-Id required" }, 400, cors);
-
+    const auth = await requireAuthUser(request, env, cors);
+    if (auth.error) {
+      return auth.error;
     }
+    const userId = auth.userId;
 
 
 
@@ -694,13 +693,11 @@ export async function handleStripeConnectOnboardingLink(request, env, cors = {})
 
   try {
 
-    const userId = (request.headers.get("X-App-User-Id") || "").trim();
-
-    if (!isStandardUuid(userId)) {
-
-      return jsonStripe({ error: "X-App-User-Id required" }, 400, cors);
-
+    const auth = await requireAuthUser(request, env, cors);
+    if (auth.error) {
+      return auth.error;
     }
+    const userId = auth.userId;
 
 
 
@@ -766,13 +763,11 @@ export async function handleStripeConnectStatus(request, env, cors = {}) {
 
   try {
 
-    const userId = (request.headers.get("X-App-User-Id") || "").trim();
-
-    if (!isStandardUuid(userId)) {
-
-      return jsonStripe({ error: "X-App-User-Id required" }, 400, cors);
-
+    const auth = await requireAuthUser(request, env, cors);
+    if (auth.error) {
+      return auth.error;
     }
+    const userId = auth.userId;
 
 
 
@@ -903,41 +898,6 @@ export async function handleStripeConnectRefresh(request, url, env, cors = {}) {
 
 
 /**
-
- * GET ?stripeConnectDebug=1 — geen secrets, alleen config-presence.
-
- */
-
-export async function handleStripeConnectDebug(request, env, cors = {}) {
-
-  return jsonStripe(
-
-    {
-
-      hasStripeSecret: hasSecret(env, "STRIPE_SECRET_KEY"),
-
-      hasSupabaseUrl: hasSecret(env, "SUPABASE_URL"),
-
-      hasServiceRole: hasSecret(env, "SUPABASE_SERVICE_ROLE_KEY"),
-
-      hasKvkApiKey: hasSecret(env, "KVK_API_KEY"),
-
-      workerPublicUrl: getWorkerPublicBase(env),
-
-    },
-
-    200,
-
-    cors
-
-  );
-
-}
-
-
-
-/**
-
  * POST ?stripeConnectPayoutManageLink=1
 
  * Opent Stripe Hosted Onboarding (nog niet klaar) of Express Dashboard (actief).
@@ -952,13 +912,11 @@ export async function handleStripeConnectPayoutManageLink(request, env, cors = {
 
   try {
 
-    const userId = (request.headers.get("X-App-User-Id") || "").trim();
-
-    if (!isStandardUuid(userId)) {
-
-      return jsonStripe({ error: "X-App-User-Id required" }, 400, cors);
-
+    const auth = await requireAuthUser(request, env, cors);
+    if (auth.error) {
+      return auth.error;
     }
+    const userId = auth.userId;
 
 
 

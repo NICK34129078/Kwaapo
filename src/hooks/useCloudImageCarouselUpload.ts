@@ -6,6 +6,7 @@ import { useAuthPrompt } from "../context/AuthPromptContext";
 import { useGlobalFeed } from "../context/GlobalFeedContext";
 import { useUserUploads } from "../context/UserUploadsContext";
 import { CLOUD_VIDEO_WORKER_BASE } from "../constants/cloudVideo";
+import { buildWorkerAuthHeaders } from "../services/workerRequest";
 import { userVideoPostFromPostRow, enrichPostWithLinkedProduct, type PostRow } from "../services/postsService";
 import type { ProfilePostMediaItem } from "../types/userVideoPost";
 import { fetchWithTimeout } from "../utils/fetchWithTimeout";
@@ -116,7 +117,7 @@ export function useCloudImageCarouselUpload() {
             );
           }
         }
-        const uploadUrl = `${CLOUD_VIDEO_WORKER_BASE}?userId=${encodeURIComponent(uploadUserId)}`;
+        const uploadUrl = CLOUD_VIDEO_WORKER_BASE;
         const formData = new FormData();
         formData.append("uploadType", "image_carousel");
         formData.append("tags", JSON.stringify(parsedTags));
@@ -159,14 +160,15 @@ export function useCloudImageCarouselUpload() {
           } as any);
         }
 
+        const authHeaders = await buildWorkerAuthHeaders({
+          "X-Post-Id": clientPostId,
+        });
+
         const response = await fetchWithTimeout(
           uploadUrl,
           {
             method: "POST",
-            headers: {
-              "X-App-User-Id": uploadUserId,
-              "X-Post-Id": clientPostId,
-            },
+            headers: authHeaders,
             body: formData,
           },
           CAROUSEL_UPLOAD_TIMEOUT_MS

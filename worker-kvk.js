@@ -289,17 +289,16 @@ export function verifyKvkProfileAgainstInput(profile, input) {
   };
 }
 
+import { requireAuthUser } from "./worker-auth.js";
+
 export async function handleKvkVerify(request, env, cors = {}) {
   const logPrefix = "[kvkVerify]";
   try {
-    const userId = (request.headers.get("X-App-User-Id") || "").trim();
-    if (!isStandardUuid(userId)) {
-      return jsonKvk(
-        { error: "X-App-User-Id required", field: "auth" },
-        400,
-        cors
-      );
+    const auth = await requireAuthUser(request, env, cors);
+    if (auth.error) {
+      return auth.error;
     }
+    const userId = auth.userId;
 
     let body;
     try {

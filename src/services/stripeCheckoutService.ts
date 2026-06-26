@@ -2,6 +2,7 @@ import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
 import { CLOUD_VIDEO_WORKER_BASE } from "../constants/cloudVideo";
 import { supabase } from "../lib/supabase";
+import { buildWorkerAuthHeaders } from "./workerRequest";
 import type { Order } from "../types/order";
 import { mapOrderRow, type OrderRow } from "../types/order";
 
@@ -47,20 +48,6 @@ export function buildCheckoutReturnUrls(): CheckoutReturnUrls {
   };
 }
 
-async function getAuthUserId(): Promise<string> {
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-  if (error) {
-    throw error;
-  }
-  if (!user?.id) {
-    throw new Error("Niet ingelogd.");
-  }
-  return user.id;
-}
-
 type WorkerJson = Record<string, unknown> & {
   error?: string;
   message?: string;
@@ -69,20 +56,15 @@ type WorkerJson = Record<string, unknown> & {
 };
 
 function formatWorkerError(json: WorkerJson, status: number): string {
+  if (status === 401 || status === 403) {
+    return "Je sessie is verlopen. Log opnieuw in en probeer het opnieuw.";
+  }
   if (json.step === "seller_connect_not_ready") {
     return typeof json.message === "string" && json.message.length > 0
       ? json.message
       : "Deze verkoper kan momenteel nog geen betalingen ontvangen.";
   }
-  const parts = [json.error, json.message, json.detail, json.step]
-    .filter((p): p is string => typeof p === "string" && p.length > 0);
-  if (parts.length > 0) {
-    return parts.join(" — ");
-  }
-  const raw = JSON.stringify(json);
-  return raw.length > 2
-    ? `Worker ${status}: ${raw.slice(0, 320)}`
-    : `Worker ${status}: leeg antwoord`;
+  return "Er ging iets mis. Probeer het opnieuw.";
 }
 
 async function parseWorkerResponse(res: Response): Promise<WorkerJson> {
@@ -103,16 +85,15 @@ async function workerPost<T>(
   query: string,
   body: Record<string, unknown>
 ): Promise<T> {
-  const userId = await getAuthUserId();
+  const headers = await buildWorkerAuthHeaders({
+    "Content-Type": "application/json",
+  });
   const url = `${CLOUD_VIDEO_WORKER_BASE}?${query}`;
-  console.log("[Stripe] POST", url, body);
+  console.log("[Stripe] POST", url);
 
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-App-User-Id": userId,
-    },
+    headers,
     body: JSON.stringify(body),
   });
 
@@ -164,19 +145,35 @@ export async function createStripeCheckoutSession(
   return normalizeCheckoutPayload(json);
 }
 
+/** Geef checkout-voorraadreservering vrij (annuleren / wegklikken). Idempotent. */
+export async function releaseCheckoutStockReservation(orderId: string): Promise<void> {
+  if (!orderId) {
+    return;
+  }
+  try {
+    await workerPost<{ released?: boolean; reason?: string }>(
+      "checkoutReleaseStock=1",
+      { orderId }
+    );
+    console.log("[Stripe] checkout stock released", orderId);
+  } catch (e) {
+    console.warn("[Stripe] release checkout stock failed", orderId, e);
+  }
+}
+
 export async function confirmStripeCheckoutSession(
   sessionId: string
 ): Promise<StripeCheckoutConfirmResponse> {
-  const userId = await getAuthUserId();
   const url = new URL(CLOUD_VIDEO_WORKER_BASE);
   url.searchParams.set("stripeConfirm", "1");
   url.searchParams.set("session_id", sessionId);
 
-  console.log("[Stripe] stripeConfirm", { sessionId, orderId: null });
+  console.log("[Stripe] stripeConfirm", { sessionId });
 
+  const headers = await buildWorkerAuthHeaders();
   const res = await fetch(url.toString(), {
     method: "GET",
-    headers: { "X-App-User-Id": userId },
+    headers,
   });
   const json = await parseWorkerResponse(res);
   if (!res.ok || typeof json.error === "string") {

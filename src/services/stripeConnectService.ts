@@ -2,7 +2,7 @@ import * as WebBrowser from "expo-web-browser";
 
 import { CLOUD_VIDEO_WORKER_BASE } from "../constants/cloudVideo";
 
-import { supabase } from "../lib/supabase";
+import { buildWorkerAuthHeaders } from "./workerRequest";
 
 
 
@@ -102,34 +102,6 @@ async function parseWorkerResponse(res: Response): Promise<WorkerJson> {
 
 
 
-async function getAuthUserId(): Promise<string> {
-
-  const {
-
-    data: { user },
-
-    error,
-
-  } = await supabase.auth.getUser();
-
-  if (error) {
-
-    throw error;
-
-  }
-
-  if (!user?.id) {
-
-    throw new Error("Niet ingelogd.");
-
-  }
-
-  return user.id;
-
-}
-
-
-
 function stringArray(value: unknown): string[] {
 
   if (!Array.isArray(value)) {
@@ -219,25 +191,16 @@ function normalizeStatus(json: WorkerJson): StripeConnectStatus {
 
 
 export async function refreshStripeConnectStatus(): Promise<StripeConnectStatus> {
-
-  const userId = await getAuthUserId();
-
   const url = new URL(CLOUD_VIDEO_WORKER_BASE);
-
   url.searchParams.set("stripeConnectStatus", "1");
 
+  console.log("[StripeConnect] refresh status");
 
-
-  console.log("[StripeConnect] refresh status", { userId });
-
-
+  const headers = await buildWorkerAuthHeaders();
 
   const res = await fetch(url.toString(), {
-
     method: "GET",
-
-    headers: { "X-App-User-Id": userId },
-
+    headers,
   });
 
   const json = await parseWorkerResponse(res);
@@ -285,33 +248,19 @@ export type StartStripeConnectResult =
  */
 
 export async function startStripeConnectOnboarding(): Promise<StartStripeConnectResult> {
-
-  const userId = await getAuthUserId();
-
   const linkUrl = new URL(CLOUD_VIDEO_WORKER_BASE);
-
   linkUrl.searchParams.set("stripeConnectOnboardingLink", "1");
 
+  console.log("[StripeConnect] request onboarding link");
 
-
-  console.log("[StripeConnect] request onboarding link", { userId });
-
-
+  const linkHeaders = await buildWorkerAuthHeaders({
+    "Content-Type": "application/json",
+  });
 
   const linkRes = await fetch(linkUrl.toString(), {
-
     method: "POST",
-
-    headers: {
-
-      "Content-Type": "application/json",
-
-      "X-App-User-Id": userId,
-
-    },
-
+    headers: linkHeaders,
     body: "{}",
-
   });
 
   const linkJson = await parseWorkerResponse(linkRes);
@@ -389,29 +338,17 @@ export type StartPayoutManageResult =
  */
 
 export async function startStripePayoutManagement(): Promise<StartPayoutManageResult> {
-
-  const userId = await getAuthUserId();
-
   const linkUrl = new URL(CLOUD_VIDEO_WORKER_BASE);
-
   linkUrl.searchParams.set("stripeConnectPayoutManageLink", "1");
 
-
+  const linkHeaders = await buildWorkerAuthHeaders({
+    "Content-Type": "application/json",
+  });
 
   const linkRes = await fetch(linkUrl.toString(), {
-
     method: "POST",
-
-    headers: {
-
-      "Content-Type": "application/json",
-
-      "X-App-User-Id": userId,
-
-    },
-
+    headers: linkHeaders,
     body: "{}",
-
   });
 
   const linkJson = await parseWorkerResponse(linkRes);

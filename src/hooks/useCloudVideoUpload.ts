@@ -7,7 +7,8 @@ import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { useGlobalFeed } from "../context/GlobalFeedContext";
 import { useUserUploads } from "../context/UserUploadsContext";
-import { CLOUD_VIDEO_WORKER_BASE, UPLOADED_VIDEO_OWNER } from "../constants/cloudVideo";
+import { CLOUD_VIDEO_WORKER_BASE } from "../constants/cloudVideo";
+import { buildWorkerAuthHeaders } from "../services/workerRequest";
 import { userVideoPostFromPostRow, enrichPostWithLinkedProduct, type PostRow } from "../services/postsService";
 import type { UserVideoPost } from "../types/userVideoPost";
 import { fetchWithTimeout } from "../utils/fetchWithTimeout";
@@ -147,18 +148,17 @@ function workerErrorFromJson(
 async function postWorkerJson<T extends { success?: boolean; message?: string }>(
   url: string,
   body: Record<string, unknown>,
-  userId: string,
   timeoutMs: number,
   timeoutMessage: string
 ): Promise<T> {
+  const authHeaders = await buildWorkerAuthHeaders({
+    "Content-Type": "application/json",
+  });
   const response = await fetchWithTimeout(
     url,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-App-User-Id": userId,
-      },
+      headers: authHeaders,
       body: JSON.stringify(body),
     },
     timeoutMs,
@@ -191,17 +191,16 @@ async function postWorkerJson<T extends { success?: boolean; message?: string }>
 async function putVideoDirectToR2(
   uploadUrl: string,
   localUri: string,
-  videoMime: string,
-  userId: string
+  videoMime: string
 ): Promise<void> {
+  const authHeaders = await buildWorkerAuthHeaders({
+    "Content-Type": videoMime,
+  });
   await Promise.race([
     (async () => {
       const result = await FileSystem.uploadAsync(uploadUrl, localUri, {
         httpMethod: "PUT",
-        headers: {
-          "Content-Type": videoMime,
-          "X-App-User-Id": userId,
-        },
+        headers: authHeaders,
         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
       });
       if (result.status < 200 || result.status >= 300) {
@@ -229,7 +228,6 @@ async function putVideoDirectToR2(
 
 async function uploadThumbnailOptional(
   thumbnailUri: string,
-  userId: string,
   postId: string
 ): Promise<string | null> {
   const url = `${CLOUD_VIDEO_WORKER_BASE}?uploadThumbnail=1`;
@@ -240,14 +238,15 @@ async function uploadThumbnailOptional(
     type: "image/jpeg",
   } as any);
 
+  const authHeaders = await buildWorkerAuthHeaders({
+    "X-Post-Id": postId,
+  });
+
   const response = await fetchWithTimeout(
     url,
     {
       method: "POST",
-      headers: {
-        "X-App-User-Id": userId,
-        "X-Post-Id": postId,
-      },
+      headers: authHeaders,
       body: formData,
     },
     UPLOAD_INIT_TIMEOUT_MS,
@@ -345,14 +344,12 @@ export function useCloudVideoUpload() {
         `${CLOUD_VIDEO_WORKER_BASE}?uploadInit=1`,
         {
           postId: clientPostId,
-          userId: uploadUserId,
           fileName: uploadFileName,
           contentType: videoMime,
           tags: parsedTags,
           caption: captionForPost,
           ...productPayload,
         },
-        uploadUserId,
         UPLOAD_INIT_TIMEOUT_MS,
         UPLOAD_INIT_TIMEOUT_MESSAGE
       );
@@ -364,7 +361,7 @@ export function useCloudVideoUpload() {
         throw new Error("Server gaf geen upload-URL terug.");
       }
 
-      await putVideoDirectToR2(uploadUrl, localUri, videoMime, uploadUserId);
+      await putVideoDirectToR2(uploadUrl, localUri, videoMime);
 
       let thumbnailUrl: string | null = null;
       const thumbTimeMs =
@@ -379,7 +376,6 @@ export function useCloudVideoUpload() {
         if (thumbnail?.uri) {
           thumbnailUrl = await uploadThumbnailOptional(
             thumbnail.uri,
-            uploadUserId,
             clientPostId
           );
         }
@@ -391,7 +387,6 @@ export function useCloudVideoUpload() {
         `${CLOUD_VIDEO_WORKER_BASE}?uploadComplete=1`,
         {
           postId: clientPostId,
-          userId: uploadUserId,
           r2Key,
           videoUrl: publicVideoUrl,
           thumbnailUrl,
@@ -400,7 +395,6 @@ export function useCloudVideoUpload() {
           ...productPayload,
           ...(audioFields ?? {}),
         },
-        uploadUserId,
         UPLOAD_COMPLETE_TIMEOUT_MS,
         UPLOAD_COMPLETE_TIMEOUT_MESSAGE
       );

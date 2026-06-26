@@ -8,6 +8,7 @@ import {
   getCloudVideoStreamUrl,
 } from "../constants/cloudVideo";
 import { supabase } from "../lib/supabase";
+import { buildWorkerAuthHeaders } from "./workerRequest";
 import type { ProfilePostMediaItem, UserVideoPost } from "../types/userVideoPost";
 import type { Product } from "../types/product";
 import { fetchProductsByIds } from "./productsService";
@@ -618,9 +619,6 @@ export async function fetchUserPosts(
 
   const { res, json } = await fetchWorkerPostsJson(workerUrl.toString(), {
     method: "GET",
-    headers: {
-      "X-App-User-Id": userId,
-    },
   });
 
   if (!res.ok || json.success === false) {
@@ -871,13 +869,11 @@ export async function softDeletePost(
   const u = new URL(CLOUD_VIDEO_WORKER_BASE);
   u.searchParams.set("softDelete", "1");
   u.searchParams.set("postId", postId);
-  u.searchParams.set("userId", authUserId);
 
+  const headers = await buildWorkerAuthHeaders();
   const res = await fetch(u.toString(), {
     method: "GET",
-    headers: {
-      "X-App-User-Id": authUserId,
-    },
+    headers,
   });
 
   let data: { success?: boolean; message?: string } = {};

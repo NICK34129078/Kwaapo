@@ -1,5 +1,5 @@
 import { CLOUD_VIDEO_WORKER_BASE } from "../constants/cloudVideo";
-import { supabase } from "../lib/supabase";
+import { buildWorkerAuthHeaders } from "./workerRequest";
 import type { BusinessInfoPayload } from "../types/sellerOnboarding";
 
 type WorkerJson = Record<string, unknown> & {
@@ -9,14 +9,11 @@ type WorkerJson = Record<string, unknown> & {
   valid?: boolean;
 };
 
-function formatWorkerError(json: WorkerJson, status: number): string {
-  const parts = [json.error, json.message, json.detail].filter(
-    (p): p is string => typeof p === "string" && p.length > 0
-  );
-  if (parts.length > 0) {
-    return parts.join(" — ");
+function formatWorkerError(_json: WorkerJson, status: number): string {
+  if (status === 401 || status === 403) {
+    return "Je sessie is verlopen. Log opnieuw in.";
   }
-  return `KVK-controle mislukt (${status}).`;
+  return "KVK-controle mislukt. Probeer het opnieuw.";
 }
 
 async function parseWorkerResponse(res: Response): Promise<WorkerJson> {
@@ -31,20 +28,6 @@ async function parseWorkerResponse(res: Response): Promise<WorkerJson> {
       `Worker antwoord is geen JSON (${res.status}): ${text.slice(0, 280)}`
     );
   }
-}
-
-async function getAuthUserId(): Promise<string> {
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-  if (error) {
-    throw error;
-  }
-  if (!user?.id) {
-    throw new Error("Niet ingelogd.");
-  }
-  return user.id;
 }
 
 /** 8-digit Dutch KVK number or null if invalid. */
@@ -64,15 +47,14 @@ export async function verifyKvkBusinessDetails(
     throw new Error("Vul een geldig KVK-nummer in (8 cijfers).");
   }
 
-  const userId = await getAuthUserId();
   const url = `${CLOUD_VIDEO_WORKER_BASE}?kvkVerify=1`;
+  const headers = await buildWorkerAuthHeaders({
+    "Content-Type": "application/json",
+  });
 
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-App-User-Id": userId,
-    },
+    headers,
     body: JSON.stringify({
       kvkNumber,
       businessName: payload.businessName,

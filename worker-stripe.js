@@ -2,6 +2,7 @@ import {
   handleStripeAccountUpdated,
   isSellerReadyForCheckout,
 } from "./worker-seller-readiness.js";
+import { requireAuthUser } from "./worker-auth.js";
 
 /**
  * Stripe Checkout — server-side only.
@@ -48,6 +49,11 @@ async function supabaseRequest(env, method, pathWithQuery, jsonBody, opts) {
   }
   if (method === "POST" && jsonBody != null && opts?.preferRepresentation !== false) {
     headers["Prefer"] = "return=representation";
+  }
+  if (method === "POST" && opts?.preferIgnoreDuplicates) {
+    headers["Prefer"] = opts?.preferRepresentation === false
+      ? "return=minimal,resolution=ignore-duplicates"
+      : "return=representation,resolution=ignore-duplicates";
   }
   if (method === "PATCH" && opts?.preferRepresentation === false) {
     headers["Prefer"] = "return=minimal";
@@ -444,11 +450,119 @@ async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
     throw new Error(`PostgREST: order ${orderId} not updated (0 rows)`);
   }
   console.log("[markOrderPaid] ok", orderId);
+  await notifySellerNewPaidOrder(env, orderId);
+}
+
+async function fetchProductNameById(env, productId) {
+  if (!isStandardUuid(productId)) {
+    return "Product";
+  }
+  const rows = await supabaseRequest(
+    env,
+    "GET",
+    `/products?id=eq.${encodeURIComponent(productId)}&select=name&limit=1`
+  );
+  if (Array.isArray(rows) && rows.length > 0 && rows[0]?.name) {
+    return String(rows[0].name);
+  }
+  return "Product";
+}
+
+async function notifySellerNewPaidOrder(env, orderId) {
+  try {
+    const order = await fetchOrderById(env, orderId);
+    if (!order?.seller_id) {
+      return;
+    }
+
+    const item = await fetchFirstOrderItem(env, orderId);
+    const productName = item?.product_id
+      ? await fetchProductNameById(env, item.product_id)
+      : "Product";
+    const sizeLabel =
+      item?.selected_variant_value?.trim() || item?.size?.trim() || null;
+
+    let body = `Je hebt een betaalde bestelling voor ${productName}. Maak het pakket klaar voor verzending.`;
+    if (sizeLabel) {
+      body += ` Maat: ${sizeLabel}.`;
+    }
+
+    await supabaseRequest(
+      env,
+      "POST",
+      "/seller_notifications",
+      JSON.stringify({
+        seller_id: order.seller_id,
+        order_id: orderId,
+        notification_type: "new_paid_order",
+        title: "Nieuwe bestelling ontvangen",
+        body,
+        product_name: productName,
+      }),
+      { preferRepresentation: false, preferIgnoreDuplicates: true }
+    );
+    console.log("[notifySellerNewPaidOrder] ok", orderId);
+  } catch (e) {
+    console.warn(
+      "[notifySellerNewPaidOrder]",
+      orderId,
+      e instanceof Error ? e.message : String(e)
+    );
+  }
 }
 
 async function releaseStockForExpiredCheckout(env, orderId) {
   await releaseProductStockForOrder(env, orderId);
   console.log("[checkout] stock released after session expired", orderId);
+}
+
+async function expireStripeCheckoutSessionIfOpen(env, sessionId) {
+  if (!sessionId || !String(sessionId).startsWith("cs_")) {
+    return;
+  }
+  try {
+    const session = await stripeRequest(
+      env,
+      "GET",
+      `/checkout/sessions/${encodeURIComponent(sessionId)}`,
+      null
+    );
+    if (session.status === "open") {
+      await stripeRequest(
+        env,
+        "POST",
+        `/checkout/sessions/${encodeURIComponent(sessionId)}/expire`,
+        null
+      );
+      console.log("[checkout] expired open Stripe session", sessionId);
+    }
+  } catch (e) {
+    console.warn(
+      "[checkout] could not expire Stripe session",
+      sessionId,
+      e instanceof Error ? e.message : String(e)
+    );
+  }
+}
+
+/** Geef gereserveerde voorraad terug wanneer checkout wordt afgebroken (niet betaald). */
+async function abandonCheckoutAndReleaseStock(env, orderId) {
+  const order = await fetchOrderById(env, orderId);
+  if (!order) {
+    return { ok: false, released: false, reason: "not_found" };
+  }
+  if (order.payment_status === "paid") {
+    return { ok: true, released: false, reason: "already_paid" };
+  }
+
+  const sessionId = String(order.stripe_checkout_session_id || "").trim();
+  if (sessionId.startsWith("cs_")) {
+    await expireStripeCheckoutSessionIfOpen(env, sessionId);
+  }
+
+  const released = await releaseProductStockForOrder(env, orderId);
+  console.log("[checkout] abandoned — stock release", { orderId, released });
+  return { ok: true, released: released !== false, reason: "released" };
 }
 
 function webhookSecretBytes(secret) {
@@ -575,25 +689,21 @@ async function syncOrderFromStripeSession(env, session) {
 export async function handleStripeCheckout(request, env, cors = {}) {
   const logPrefix = "[stripeCheckout]";
   try {
+    const auth = await requireAuthUser(request, env, cors);
+    if (auth.error) {
+      return auth.error;
+    }
+    const userId = auth.userId;
+
     const hasStripeKey =
       typeof env.STRIPE_SECRET_KEY === "string" &&
       env.STRIPE_SECRET_KEY.startsWith("sk_");
     console.log(logPrefix, "STRIPE_SECRET_KEY configured:", hasStripeKey);
 
-    const userId = (request.headers.get("X-App-User-Id") || "").trim();
-    if (!isStandardUuid(userId)) {
-      return jsonStripe(
-        { error: "X-App-User-Id required", step: "auth" },
-        400,
-        cors
-      );
-    }
-
     if (!hasStripeKey) {
       return jsonStripe(
         {
-          error:
-            "Missing STRIPE_SECRET_KEY in Worker secrets. Run: npx wrangler secret put STRIPE_SECRET_KEY",
+          error: "Payment service unavailable",
           step: "config",
         },
         500,
@@ -628,7 +738,7 @@ export async function handleStripeCheckout(request, env, cors = {}) {
       return jsonStripe({ error: "Order not found" }, 404, cors);
     }
     if (order.buyer_id !== userId) {
-      return jsonStripe({ error: "Not your order" }, 403, cors);
+      return jsonStripe({ error: "Forbidden" }, 403, cors);
     }
     if (order.payment_status === "paid") {
       return jsonStripe({ error: "Order already paid" }, 400, cors);
@@ -648,17 +758,29 @@ export async function handleStripeCheckout(request, env, cors = {}) {
           null
         );
         if (existing.status === "open" && existing.url) {
-          console.log(logPrefix, "reusing open checkout session", existingSessionId);
-          return jsonStripe(
-            {
-              checkoutUrl: existing.url,
-              sessionId: existing.id,
-              orderId,
-              reused: true,
-            },
-            200,
-            cors
+          const reservationActive =
+            order.stock_reserved_at &&
+            !order.stock_released_at &&
+            !order.stock_committed_at;
+          if (reservationActive) {
+            console.log(logPrefix, "reusing open checkout session", existingSessionId);
+            return jsonStripe(
+              {
+                checkoutUrl: existing.url,
+                sessionId: existing.id,
+                orderId,
+                reused: true,
+              },
+              200,
+              cors
+            );
+          }
+          console.log(
+            logPrefix,
+            "open session without active reservation — expiring",
+            existingSessionId
           );
+          await expireStripeCheckoutSessionIfOpen(env, existingSessionId);
         }
         if (existing.status === "expired") {
           console.log(logPrefix, "existing session expired, releasing stock", existingSessionId);
@@ -959,6 +1081,9 @@ export async function handleCheckoutReturn(request, url, env, cors = {}) {
 export async function handleCheckoutCancel(request, url, env, cors = {}) {
   const orderId = (url.searchParams.get("order_id") || "").trim();
   console.log("[checkoutCancel]", { orderId });
+  if (isStandardUuid(orderId)) {
+    await abandonCheckoutAndReleaseStock(env, orderId);
+  }
   const appDeepLink = (
     env.CHECKOUT_CANCEL_URL || "lumen-fashion://checkout/cancel"
   ) + (orderId ? `?order_id=${encodeURIComponent(orderId)}` : "");
@@ -971,15 +1096,66 @@ export async function handleCheckoutCancel(request, url, env, cors = {}) {
 }
 
 /**
+ * POST ?checkoutReleaseStock=1  body: { orderId }
+ * Buyer-only: geef checkout-reservering vrij na annuleren / wegklikken.
+ */
+export async function handleCheckoutReleaseStock(request, env, cors = {}) {
+  const logPrefix = "[checkoutReleaseStock]";
+  try {
+    const auth = await requireAuthUser(request, env, cors);
+    if (auth.error) {
+      return auth.error;
+    }
+    const userId = auth.userId;
+
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonStripe({ error: "Invalid JSON body", step: "parse_body" }, 400, cors);
+    }
+
+    const orderId = String(body?.orderId || "").trim();
+    if (!isStandardUuid(orderId)) {
+      return jsonStripe({ error: "Invalid orderId", step: "validate" }, 400, cors);
+    }
+
+    const order = await fetchOrderById(env, orderId);
+    if (!order) {
+      return jsonStripe({ error: "Order not found" }, 404, cors);
+    }
+    if (order.buyer_id !== userId) {
+      return jsonStripe({ error: "Forbidden" }, 403, cors);
+    }
+
+    const result = await abandonCheckoutAndReleaseStock(env, orderId);
+    return jsonStripe(
+      {
+        orderId,
+        released: result.released,
+        reason: result.reason,
+      },
+      200,
+      cors
+    );
+  } catch (e) {
+    const message = (e && e.message) || String(e);
+    console.error(logPrefix, "failed", message);
+    return jsonStripe({ error: message, step: "checkout_release" }, 500, cors);
+  }
+}
+
+/**
  * GET ?stripeConfirm=1&session_id=cs_...
  */
 export async function handleStripeConfirm(request, url, env, cors = {}) {
   try {
-    const userId = (request.headers.get("X-App-User-Id") || "").trim();
-    const sessionId = url.searchParams.get("session_id") || "";
-    if (!isStandardUuid(userId)) {
-      return jsonStripe({ error: "X-App-User-Id required" }, 400, cors);
+    const auth = await requireAuthUser(request, env, cors);
+    if (auth.error) {
+      return auth.error;
     }
+    const userId = auth.userId;
+    const sessionId = url.searchParams.get("session_id") || "";
     if (!sessionId.startsWith("cs_")) {
       return jsonStripe({ error: "Invalid session_id" }, 400, cors);
     }
