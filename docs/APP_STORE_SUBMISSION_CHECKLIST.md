@@ -1,4 +1,4 @@
-# App Store Connect submission checklist — Lumen/Kwaapo
+# App Store Connect submission checklist — Kwaapo
 
 > Vul placeholders `[INVULLEN]` in vóór submission. Juridische teksten zijn **niet** geverifieerd door een advocaat.
 
@@ -6,7 +6,7 @@
 
 | Veld | Waarde / actie |
 |------|----------------|
-| App naam | Lumen (of definitieve merknaam) |
+| App naam | **Kwaapo** |
 | Subtitle | `[INVULLEN — bijv. Fashion reels & marketplace]` |
 | Description | `[INVULLEN — beschrijf reels, shop, verified sellers, geen digitale IAP]` |
 | Keywords | fashion, reels, shop, marketplace, `[INVULLEN]` |
@@ -45,7 +45,7 @@ Bevestig zelf in App Store Connect — onderstaande is gebaseerd op **werkelijke
 ## C. App Review Notes (template)
 
 ```
-Lumen is a social fashion reels app with a peer-to-peer marketplace for physical goods.
+Kwaapo is a social fashion reels app with a peer-to-peer marketplace for physical goods.
 
 PHYSICAL GOODS ONLY — Stripe Checkout is used for physical product purchases between users.
 No digital in-app purchases or consumables.

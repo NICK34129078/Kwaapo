@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Lumen",
+    "name": "Kwaapo",
     "slug": "lumen-fashion",
     "scheme": "lumen-fashion",
     "version": "1.0.0",
@@ -24,9 +24,9 @@
           "snapchat",
           "discord"
         ],
-        "NSCameraUsageDescription": "Lumen gebruikt de camera om productfoto's en reels op te nemen.",
-        "NSPhotoLibraryUsageDescription": "Lumen gebruikt je fotobibliotheek om afbeeldingen en video's te kiezen voor posts en producten.",
-        "NSMicrophoneUsageDescription": "Lumen gebruikt de microfoon om audio op te nemen bij video's."
+        "NSCameraUsageDescription": "Kwaapo gebruikt de camera om productfoto's en reels op te nemen.",
+        "NSPhotoLibraryUsageDescription": "Kwaapo gebruikt je fotobibliotheek om afbeeldingen en video's te kiezen voor posts en producten.",
+        "NSMicrophoneUsageDescription": "Kwaapo gebruikt de microfoon om audio op te nemen bij video's."
       }
     },
     "android": {
@@ -43,9 +43,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Lumen gebruikt je fotobibliotheek om afbeeldingen en video's te kiezen.",
-          "cameraPermission": "Lumen gebruikt de camera om productfoto's en reels op te nemen.",
-          "microphonePermission": "Lumen gebruikt de microfoon om audio op te nemen bij video's."
+          "photosPermission": "Kwaapo gebruikt je fotobibliotheek om afbeeldingen en video's te kiezen.",
+          "cameraPermission": "Kwaapo gebruikt de camera om productfoto's en reels op te nemen.",
+          "microphonePermission": "Kwaapo gebruikt de microfoon om audio op te nemen bij video's."
         }
       ]
     ]

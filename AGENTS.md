@@ -1,4 +1,4 @@
-# AGENTS.md — Kwaapo (Lumen)
+# AGENTS.md — Kwaapo
 
 Guidance for AI agents working in this repository.
 
@@ -89,7 +89,7 @@ Project skills live in `.agents/skills/`. Locked versions are listed in `skills-
 
 ## Learned Workspace Facts
 
-- App display name is **Lumen** (`lumen-fashion`); repository/project name is Kwaapo.
+- App display name is **Kwaapo** (`expo.name` in `app.json`); Expo slug remains `lumen-fashion` until identifier migration (see `docs/BRANDING_AND_DEMO_CONTENT_AUDIT.md`).
 - Supabase production project ref: `mvngamvkdtcprgiizcvk`; linked via `supabase/.temp/project-ref`. (Eerdere sessies linkten per ongeluk naar `xshnwnxvmdtvqcfglfzy` — negeer dat project.)
 - Primary Cloudflare Worker base URL: `wild-mountain-072a.n-vandullemen.workers.dev` (see `src/constants/cloudVideo.ts`).
 - KVK credentials (`KVK_API_KEY`, `KVK_API_BASE`) live on the Cloudflare Worker via `wrangler secret put` or `.dev.vars` for local dev — not in Expo `.env`.

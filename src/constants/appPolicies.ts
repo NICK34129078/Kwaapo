@@ -41,7 +41,7 @@ const privacyPolicy: PolicyDocument = {
     {
       title: "Wie wij zijn",
       body:
-        "Lumen/Kwaapo is een social-media- en marketplace-app. Dit privacybeleid beschrijft welke gegevens wij verwerken wanneer je de app gebruikt. Contact: " +
+        "Kwaapo is een social-media- en marketplace-app. Dit privacybeleid beschrijft welke gegevens wij verwerken wanneer je de app gebruikt. Contact: " +
         SUPPORT_EMAIL,
     },
     {
@@ -92,7 +92,7 @@ const termsOfUse: PolicyDocument = {
     {
       title: "Acceptatie",
       body:
-        "Door Lumen/Kwaapo te gebruiken ga je akkoord met deze voorwaarden en ons privacybeleid. Je moet minimaal 16 jaar zijn of toestemming van een ouder/verzorger hebben waar wettelijk vereist.",
+        "Door Kwaapo te gebruiken ga je akkoord met deze voorwaarden en ons privacybeleid. Je moet minimaal 16 jaar zijn of toestemming van een ouder/verzorger hebben waar wettelijk vereist.",
     },
     {
       title: "Je account",

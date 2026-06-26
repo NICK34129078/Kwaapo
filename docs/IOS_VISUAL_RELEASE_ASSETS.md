@@ -10,8 +10,8 @@
 |-----------|--------|
 | App icon (EAS / App Store) | **Ontbreekt** — blocker |
 | Splash / launch visual | Alleen kleur `#0B0B0B` — **geen image** |
-| App name “Lumen” | Grotendeels consistent in iOS-config; **“Kwaapo” nog in UI/share** |
-| Bundle ID `com.lumen.fashion` | Consistent in `app.json`; geen andere bundle IDs in repo |
+| App name | **Kwaapo** (`expo.name`) | Consumentennaam vastgesteld |
+| Bundle ID `com.lumen.fashion` | Technische identifier — zie identifier-migratie |
 | In-app placeholder branding | Unsplash reels, default avatar, seller mascot, share brand “Kwaapo” |
 | App Store screenshots | **Nog niet aanwezig** — later handmatig |
 
@@ -87,22 +87,18 @@ Optioneel voor fijnere controle: `expo-splash-screen` plugin in `app.json` plugi
 
 ---
 
-## 3. App name “Lumen” — consistentie
+## 3. App name “Kwaapo” — consistentie
 
-| Locatie | Waarde | Consistent? |
-|---------|--------|-------------|
-| `app.json` → `expo.name` | **Lumen** | Referentie voor iOS home screen |
-| `app.json` permission strings | “Lumen gebruikt…” | OK |
-| `app.json` slug / scheme | `lumen-fashion` | OK |
-| `src/constants/shareLinks.ts` → `SHARE_BRAND_NAME` | **Kwaapo** | Afwijkend — share-teksten |
-| `src/screens/ShopScreen.tsx` kicker | **Kwaapo Store** | Afwijkend |
-| `ProfileScreen` support mail subject | **Kwaapo support** | Afwijkend |
-| `src/constants/appPolicies.ts` | **Lumen/Kwaapo** | Bewust dubbel in legal copy |
-| `package.json` name | `lumen-fashion` | Technisch, niet zichtbaar |
-| GitHub repo | Kwaapo | Buiten app bundle |
-| `AGENTS.md` | “Kwaapo (Lumen)” | Documentatie |
+**Beslissing:** definitieve merknaam = **Kwaapo**.
 
-**Actie vóór App Store:** kies één consumentennaam (Lumen **of** Kwaapo) voor UI, share-teksten en App Store Connect listing. Juridische teksten kunnen beide noemen indien nodig.
+| Locatie | Waarde | Status |
+|---------|--------|--------|
+| `app.json` → `expo.name` | **Kwaapo** | iOS home screen |
+| `app.json` permission strings | “Kwaapo gebruikt…” | OK |
+| `src/constants/shareLinks.ts` → `SHARE_BRAND_NAME` | **Kwaapo** | OK |
+| `src/screens/ShopScreen.tsx` kicker | **Kwaapo Store** | OK |
+| `src/constants/appPolicies.ts` | **Kwaapo** | OK |
+| Technische slug/scheme | `lumen-fashion` | Zie identifier-migratie |
 
 ---
 
@@ -203,9 +199,9 @@ Opslag: **buiten git** (App Store Connect upload) of optioneel `marketing/screen
 
 ### Jij aanlevert
 
-- [ ] `assets/icon.png` — 1024×1024, definitief Lumen (of gekozen) merk
+- [ ] `assets/icon.png` — 1024×1024, definitief **Kwaapo** merk
 - [ ] `assets/splash.png` — 1284×2778 (of 2732×2732 logo-only)
-- [ ] Beslissing: Lumen vs Kwaapo in consumer-facing UI
+- [ ] Beslissing merknaam: **Kwaapo** (afgerond)
 - [ ] App Store screenshots (later)
 - [ ] Optioneel: `assets/adaptive-icon-foreground.png` voor Android
 
@@ -214,7 +210,7 @@ Opslag: **buiten git** (App Store Connect upload) of optioneel `marketing/screen
 - [ ] `"icon"` in `app.json`
 - [ ] `"splash.image"` + `"resizeMode"` in `app.json`
 - [ ] Optioneel: `android.adaptiveIcon` in `app.json`
-- [ ] Optioneel: branding cleanup (Kwaapo → Lumen in share/shop UI) — **aparte taak, niet automatisch**
+- [ ] Optioneel: technische identifiers migreren naar `kwaapo` (zie `docs/BRANDING_AND_DEMO_CONTENT_AUDIT.md`)
 
 ---
 
@@ -223,7 +219,7 @@ Opslag: **buiten git** (App Store Connect upload) of optioneel `marketing/screen
 | Token | Hex | Gebruik |
 |-------|-----|---------|
 | App background | `#0B0B0B` | Splash, dark UI |
-| Accent | `#B9D9F7` | Kwaapo/Lumen pastel blue (theme) |
+| Accent | `#B9D9F7` | Kwaapo pastel blue (theme) |
 
 Icon en splash moeten leesbaar zijn op `#0B0B0B`.
 

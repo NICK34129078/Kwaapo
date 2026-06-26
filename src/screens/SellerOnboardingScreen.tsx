@@ -357,7 +357,7 @@ export function SellerOnboardingScreen() {
                 label={sellerType === "business" ? "Bedrijfsnaam" : "Naam / handelsnaam"}
                 value={businessName}
                 onChangeText={setBusinessName}
-                placeholder="Bijv. Lumen Fashion B.V."
+                placeholder="Bijv. Kwaapo Fashion B.V."
                 required
                 autoCapitalize="words"
               />

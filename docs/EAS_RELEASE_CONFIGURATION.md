@@ -1,4 +1,4 @@
-# EAS release configuration — Lumen (iOS)
+# EAS release configuration — Kwaapo (iOS)
 
 > Alleen interne releasevoorbereiding. Geen App Store submission in deze fase.
 
@@ -74,7 +74,7 @@ Stripe heeft **geen** secret keys in de app-bundle. Checkout loopt via de Worker
 
 | Item | Waarde | Status |
 |------|--------|--------|
-| App name | `Lumen` | OK |
+| App name | `Kwaapo` | OK — iOS home screen label |
 | Slug | `lumen-fashion` | OK |
 | Version | `1.0.0` | OK — marketing version |
 | iOS buildNumber | `1` (startwaarde; EAS remote overschrijft bij build) | OK |
