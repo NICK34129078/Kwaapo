@@ -19,14 +19,31 @@
           "instagram",
           "snapchat",
           "discord"
-        ]
+        ],
+        "NSCameraUsageDescription": "Lumen gebruikt de camera om productfoto's en reels op te nemen.",
+        "NSPhotoLibraryUsageDescription": "Lumen gebruikt je fotobibliotheek om afbeeldingen en video's te kiezen voor posts en producten.",
+        "NSMicrophoneUsageDescription": "Lumen gebruikt de microfoon om audio op te nemen bij video's."
       }
     },
     "android": {
-      "package": "com.lumen.fashion"
+      "package": "com.lumen.fashion",
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
+        "RECORD_AUDIO"
+      ]
     },
     "plugins": [
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Lumen gebruikt je fotobibliotheek om afbeeldingen en video's te kiezen.",
+          "cameraPermission": "Lumen gebruikt de camera om productfoto's en reels op te nemen.",
+          "microphonePermission": "Lumen gebruikt de microfoon om audio op te nemen bij video's."
+        }
+      ]
     ]
   }
 }

@@ -12,7 +12,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
@@ -31,6 +31,10 @@ import {
 } from "../services/productCatalogRefresh";
 import { fetchSellerOrders } from "../services/ordersService";
 import {
+  markSellerNotificationRead,
+  type SellerNotification,
+} from "../services/sellerNotificationService";
+import {
   canSellerPrepareProducts,
   canSellerManageProducts,
   fetchMySellerOnboarding,
@@ -44,15 +48,19 @@ import type { Product } from "../types/product";
 import type { SellerOrder } from "../types/order";
 import { formatPriceEur } from "../utils/formatPrice";
 import { getProductStockStatus } from "../utils/productStock";
+import { SellerActionRequiredCard } from "../components/SellerActionRequiredCard";
+import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
+import {
+  orderNeedsSellerAction,
+  sellerFulfillmentLabel,
+  sortSellerOrders,
+  matchesSellerOrderFilter,
+  SELLER_ORDER_FILTERS,
+  type SellerOrderFilter,
+} from "../utils/sellerFulfillment";
 import {
   buyerDisplayName,
-  countSellerOrdersNeedingAttention,
   formatOrderItemSizeLine,
-  matchesSellerOrderFilter,
-  paymentStatusLabel,
-  SELLER_ORDER_FILTERS,
-  shippingStatusLabel,
-  type SellerOrderFilter,
 } from "../utils/orderDashboard";
 
 type MyShopTab = "products" | "orders";
@@ -171,7 +179,8 @@ function SellerOrderCard({
   const product = firstItem?.product;
   const order = sellerOrder.order;
   const buyerName = buyerDisplayName(sellerOrder);
-  const paid = order.paymentStatus === "paid";
+  const fulfillmentLabel = sellerFulfillmentLabel(order);
+  const needsShip = orderNeedsSellerAction(order);
   const sizeLine = formatOrderItemSizeLine(firstItem);
 
   return (
@@ -210,21 +219,16 @@ function SellerOrderCard({
           <View
             style={[
               styles.orderBadge,
-              paid ? styles.orderBadgePaid : styles.orderBadgeMuted,
+              needsShip ? styles.orderBadgePaid : styles.orderBadgeMuted,
             ]}
           >
             <Text
               style={[
                 styles.orderBadgeText,
-                paid ? styles.orderBadgeTextPaid : styles.orderBadgeTextMuted,
+                needsShip ? styles.orderBadgeTextPaid : styles.orderBadgeTextMuted,
               ]}
             >
-              {paymentStatusLabel(order.paymentStatus)}
-            </Text>
-          </View>
-          <View style={styles.orderBadge}>
-            <Text style={styles.orderBadgeText}>
-              {shippingStatusLabel(order.shippingStatus)}
+              {fulfillmentLabel}
             </Text>
           </View>
         </View>
@@ -236,10 +240,16 @@ function SellerOrderCard({
 
 export function MyShopScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const {
+    actionCount,
+    openNotifications,
+    refresh: refreshSellerFulfillment,
+  } = useSellerFulfillment();
   const [activeTab, setActiveTab] = useState<MyShopTab>("products");
-  const [orderFilter, setOrderFilter] = useState<SellerOrderFilter>("new");
+  const [orderFilter, setOrderFilter] = useState<SellerOrderFilter>("action_required");
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<SellerOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -273,7 +283,17 @@ export function MyShopScreen() {
     setProducts(productRows);
     setOrders(orderRows);
     setSellerOnboarding(onboardingRow);
-  }, [user?.id]);
+    void refreshSellerFulfillment();
+  }, [refreshSellerFulfillment, user?.id]);
+
+  useEffect(() => {
+    if (route.params?.initialTab === "orders") {
+      setActiveTab("orders");
+    }
+    if (route.params?.orderFilter) {
+      setOrderFilter(route.params.orderFilter as SellerOrderFilter);
+    }
+  }, [route.params?.initialTab, route.params?.orderFilter]);
 
   useFocusEffect(
     useCallback(() => {
@@ -405,15 +425,31 @@ export function MyShopScreen() {
     [navigation]
   );
 
-  const ordersBadgeCount = useMemo(
-    () => countSellerOrdersNeedingAttention(orders),
-    [orders]
-  );
+  const ordersBadgeCount = actionCount;
+
+  const sortedOrders = useMemo(() => sortSellerOrders(orders), [orders]);
 
   const filteredOrders = useMemo(
-    () => orders.filter((row) => matchesSellerOrderFilter(row.order, orderFilter)),
-    [orderFilter, orders]
+    () =>
+      sortedOrders.filter((row) =>
+        matchesSellerOrderFilter(row.order, orderFilter)
+      ),
+    [orderFilter, sortedOrders]
   );
+
+  const onOpenNotification = useCallback(
+    (notification: SellerNotification) => {
+      void markSellerNotificationRead(notification.id);
+      void refreshSellerFulfillment();
+      navigation.navigate("OrderDetail", { orderId: notification.orderId });
+    },
+    [navigation, refreshSellerFulfillment]
+  );
+
+  const openActionRequiredOrders = useCallback(() => {
+    setActiveTab("orders");
+    setOrderFilter("action_required");
+  }, []);
 
   const activeData = useMemo<Array<Product | SellerOrder>>(
     () => (activeTab === "products" ? products : filteredOrders),
@@ -509,6 +545,10 @@ export function MyShopScreen() {
           }
           ListHeaderComponent={
             <View>
+              <SellerActionRequiredCard
+                actionCount={actionCount}
+                onPress={openActionRequiredOrders}
+              />
               {sellerOnboarding ? (
                 <SellerOnboardingStatusCard
                   onboarding={sellerOnboarding}
@@ -592,6 +632,32 @@ export function MyShopScreen() {
                   </View>
                 </Pressable>
               </View>
+              {openNotifications.length > 0
+                ? openNotifications.slice(0, 5).map((notification) => (
+                    <Pressable
+                      key={notification.id}
+                      style={styles.notificationBanner}
+                      onPress={() => onOpenNotification(notification)}
+                      accessibilityRole="button"
+                      accessibilityLabel={notification.title}
+                    >
+                      <Ionicons
+                        name="notifications-outline"
+                        size={20}
+                        color={theme.accent}
+                      />
+                      <View style={styles.shipAlertBannerText}>
+                        <Text style={styles.shipAlertTitle} numberOfLines={1}>
+                          {notification.title}
+                        </Text>
+                        <Text style={styles.shipAlertSubtitle} numberOfLines={2}>
+                          {notification.body}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                    </Pressable>
+                  ))
+                : null}
               {activeTab === "orders" ? (
                 <ScrollView
                   horizontal
@@ -631,7 +697,7 @@ export function MyShopScreen() {
                       ? "Beheer je producten. Lang indrukken om te verwijderen."
                       : "Bereid concepten voor. Publiek activeren kan na volledige Stripe-setup."
                     : "Producten toevoegen is beschikbaar na een zakelijk verkoopaccount."
-                  : "Filter op status en tik een bestelling voor verzendgegevens."}
+                  : "Filter op status. Betaalde bestellingen die actie vereisen staan bovenaan."}
               </Text>
             </View>
           }
@@ -711,6 +777,42 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 12,
+  },
+  shipAlertBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    marginBottom: 10,
+    borderRadius: 12,
+    backgroundColor: theme.accentSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.accentBorderStrong,
+  },
+  notificationBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    marginBottom: 8,
+    borderRadius: 12,
+    backgroundColor: theme.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  shipAlertBannerText: {
+    flex: 1,
+    gap: 2,
+  },
+  shipAlertTitle: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  shipAlertSubtitle: {
+    color: theme.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
   },
   shopTabs: {
     flexDirection: "row",

@@ -26,6 +26,15 @@ import { fetchProductById } from "../services/productsService";
 import type { Product } from "../types/product";
 import { formatPriceEur } from "../utils/formatPrice";
 import { productUsesVariantCheckout } from "../utils/productStock";
+import {
+  formatCheckoutAddressDraft,
+  isCheckoutAddressSyncValid,
+  isNetherlandsCountry,
+  normalizeDutchPostcode,
+  validateCheckoutAddressForPayment,
+  validateCheckoutAddressSync,
+  type CheckoutAddressFieldErrors,
+} from "../utils/checkoutAddressValidation";
 
 function FormField({
   label,
@@ -34,6 +43,8 @@ function FormField({
   placeholder,
   keyboardType,
   autoCapitalize = "sentences",
+  error,
+  required,
 }: {
   label: string;
   value: string;
@@ -41,10 +52,15 @@ function FormField({
   placeholder?: string;
   keyboardType?: "default" | "email-address" | "phone-pad" | "number-pad";
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  error?: string | null;
+  required?: boolean;
 }) {
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={styles.label}>
+        {label}
+        {required ? " *" : ""}
+      </Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -52,8 +68,9 @@ function FormField({
         placeholderTextColor={theme.textMuted}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
-        style={styles.input}
+        style={[styles.input, error ? styles.inputError : null]}
       />
+      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
     </View>
   );
 }
@@ -87,6 +104,33 @@ export function CheckoutInfoScreen() {
   const [selectedVariantId] = useState<string | null>(routeProductVariantId);
   const [quantity, setQuantity] = useState(
     String(Number.isFinite(routeQuantity) && routeQuantity > 0 ? routeQuantity : 1)
+  );
+  const [fieldErrors, setFieldErrors] = useState<CheckoutAddressFieldErrors>({});
+  const [validatingAddress, setValidatingAddress] = useState(false);
+
+  const addressDraft = useMemo(
+    () =>
+      formatCheckoutAddressDraft({
+        buyerFullName: fullName,
+        buyerEmail: email,
+        shippingCountry: country,
+        shippingCity: city,
+        shippingPostalCode: postalCode,
+        shippingStreet: street,
+        shippingHouseNumber: houseNumber,
+        shippingPhone: phone,
+      }),
+    [city, country, email, fullName, houseNumber, phone, postalCode, street]
+  );
+
+  const syncErrors = useMemo(
+    () => validateCheckoutAddressSync(addressDraft),
+    [addressDraft]
+  );
+
+  const canSubmitForm = useMemo(
+    () => isCheckoutAddressSyncValid(syncErrors),
+    [syncErrors]
   );
 
   useEffect(() => {
@@ -151,6 +195,20 @@ export function CheckoutInfoScreen() {
       return;
     }
 
+    setValidatingAddress(true);
+    const validationErrors = await validateCheckoutAddressForPayment(addressDraft);
+    setValidatingAddress(false);
+    if (Object.keys(validationErrors).length > 0) {
+      setFieldErrors(validationErrors);
+      const message =
+        validationErrors._form ??
+        Object.values(validationErrors)[0] ??
+        "Controleer je gegevens en probeer opnieuw.";
+      Alert.alert("Gegevens kloppen niet", message);
+      return;
+    }
+    setFieldErrors({});
+
     const sellerOnboarding = await fetchSellerOnboardingByProfileId(product.ownerId);
     if (!canSellerAcceptSales(sellerOnboarding)) {
       Alert.alert(
@@ -164,14 +222,14 @@ export function CheckoutInfoScreen() {
     setSubmitting(true);
     try {
       const order = await createOrderFromProduct(product, {
-        buyerFullName: fullName,
-        buyerEmail: email,
-        shippingCountry: country,
-        shippingCity: city,
-        shippingPostalCode: postalCode,
-        shippingStreet: street,
-        shippingHouseNumber: houseNumber,
-        shippingPhone: phone,
+        buyerFullName: addressDraft.buyerFullName,
+        buyerEmail: addressDraft.buyerEmail,
+        shippingCountry: addressDraft.shippingCountry,
+        shippingCity: addressDraft.shippingCity,
+        shippingPostalCode: addressDraft.shippingPostalCode,
+        shippingStreet: addressDraft.shippingStreet,
+        shippingHouseNumber: addressDraft.shippingHouseNumber,
+        shippingPhone: addressDraft.shippingPhone,
         quantity: Number(quantity),
         size: selectedSize,
         productVariantId: selectedVariantId,
@@ -209,21 +267,14 @@ export function CheckoutInfoScreen() {
       setSubmitting(false);
     }
   }, [
-    city,
-    country,
-    email,
-    fullName,
-    houseNumber,
+    addressDraft,
     navigation,
-    phone,
-    postalCode,
     product,
     quantity,
     routeSelectedVariantType,
     routeSelectedVariantValue,
     selectedSize,
     selectedVariantId,
-    street,
     usesVariantCheckout,
   ]);
 
@@ -286,42 +337,104 @@ export function CheckoutInfoScreen() {
             <FormField
               label="Volledige naam"
               value={fullName}
-              onChangeText={setFullName}
+              onChangeText={(text) => {
+                setFullName(text);
+                setFieldErrors((prev) => ({ ...prev, buyerFullName: undefined, _form: undefined }));
+              }}
               placeholder="Voor- en achternaam"
               autoCapitalize="words"
+              required
+              error={fieldErrors.buyerFullName ?? syncErrors.buyerFullName}
             />
             <FormField
               label="E-mail"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(text) => {
+                setEmail(text);
+                setFieldErrors((prev) => ({ ...prev, buyerEmail: undefined, _form: undefined }));
+              }}
               placeholder="naam@email.nl"
               keyboardType="email-address"
               autoCapitalize="none"
+              required
+              error={fieldErrors.buyerEmail ?? syncErrors.buyerEmail}
             />
             <FormField
               label="Telefoon (optioneel)"
               value={phone}
-              onChangeText={setPhone}
+              onChangeText={(text) => {
+                setPhone(text);
+                setFieldErrors((prev) => ({ ...prev, shippingPhone: undefined, _form: undefined }));
+              }}
               placeholder="+31..."
               keyboardType="phone-pad"
+              error={fieldErrors.shippingPhone ?? syncErrors.shippingPhone}
             />
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Verzendadres</Text>
-            <FormField label="Land" value={country} onChangeText={setCountry} />
-            <FormField label="Stad" value={city} onChangeText={setCity} />
+            <Text style={styles.sectionHint}>
+              Nederlandse adressen worden gecontroleerd op postcode, huisnummer, straat en plaats.
+            </Text>
+            <FormField
+              label="Land"
+              value={country}
+              onChangeText={(text) => {
+                setCountry(text);
+                setFieldErrors((prev) => ({ ...prev, shippingCountry: undefined, _form: undefined }));
+              }}
+              required
+              error={fieldErrors.shippingCountry ?? syncErrors.shippingCountry}
+            />
+            <FormField
+              label="Stad"
+              value={city}
+              onChangeText={(text) => {
+                setCity(text);
+                setFieldErrors((prev) => ({ ...prev, shippingCity: undefined, _form: undefined }));
+              }}
+              required
+              error={fieldErrors.shippingCity ?? syncErrors.shippingCity}
+            />
             <FormField
               label="Postcode"
               value={postalCode}
-              onChangeText={setPostalCode}
+              onChangeText={(text) => {
+                setPostalCode(isNetherlandsCountry(country) ? normalizeDutchPostcode(text) : text);
+                setFieldErrors((prev) => ({
+                  ...prev,
+                  shippingPostalCode: undefined,
+                  _form: undefined,
+                }));
+              }}
               autoCapitalize="characters"
+              required
+              error={fieldErrors.shippingPostalCode ?? syncErrors.shippingPostalCode}
             />
-            <FormField label="Straat" value={street} onChangeText={setStreet} />
+            <FormField
+              label="Straat"
+              value={street}
+              onChangeText={(text) => {
+                setStreet(text);
+                setFieldErrors((prev) => ({ ...prev, shippingStreet: undefined, _form: undefined }));
+              }}
+              required
+              error={fieldErrors.shippingStreet ?? syncErrors.shippingStreet}
+            />
             <FormField
               label="Huisnummer"
               value={houseNumber}
-              onChangeText={setHouseNumber}
+              onChangeText={(text) => {
+                setHouseNumber(text);
+                setFieldErrors((prev) => ({
+                  ...prev,
+                  shippingHouseNumber: undefined,
+                  _form: undefined,
+                }));
+              }}
+              required
+              error={fieldErrors.shippingHouseNumber ?? syncErrors.shippingHouseNumber}
             />
           </View>
 
@@ -372,17 +485,29 @@ export function CheckoutInfoScreen() {
 
       {product ? (
         <View style={[styles.stickyBar, { paddingBottom: insets.bottom + 10 }]}>
+          {!canSubmitForm ? (
+            <Text style={styles.blockedHint}>
+              Vul alle verplichte velden correct in om verder te gaan.
+            </Text>
+          ) : fieldErrors._form ? (
+            <Text style={styles.blockedHint}>{fieldErrors._form}</Text>
+          ) : null}
           <Pressable
-            style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
+            style={[
+              styles.submitBtn,
+              (submitting || validatingAddress || !canSubmitForm) && styles.submitBtnDisabled,
+            ]}
             onPress={() => void onSubmit()}
-            disabled={submitting}
+            disabled={submitting || validatingAddress || !canSubmitForm}
             accessibilityRole="button"
             accessibilityLabel="Veilig betalen via Stripe"
           >
-            {submitting ? (
+            {submitting || validatingAddress ? (
               <>
                 <ActivityIndicator size="small" color={theme.bg} />
-                <Text style={styles.submitBtnTextLoading}>Betaling voorbereiden…</Text>
+                <Text style={styles.submitBtnTextLoading}>
+                  {validatingAddress ? "Adres controleren…" : "Betaling voorbereiden…"}
+                </Text>
               </>
             ) : (
               <Text style={styles.submitBtnText}>Veilig betalen via Stripe</Text>
@@ -489,6 +614,13 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginBottom: 12,
   },
+  sectionHint: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: -6,
+    marginBottom: 12,
+  },
   field: {
     marginBottom: 12,
   },
@@ -507,6 +639,15 @@ const styles = StyleSheet.create({
     color: theme.text,
     paddingHorizontal: 12,
     fontSize: 15,
+  },
+  inputError: {
+    borderColor: "#E57373",
+  },
+  fieldError: {
+    color: "#E57373",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 6,
   },
   sizeRow: {
     flexDirection: "row",
@@ -562,7 +703,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   submitBtnDisabled: {
-    opacity: 0.75,
+    opacity: 0.45,
+  },
+  blockedHint: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "center",
+    marginBottom: 4,
   },
   submitBtnText: {
     color: theme.bg,

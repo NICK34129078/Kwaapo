@@ -5,6 +5,66 @@ type ErrorLike = {
   hint?: string;
 };
 
+const TECHNICAL_PATTERNS = [
+  /pgrst/i,
+  /postgres/i,
+  /row-level security/i,
+  /jwt/i,
+  /42501/,
+  /23505/,
+  /violates .* constraint/i,
+  /stripe/i,
+  /supabase/i,
+  /http \d{3}/i,
+  /network request failed/i,
+  /fetch failed/i,
+  /json/i,
+  /sql/i,
+];
+
+/** Toon geen technische foutdetails aan eindgebruikers. */
+export function formatUserFacingError(
+  error: unknown,
+  fallback = "Er ging iets mis. Probeer het opnieuw."
+): string {
+  const row = readErrorLike(error);
+  const message = row?.message?.trim() ?? "";
+  const code = row?.code?.trim() ?? "";
+
+  if (typeof error === "string" && error.trim().length > 0) {
+    if (TECHNICAL_PATTERNS.some((p) => p.test(error))) {
+      return fallback;
+    }
+    return error.trim();
+  }
+
+  if (code === "PGRST116") {
+    return "De gegevens konden niet worden gevonden.";
+  }
+
+  if (code === "42501" || /row-level security/i.test(message)) {
+    return "Je hebt geen toestemming voor deze actie.";
+  }
+
+  if (/network|fetch|timeout|offline/i.test(message)) {
+    return "Geen verbinding. Controleer je internet en probeer opnieuw.";
+  }
+
+  if (
+    message.length > 0 &&
+    !TECHNICAL_PATTERNS.some((p) => p.test(message)) &&
+    message.length < 120
+  ) {
+    return message;
+  }
+
+  if (message.length > 0) {
+    console.warn("[appError]", code || "unknown", message.slice(0, 200));
+  }
+
+  return fallback;
+}
+
 export function readErrorLike(error: unknown): ErrorLike | null {
   if (error instanceof Error) {
     return { message: error.message };

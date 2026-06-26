@@ -21,10 +21,9 @@ import {
   BUYER_ORDER_FILTERS,
   formatOrderItemSizeLine,
   matchesBuyerOrderFilter,
-  paymentStatusLabel,
-  shippingStatusLabel,
   type BuyerOrderFilter,
 } from "../utils/orderDashboard";
+import { buyerOrderStatusLabel } from "../utils/buyerOrderStatus";
 
 function formatOrderDate(iso: string): string {
   const date = new Date(iso);
@@ -78,28 +77,9 @@ function BuyerOrderCard({
         ) : null}
         <Text style={styles.orderCardDate}>{formatOrderDate(order.createdAt)}</Text>
         <View style={styles.orderBadgeRow}>
-          <View
-            style={[
-              styles.orderBadge,
-              order.paymentStatus === "paid"
-                ? styles.orderBadgePaid
-                : styles.orderBadgeMuted,
-            ]}
-          >
-            <Text
-              style={[
-                styles.orderBadgeText,
-                order.paymentStatus === "paid"
-                  ? styles.orderBadgeTextPaid
-                  : styles.orderBadgeTextMuted,
-              ]}
-            >
-              {paymentStatusLabel(order.paymentStatus)}
-            </Text>
-          </View>
-          <View style={styles.orderBadge}>
-            <Text style={styles.orderBadgeText}>
-              {shippingStatusLabel(order.shippingStatus)}
+          <View style={[styles.orderBadge, styles.orderBadgePrimary]}>
+            <Text style={[styles.orderBadgeText, styles.orderBadgeTextPrimary]}>
+              {buyerOrderStatusLabel(order)}
             </Text>
           </View>
         </View>
@@ -378,6 +358,12 @@ const styles = StyleSheet.create({
     backgroundColor: theme.accentSoft,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.accentBorder,
+  },
+  orderBadgePrimary: {
+    backgroundColor: theme.accentMedium,
+  },
+  orderBadgeTextPrimary: {
+    color: theme.accent,
   },
   orderBadgePaid: {
     backgroundColor: theme.accentMedium,

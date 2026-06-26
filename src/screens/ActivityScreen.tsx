@@ -19,6 +19,9 @@ import { useAuthPrompt } from "../context/AuthPromptContext";
 import { supabase } from "../lib/supabase";
 import { fetchProfileById } from "../services/profileService";
 import { fetchSellerOrders } from "../services/ordersService";
+import { SellerActionRequiredCard } from "../components/SellerActionRequiredCard";
+import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
+import { orderNeedsSellerAction } from "../utils/sellerFulfillment";
 
 type ProfileRow = {
   id: string;
@@ -42,6 +45,7 @@ export type ActivityFeedItem = {
   orderId?: string;
   orderProductName?: string;
   orderAmountLabel?: string;
+  orderNeedsAction?: boolean;
 };
 
 function truncateCommentPreview(body: string, maxLen = 80): string {
@@ -295,17 +299,21 @@ async function fetchSellerOrderActivityParts(
     }
 
     const rows = await fetchSellerOrders();
-    return rows.slice(0, 30).map((row) => {
-      const first = row.items[0];
-      return {
-        kind: "order" as const,
-        created_at: row.order.createdAt,
-        actorId: row.order.buyerId,
-        orderId: row.order.id,
-        orderProductName: first?.product?.name ?? "Product",
-        postThumbnailUrl: first?.product?.images[0],
-      };
-    });
+    return rows
+      .filter((row) => row.order.paymentStatus === "paid")
+      .slice(0, 30)
+      .map((row) => {
+        const first = row.items[0];
+        return {
+          kind: "order" as const,
+          created_at: row.order.createdAt,
+          actorId: row.order.buyerId,
+          orderId: row.order.id,
+          orderProductName: first?.product?.name ?? "Product",
+          postThumbnailUrl: first?.product?.images[0],
+          orderNeedsAction: orderNeedsSellerAction(row.order),
+        };
+      });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.warn("[Activity] seller orders fetch failed:", msg);
@@ -350,10 +358,16 @@ async function fetchActivityFeed(userId: string): Promise<ActivityFeedItem[]> {
     });
   }
 
-  items.sort(
-    (a, b) =>
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
+  items.sort((a, b) => {
+    const aPriority =
+      a.kind === "order" && a.orderNeedsAction ? 0 : a.kind === "order" ? 1 : 2;
+    const bPriority =
+      b.kind === "order" && b.orderNeedsAction ? 0 : b.kind === "order" ? 1 : 2;
+    if (aPriority !== bPriority) {
+      return aPriority - bPriority;
+    }
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
 
   return items;
 }
@@ -363,6 +377,7 @@ export function ActivityScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { openAuthPrompt } = useAuthPrompt();
+  const { actionCount, isBusinessSeller } = useSellerFulfillment();
 
   const [items, setItems] = useState<ActivityFeedItem[]>([]);
   const [loading, setLoading] = useState(() => !!user?.id);
@@ -423,7 +438,9 @@ export function ActivityScreen() {
           : item.kind === "like"
             ? "vindt je post leuk"
             : item.kind === "order"
-              ? "Nieuwe bestelling ontvangen"
+              ? item.orderNeedsAction
+                ? "Betaalde bestelling — actie vereist"
+                : "Bestelling bijgewerkt"
               : "reageerde op je post";
       const commentPreview =
         item.kind === "comment" && item.commentBody
@@ -432,7 +449,12 @@ export function ActivityScreen() {
 
       return (
         <Pressable
-          style={styles.row}
+          style={[
+            styles.row,
+            item.kind === "order" && item.orderNeedsAction
+              ? styles.rowActionRequired
+              : null,
+          ]}
           onPress={() => {
             if (item.kind === "order" && item.orderId) {
               navigation.navigate("OrderDetail", { orderId: item.orderId });
@@ -545,6 +567,19 @@ export function ActivityScreen() {
             styles.listContent,
             { paddingBottom: bottomPad },
           ]}
+          ListHeaderComponent={
+            isBusinessSeller && actionCount > 0 ? (
+              <SellerActionRequiredCard
+                actionCount={actionCount}
+                onPress={() =>
+                  navigation.navigate("MyShop", {
+                    initialTab: "orders",
+                    orderFilter: "action_required",
+                  })
+                }
+              />
+            ) : null
+          }
           ListEmptyComponent={
             <View style={styles.centerState}>
               {error ? (
@@ -582,6 +617,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.border,
+  },
+  rowActionRequired: {
+    backgroundColor: theme.accentSoft,
+    borderLeftWidth: 3,
+    borderLeftColor: theme.accent,
+    paddingLeft: 9,
   },
   avatar: {
     width: 52,

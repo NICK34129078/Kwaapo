@@ -44,6 +44,10 @@ import {
   isVerifiedBusinessSellerForBuyers,
   shouldWarnUnverifiedSeller,
 } from "../services/sellerOnboardingService";
+import { ReportReasonSheet } from "../components/ReportReasonSheet";
+import { PRODUCT_REPORT_REASONS } from "../constants/moderationReasons";
+import { reportProduct } from "../services/moderationService";
+import { getReadableErrorMessage } from "../utils/getReadableErrorMessage";
 import { fetchProductVariants } from "../services/productVariantService";
 import type { ProductVariant } from "../types/productVariant";
 
@@ -167,6 +171,8 @@ export function ProductDetailScreen() {
   const [variants, setVariants] = useState<ProductVariant[]>([]);
   const [businessInfoVisible, setBusinessInfoVisible] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [reportVisible, setReportVisible] = useState(false);
+  const [reportBusy, setReportBusy] = useState(false);
   const thumbListRef = useRef<FlatList<string>>(null);
 
   const heroHeight = Math.min(width * 1.05, 460);
@@ -309,6 +315,36 @@ export function ProductDetailScreen() {
       ]
     );
   }, [navigation, product]);
+
+  const onSubmitProductReport = useCallback(
+    async (reason: string) => {
+      if (!product?.id || reportBusy) {
+        return;
+      }
+      if (!user) {
+        openAuthPrompt({ message: "Log in om dit product te melden." });
+        return;
+      }
+      setReportBusy(true);
+      try {
+        const { duplicate } = await reportProduct(product.id, reason);
+        Alert.alert(
+          "Bedankt",
+          duplicate
+            ? "We hebben je eerdere melding al ontvangen."
+            : "We beoordelen je melding zo snel mogelijk."
+        );
+      } catch (e) {
+        Alert.alert(
+          "Melden mislukt",
+          getReadableErrorMessage(e, "Probeer het later opnieuw.")
+        );
+      } finally {
+        setReportBusy(false);
+      }
+    },
+    [openAuthPrompt, product?.id, reportBusy, user]
+  );
 
   const usesVariantCheckout = useMemo(
     () => !!(product?.usesVariants && product?.variantsReady),
@@ -472,6 +508,22 @@ export function ProductDetailScreen() {
             accessibilityLabel="Bewerken"
           >
             <Ionicons name="create-outline" size={24} color={theme.accent} />
+          </Pressable>
+        ) : product ? (
+          <Pressable
+            onPress={() => {
+              if (!user) {
+                openAuthPrompt({ message: "Log in om dit product te melden." });
+                return;
+              }
+              setReportVisible(true);
+            }}
+            style={styles.topBtn}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Rapporteer product"
+          >
+            <Ionicons name="flag-outline" size={22} color={theme.text} />
           </Pressable>
         ) : (
           <View style={styles.topBtn} />
@@ -645,6 +697,14 @@ export function ProductDetailScreen() {
                   </Pressable>
                 </View>
               </View>
+
+              {!canManage ? (
+                <Text style={styles.marketplaceNote}>
+                  Het platform faciliteert betaling en orderinformatie. De verkoper is
+                  verantwoordelijk voor juistheid, verpakking en verzending. Controleer
+                  listing en verkoper vóór aankoop.
+                </Text>
+              ) : null}
 
               {usesVariantCheckout && variants.length > 0 ? (
                 <View style={styles.section}>
@@ -866,6 +926,15 @@ export function ProductDetailScreen() {
             seller={seller}
             verifiedBusiness={verifiedBusinessSeller}
             onClose={() => setBusinessInfoVisible(false)}
+          />
+          <ReportReasonSheet
+            visible={reportVisible}
+            onClose={() => setReportVisible(false)}
+            onSubmit={(reason) => void onSubmitProductReport(reason)}
+            busy={reportBusy}
+            title="Rapporteer product"
+            subtitle="Je melding is anoniem voor de verkoper."
+            reasons={PRODUCT_REPORT_REASONS}
           />
         </>
       )}
@@ -1161,6 +1230,12 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
     gap: 14,
+  },
+  marketplaceNote: {
+    marginTop: 12,
+    color: theme.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
   },
   sellerSectionEyebrow: {
     color: theme.textMuted,

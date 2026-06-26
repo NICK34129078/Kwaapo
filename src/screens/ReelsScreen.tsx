@@ -29,6 +29,8 @@ import type { UserVideoPost } from "../types/userVideoPost";
 import { theme } from "../constants/theme";
 import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
+import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
+import { SellerActionRequiredCard } from "../components/SellerActionRequiredCard";
 import { isPersistablePostId } from "../services/postLikesService";
 import { fetchSavedPostIdsForCurrentUser } from "../services/savedPostsService";
 import { capWatchedMs, recordVideoView } from "../services/videoViewsService";
@@ -179,10 +181,27 @@ export function ReelsScreen() {
   } = useGlobalFeed();
   const { interactionRevision } = useLikes();
   const { user } = useAuth();
+  const navigation = useNavigation<any>();
+  const { actionCount, isBusinessSeller, refresh: refreshSellerFulfillment } =
+    useSellerFulfillment();
   const [pageH, setPageH] = useState(INITIAL_H);
   const [activeReelId, setActiveReelId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const isFocused = useIsFocused();
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshSellerFulfillment();
+    }, [refreshSellerFulfillment])
+  );
+
+  const openSellerOrders = useCallback(() => {
+    navigation.navigate("MyShop", {
+      initialTab: "orders",
+      orderFilter: "action_required",
+    });
+  }, [navigation]);
+
   const viewTimingRef = useRef<{ postId: string; startedAt: number } | null>(
     null
   );
@@ -492,6 +511,15 @@ export function ReelsScreen() {
   return (
     <View style={styles.root} onLayout={onRootLayout}>
       <ReelsFeedTopBar />
+      {isBusinessSeller && actionCount > 0 ? (
+        <View style={styles.sellerBannerOverlay} pointerEvents="box-none">
+          <SellerActionRequiredCard
+            compact
+            actionCount={actionCount}
+            onPress={openSellerOrders}
+          />
+        </View>
+      ) : null}
       <ReelNextPreloader videoUrl={nextVideoForPreload} />
       {showInitialLoading ? (
         <View style={styles.centerState}>
@@ -567,6 +595,13 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
+  },
+  sellerBannerOverlay: {
+    position: "absolute",
+    top: 96,
+    left: 0,
+    right: 0,
+    zIndex: 20,
   },
   centerState: {
     flex: 1,

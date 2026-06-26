@@ -24,7 +24,7 @@ import {
 
 } from "react-native";
 
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 
 import { Ionicons } from "@expo/vector-icons";
 
@@ -123,6 +123,10 @@ import { setupNewProductWithVariants } from "../services/productVariantService";
 import { parseHashtagInput } from "../utils/hashtags";
 
 import { getProductPublishBlockers } from "../utils/productPublishValidation";
+import {
+  fetchMySellerTermsAcceptance,
+  hasAcceptedCurrentSellerTerms,
+} from "../services/sellerTermsService";
 
 import { ChoiceCard, ChoiceCardGrid } from "../components/ChoiceCardGrid";
 
@@ -332,6 +336,8 @@ export function ProductFormScreen() {
 
   const [payoutReady, setPayoutReady] = useState(false);
 
+  const [sellerTermsAccepted, setSellerTermsAccepted] = useState(false);
+
 
 
   const formSteps = useMemo(() => buildFormSteps(mainCategory), [mainCategory]);
@@ -452,6 +458,8 @@ export function ProductFormScreen() {
 
       name,
 
+      description,
+
       imageCount: images.length,
 
       priceValid: parsePriceInput(priceText) !== null,
@@ -470,11 +478,15 @@ export function ProductFormScreen() {
 
       payoutReady,
 
+      sellerTermsAccepted,
+
     }),
 
     [
 
       audience,
+
+      description,
 
       images.length,
 
@@ -483,6 +495,8 @@ export function ProductFormScreen() {
       name,
 
       payoutReady,
+
+      sellerTermsAccepted,
 
       priceText,
 
@@ -497,6 +511,26 @@ export function ProductFormScreen() {
       variantStockMap,
 
     ]
+
+  );
+
+
+
+  useFocusEffect(
+
+    useCallback(() => {
+
+      void fetchMySellerTermsAcceptance()
+
+        .then((acceptance) => {
+
+          setSellerTermsAccepted(hasAcceptedCurrentSellerTerms(acceptance));
+
+        })
+
+        .catch(() => setSellerTermsAccepted(false));
+
+    }, [])
 
   );
 
@@ -932,11 +966,33 @@ export function ProductFormScreen() {
 
         if (blockers.length > 0) {
 
+          const needsTerms = blockers.some((b) => b.includes("seller-voorwaarden"));
+
           Alert.alert(
 
             "Nog niet klaar voor live",
 
-            blockers.map((b) => `• ${b}`).join("\n")
+            blockers.map((b) => `• ${b}`).join("\n"),
+
+            needsTerms
+
+              ? [
+
+                  { text: "Annuleren", style: "cancel" },
+
+                  {
+
+                    text: "Seller-voorwaarden",
+
+                    onPress: () =>
+
+                      navigation.navigate("SellerTerms", { requireAcceptance: true }),
+
+                  },
+
+                ]
+
+              : undefined
 
           );
 
@@ -950,7 +1006,7 @@ export function ProductFormScreen() {
 
     },
 
-    [payoutReady, publishDraft]
+    [navigation, payoutReady, publishDraft]
 
   );
 

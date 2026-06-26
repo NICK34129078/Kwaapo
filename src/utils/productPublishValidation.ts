@@ -4,9 +4,15 @@ import {
   sizeModeRequiresVariants,
 } from "../constants/productSizePresets";
 import type { ShopAudienceCode, ShopMainCategoryCode } from "../constants/shopCategories";
+import {
+  checkProhibitedProductListing,
+  moderateUserText,
+  sanitizePlainText,
+} from "./contentModerationFilter";
 
 export type ProductPublishDraft = {
   name: string;
+  description?: string;
   imageCount: number;
   priceValid: boolean;
   mainCategory: ShopMainCategoryCode | null;
@@ -16,6 +22,7 @@ export type ProductPublishDraft = {
   sizeVariantMode: "unset" | "yes" | "no";
   variantStockMap: Record<string, number>;
   payoutReady: boolean;
+  sellerTermsAccepted: boolean;
 };
 
 function totalVariantStock(map: Record<string, number>): number {
@@ -25,11 +32,28 @@ function totalVariantStock(map: Record<string, number>): number {
 /** Menselijke checklist voor live zetten — geen technische fouten. */
 export function getProductPublishBlockers(draft: ProductPublishDraft): string[] {
   const blockers: string[] = [];
-  const trimmedName = draft.name.trim();
+  const trimmedName = sanitizePlainText(draft.name, 200);
 
   if (trimmedName.length < 2) {
     blockers.push("Vul een productnaam in.");
   }
+
+  const nameMod = moderateUserText(trimmedName, "product_title");
+  if (!nameMod.ok) {
+    blockers.push(nameMod.message);
+  }
+
+  const description = sanitizePlainText(draft.description ?? "", 5000);
+  const descMod = moderateUserText(description, "product_description");
+  if (!descMod.ok) {
+    blockers.push(descMod.message);
+  }
+
+  const prohibited = checkProhibitedProductListing(trimmedName, description);
+  if (prohibited) {
+    blockers.push(prohibited);
+  }
+
   if (draft.imageCount < 1) {
     blockers.push("Voeg minimaal één productfoto toe.");
   }
@@ -51,6 +75,9 @@ export function getProductPublishBlockers(draft: ProductPublishDraft): string[] 
   }
   if (!draft.payoutReady) {
     blockers.push("Rond je Stripe-uitbetalingen af voordat je product live kan.");
+  }
+  if (!draft.sellerTermsAccepted) {
+    blockers.push("Accepteer de seller-voorwaarden voordat je een product live zet.");
   }
 
   const sizeMode =

@@ -27,6 +27,10 @@ import { CheckoutReviewScreen } from "./src/screens/CheckoutReviewScreen";
 import { CheckoutFailedScreen } from "./src/screens/CheckoutFailedScreen";
 import { CheckoutInfoScreen } from "./src/screens/CheckoutInfoScreen";
 import { SellerOnboardingScreen } from "./src/screens/SellerOnboardingScreen";
+import { SellerTermsScreen } from "./src/screens/SellerTermsScreen";
+import { PolicyDocumentScreen } from "./src/screens/PolicyDocumentScreen";
+import { AccountDeletionScreen } from "./src/screens/AccountDeletionScreen";
+import { SellerFulfillmentProvider } from "./src/context/SellerFulfillmentContext";
 import { BottomNavbar } from "./src/components/BottomNavbar";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { AuthPromptProvider } from "./src/context/AuthPromptContext";
@@ -100,6 +104,7 @@ function AppGate() {
 
   return (
     <AuthPromptProvider>
+      <SellerFulfillmentProvider>
       <LikesProvider>
         <GlobalFeedProvider>
           <UserUploadsProvider>
@@ -183,11 +188,27 @@ function AppGate() {
                   component={SellerOnboardingScreen}
                   options={{ animation: "slide_from_right" }}
                 />
+                <RootStack.Screen
+                  name="SellerTerms"
+                  component={SellerTermsScreen}
+                  options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="PolicyDocument"
+                  component={PolicyDocumentScreen}
+                  options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="AccountDeletion"
+                  component={AccountDeletionScreen}
+                  options={{ animation: "slide_from_right" }}
+                />
               </RootStack.Navigator>
             </NavigationContainer>
           </UserUploadsProvider>
         </GlobalFeedProvider>
       </LikesProvider>
+      </SellerFulfillmentProvider>
     </AuthPromptProvider>
   );
 }

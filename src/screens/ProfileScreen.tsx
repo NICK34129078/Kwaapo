@@ -19,11 +19,11 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   useWindowDimensions,
   View,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -45,6 +45,7 @@ import { useCloudImageCarouselUpload } from "../hooks/useCloudImageCarouselUploa
 import { useCloudVideoUpload } from "../hooks/useCloudVideoUpload";
 import { theme } from "../constants/theme";
 import { useAuth } from "../context/AuthContext";
+import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { EditProfileScreen } from "./EditProfileScreen";
 import { useAvatarPicker } from "../hooks/useAvatarPicker";
@@ -61,7 +62,6 @@ import type { Product } from "../types/product";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
   normalizeAccountType,
-  updateMyAccountType,
   type AccountType,
 } from "../services/profileService";
 import {
@@ -77,6 +77,7 @@ import {
   AudioPickerCard,
   AUDIO_VOLUME_NORMAL,
 } from "../components/AudioPickerCard";
+import { SETTINGS_LEGAL_LINKS, SUPPORT_EMAIL } from "../constants/appPolicies";
 
 const GAP = 2;
 type ProfileRow = {
@@ -172,15 +173,13 @@ function ProfileAuthenticatedScreen({
   const [otherUploadsLoading, setOtherUploadsLoading] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [editProfileVisible, setEditProfileVisible] = useState(false);
-  const [pushEnabled, setPushEnabled] = useState(true);
-  const [emailEnabled, setEmailEnabled] = useState(false);
-  const [darkModeEnabled, setDarkModeEnabled] = useState(true);
   const { isUploading, uploadVideoAsset } = useCloudVideoUpload();
   const { isUploading: isCarouselUploading, uploadCarouselAssets } =
     useCloudImageCarouselUpload();
   const [uploadFlowBusy, setUploadFlowBusy] = useState(false);
   const isUploadBusy = isUploading || isCarouselUploading || uploadFlowBusy;
   const { signOut, user } = useAuth();
+  const { actionCount: sellerOrdersToShipCount } = useSellerFulfillment();
   const { syncFeedLikeState } = useLikes();
   const targetProfileId = profileId ?? user?.id ?? null;
   const isOwnProfile = !!user?.id && user.id === targetProfileId;
@@ -213,7 +212,6 @@ function ProfileAuthenticatedScreen({
     useState<AccountType>("consumer");
   const [profileContentTab, setProfileContentTab] =
     useState<ProfileContentTab>("posts");
-  const [accountTypeBusy, setAccountTypeBusy] = useState(false);
   const isBusinessProfile = profileAccountType === "business";
   const profileTabs = useMemo<ProfileContentTab[]>(
     () =>
@@ -719,10 +717,6 @@ function ProfileAuthenticatedScreen({
     }
   }, [signOut]);
 
-  const showStubMessage = (label: string) => {
-    Alert.alert(label, "Deze optie is alvast voorbereid als placeholder.");
-  };
-
   const confirmDeleteCloudVideo = useCallback(
     (p: UserVideoPost) => {
       if (!isOwnProfile) {
@@ -872,23 +866,36 @@ function ProfileAuthenticatedScreen({
     [navigation, user?.id]
   );
 
-  const onMakeBusinessAccount = useCallback(async () => {
+  const onMakeBusinessAccount = useCallback(() => {
     if (!isOwnProfile || profileAccountType === "business") {
       return;
     }
-    setAccountTypeBusy(true);
-    try {
-      await updateMyAccountType("business");
-      setProfileAccountType("business");
-      setSettingsVisible(false);
-      navigation.navigate("SellerOnboarding");
-    } catch (e) {
-      const msg = getReadableErrorMessage(e, "Accounttype wijzigen mislukt.");
-      Alert.alert("Fout", msg);
-    } finally {
-      setAccountTypeBusy(false);
-    }
+    setSettingsVisible(false);
+    navigation.navigate("SellerOnboarding");
   }, [isOwnProfile, navigation, profileAccountType]);
+
+  const openSupportEmail = useCallback(() => {
+    const mailto = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Kwaapo support")}`;
+    void Linking.openURL(mailto).catch(() => {
+      Alert.alert("Contact", `Mail ons op ${SUPPORT_EMAIL}`);
+    });
+  }, []);
+
+  const openPolicy = useCallback(
+    (policyId: (typeof SETTINGS_LEGAL_LINKS)[number]["policyId"]) => {
+      setSettingsVisible(false);
+      if (policyId === "account_deletion") {
+        navigation.navigate("AccountDeletion");
+        return;
+      }
+      if (policyId === "seller") {
+        navigation.navigate("SellerTerms");
+        return;
+      }
+      navigation.navigate("PolicyDocument", { policyId });
+    },
+    [navigation]
+  );
 
   return (
     <>
@@ -1211,24 +1218,77 @@ function ProfileAuthenticatedScreen({
               </Pressable>
               <Pressable
                 style={styles.rowButton}
-                onPress={() => showStubMessage("Privacy")}
+                onPress={() => openPolicy("account_deletion")}
               >
-                <Text style={styles.rowLabel}>Privacy</Text>
+                <Text style={[styles.rowLabel, styles.dangerLabel]}>
+                  Account verwijderen
+                </Text>
                 <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
               </Pressable>
-              <Pressable
-                style={styles.rowButton}
-                onPress={() => showStubMessage("Security")}
-              >
-                <Text style={styles.rowLabel}>Security & login</Text>
-                <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
-              </Pressable>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Juridisch & privacy</Text>
+              {SETTINGS_LEGAL_LINKS.filter((l) => l.policyId !== "account_deletion").map(
+                (link) => (
+                  <Pressable
+                    key={link.policyId}
+                    style={styles.rowButton}
+                    onPress={() => openPolicy(link.policyId)}
+                  >
+                    <Text style={styles.rowLabel}>{link.label}</Text>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={18}
+                      color={theme.textMuted}
+                    />
+                  </Pressable>
+                )
+              )}
             </View>
 
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Mijn Winkel</Text>
               {isBusinessProfile ? (
                 <>
+                  <Pressable
+                    style={styles.rowButton}
+                    onPress={() => {
+                      setSettingsVisible(false);
+                      navigation.navigate("MyShop", {
+                        initialTab: "orders",
+                        orderFilter: "action_required",
+                      });
+                    }}
+                  >
+                    <Text style={styles.rowLabel}>Bestellingen</Text>
+                    <View style={styles.rowButtonTrailing}>
+                      {sellerOrdersToShipCount > 0 ? (
+                        <View style={styles.settingsCountBadge}>
+                          <Text style={styles.settingsCountBadgeText}>
+                            {sellerOrdersToShipCount > 99
+                              ? "99+"
+                              : sellerOrdersToShipCount}
+                          </Text>
+                        </View>
+                      ) : null}
+                      <Ionicons
+                        name="chevron-forward"
+                        size={18}
+                        color={theme.textMuted}
+                      />
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    style={styles.rowButton}
+                    onPress={() => {
+                      setSettingsVisible(false);
+                      navigation.navigate("SellerTerms");
+                    }}
+                  >
+                    <Text style={styles.rowLabel}>Seller-voorwaarden</Text>
+                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                  </Pressable>
                   <Pressable
                     style={styles.rowButton}
                     onPress={() => {
@@ -1249,76 +1309,29 @@ function ProfileAuthenticatedScreen({
                     <Text style={styles.rowLabel}>Shop statistieken</Text>
                     <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
                   </Pressable>
-                  <Pressable
-                    style={styles.rowButton}
-                    onPress={() => showStubMessage("Verzendinstellingen")}
-                  >
-                    <Text style={styles.rowLabel}>Verzendinstellingen</Text>
-                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
-                  </Pressable>
-                  <Pressable
-                    style={styles.rowButton}
-                    onPress={() => showStubMessage("Beoordelingen")}
-                  >
-                    <Text style={styles.rowLabel}>Beoordelingen</Text>
-                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
-                  </Pressable>
-                  <Pressable
-                    style={styles.rowButton}
-                    onPress={() => showStubMessage("Mijn algoritme")}
-                  >
-                    <Text style={styles.rowLabel}>Mijn algoritme</Text>
-                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
-                  </Pressable>
                 </>
               ) : (
                 <Pressable
                   style={styles.rowButton}
-                  onPress={() => void onMakeBusinessAccount()}
-                  disabled={accountTypeBusy}
+                  onPress={onMakeBusinessAccount}
                 >
-                  <Text style={styles.rowLabel}>
-                    {accountTypeBusy ? "Account wijzigen..." : "Maak business account"}
-                  </Text>
-                  {accountTypeBusy ? (
-                    <ActivityIndicator size="small" color={theme.textMuted} />
-                  ) : (
-                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
-                  )}
+                  <Text style={styles.rowLabel}>Word verkoper</Text>
+                  <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
                 </Pressable>
               )}
             </View>
 
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Preferences</Text>
-              <View style={styles.rowSwitch}>
-                <Text style={styles.rowLabel}>Dark mode</Text>
-                <Switch value={darkModeEnabled} onValueChange={setDarkModeEnabled} />
-              </View>
-              <View style={styles.rowSwitch}>
-                <Text style={styles.rowLabel}>Push notifications</Text>
-                <Switch value={pushEnabled} onValueChange={setPushEnabled} />
-              </View>
-              <View style={styles.rowSwitch}>
-                <Text style={styles.rowLabel}>Email updates</Text>
-                <Switch value={emailEnabled} onValueChange={setEmailEnabled} />
-              </View>
-            </View>
-
-            <View style={styles.section}>
               <Text style={styles.sectionTitle}>Support</Text>
-              <Pressable
-                style={styles.rowButton}
-                onPress={() => showStubMessage("Help center")}
-              >
-                <Text style={styles.rowLabel}>Help center</Text>
+              <Pressable style={styles.rowButton} onPress={openSupportEmail}>
+                <Text style={styles.rowLabel}>Contact & support</Text>
                 <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
               </Pressable>
               <Pressable
                 style={styles.rowButton}
-                onPress={() => showStubMessage("Report a problem")}
+                onPress={() => openPolicy("contact")}
               >
-                <Text style={styles.rowLabel}>Report a problem</Text>
+                <Text style={styles.rowLabel}>Privacyverzoeken</Text>
                 <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
               </Pressable>
             </View>
@@ -2207,6 +2220,28 @@ const styles = StyleSheet.create({
     color: theme.text,
     fontSize: 15,
     fontWeight: "600",
+  },
+  dangerLabel: {
+    color: "#ff8a84",
+  },
+  rowButtonTrailing: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  settingsCountBadge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
+    backgroundColor: theme.accent,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingsCountBadgeText: {
+    color: theme.bg,
+    fontSize: 12,
+    fontWeight: "900",
   },
   followListContent: {
     paddingBottom: 8,

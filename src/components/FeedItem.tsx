@@ -954,14 +954,14 @@ export function FeedItem({
   }, [requireAuth, user]);
 
   const onSubmitReport = useCallback(
-    (reason: ReportReason) => {
+    (reason: string) => {
       if (!isPersistablePostId(item.id) || moderationBusy) {
         return;
       }
       setModerationBusy(true);
       void (async () => {
         try {
-          await reportPost(item.id, reason);
+          await reportPost(item.id, reason as ReportReason);
           onRequestRemove?.(item.id);
           Alert.alert(
             "Bedankt voor je melding",

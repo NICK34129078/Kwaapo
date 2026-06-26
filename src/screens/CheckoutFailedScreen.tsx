@@ -1,9 +1,11 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
+import { emitProductCatalogEvent } from "../services/productCatalogRefresh";
+import { releaseCheckoutStockReservation } from "../services/stripeCheckoutService";
 
 type FailureReason = "cancelled" | "failed";
 
@@ -14,12 +16,23 @@ export function CheckoutFailedScreen() {
   const reason: FailureReason = route.params?.reason === "failed" ? "failed" : "cancelled";
   const orderId: string | undefined = route.params?.orderId;
   const productId: string | undefined = route.params?.productId;
+  const releasedRef = useRef(false);
+
+  useEffect(() => {
+    if (!orderId || releasedRef.current) {
+      return;
+    }
+    releasedRef.current = true;
+    void releaseCheckoutStockReservation(orderId).then(() => {
+      emitProductCatalogEvent({ kind: "refresh" });
+    });
+  }, [orderId]);
 
   const title = reason === "cancelled" ? "Betaling niet afgerond" : "Betaling mislukt";
   const message =
     reason === "cancelled"
-      ? "De betaling is niet afgerond. Er is nog niets in rekening gebracht."
-      : "De betaling kon niet worden voltooid. Er is nog niets in rekening gebracht.";
+      ? "De betaling is niet afgerond. Er is nog niets in rekening gebracht en de voorraad is weer vrijgegeven."
+      : "De betaling kon niet worden voltooid. Er is nog niets in rekening gebracht en de voorraad is weer vrijgegeven.";
 
   const onRetry = useCallback(() => {
     if (orderId) {

@@ -24,24 +24,15 @@ export function formatOrderItemSizeLine(
   return label ? `Maat ${label}` : null;
 }
 
-export type SellerOrderFilter =
-  | "all"
-  | "new"
-  | "paid"
-  | "to_ship"
-  | "shipped"
-  | "completed";
-
-export const SELLER_ORDER_FILTERS: Array<{
-  id: SellerOrderFilter;
-  label: string;
-}> = [
-  { id: "new", label: "Nieuw" },
-  { id: "paid", label: "Betaald" },
-  { id: "to_ship", label: "Te verzenden" },
-  { id: "shipped", label: "Verzonden" },
-  { id: "completed", label: "Afgerond" },
-];
+export type { SellerOrderFilter } from "./sellerFulfillment";
+export {
+  SELLER_ORDER_FILTERS,
+  countSellerOrdersNeedingAttention,
+  matchesSellerOrderFilter,
+  orderNeedsSellerAction,
+  sellerFulfillmentLabel,
+  sortSellerOrders,
+} from "./sellerFulfillment";
 
 export function paymentStatusLabel(status: PaymentStatus): string {
   switch (status) {
@@ -130,44 +121,6 @@ export function formatOrderShortAddress(order: Order): string {
     (part) => part && part.length > 0
   );
   return parts.length > 0 ? parts.join(", ") : "Adres onbekend";
-}
-
-export function matchesSellerOrderFilter(
-  order: Order,
-  filter: SellerOrderFilter
-): boolean {
-  switch (filter) {
-    case "all":
-      return true;
-    case "new":
-      return order.paymentStatus === "unpaid";
-    case "paid":
-      return order.paymentStatus === "paid";
-    case "to_ship":
-      return (
-        order.paymentStatus === "paid" && order.shippingStatus === "not_shipped"
-      );
-    case "shipped":
-      return (
-        order.shippingStatus === "shipped" || order.shippingStatus === "delivered"
-      );
-    case "completed":
-      return (
-        order.status === "completed" || order.shippingStatus === "delivered"
-      );
-    default:
-      return true;
-  }
-}
-
-/** Orders die aandacht van de verkoper nodig hebben (badge). */
-export function countSellerOrdersNeedingAttention(orders: SellerOrder[]): number {
-  return orders.filter(
-    (row) =>
-      row.order.paymentStatus === "unpaid" ||
-      (row.order.paymentStatus === "paid" &&
-        row.order.shippingStatus === "not_shipped")
-  ).length;
 }
 
 export function buyerDisplayName(

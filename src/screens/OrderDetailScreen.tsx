@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,6 +23,15 @@ import {
   type SellerOrder,
 } from "../services/ordersService";
 import { payOrderWithStripe } from "../services/checkoutFlowService";
+import { markSellerNotificationsHandledForOrder, markSellerNotificationsReadForOrder } from "../services/sellerNotificationService";
+import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
+import {
+  EMPTY_SELLER_SHIP_CHECKLIST,
+  isSellerShipChecklistComplete,
+  SellerShipChecklist,
+  type SellerShipChecklistState,
+} from "../components/SellerShipChecklist";
+import { orderNeedsSellerAction } from "../utils/sellerFulfillment";
 import type { BuyerOrder } from "../types/order";
 import { PLATFORM_FEE_PERCENT_LABEL } from "../constants/platformFee";
 import { formatPriceEur } from "../utils/formatPrice";
@@ -60,7 +70,12 @@ export function OrderDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [shipBusy, setShipBusy] = useState(false);
   const [payBusy, setPayBusy] = useState(false);
+  const [shipConfirmVisible, setShipConfirmVisible] = useState(false);
+  const [shipChecklist, setShipChecklist] = useState<SellerShipChecklistState>(
+    EMPTY_SELLER_SHIP_CHECKLIST
+  );
   const [trackingCode, setTrackingCode] = useState("");
+  const { refresh: refreshSellerFulfillment } = useSellerFulfillment();
 
   const load = useCallback(async () => {
     if (!orderId) {
@@ -81,6 +96,7 @@ export function OrderDetailScreen() {
       setMode("seller");
       setSellerOrder(seller);
       setBuyerOrder(null);
+      void markSellerNotificationsReadForOrder(orderId);
       return;
     }
     setMode(null);
@@ -117,7 +133,10 @@ export function OrderDetailScreen() {
 
   const needsPayment = order?.paymentStatus === "unpaid";
   const readyToShip =
-    order?.paymentStatus === "paid" && order.shippingStatus === "not_shipped";
+    mode === "seller" &&
+    order != null &&
+    orderNeedsSellerAction(order);
+  const checklistComplete = isSellerShipChecklistComplete(shipChecklist);
   const isShipped =
     order?.shippingStatus === "shipped" || order?.shippingStatus === "delivered";
 
@@ -129,7 +148,11 @@ export function OrderDetailScreen() {
     try {
       const updated = await markSellerOrderAsShipped(order.id, trackingCode);
       setSellerOrder((prev) => (prev ? { ...prev, order: updated } : prev));
-      Alert.alert("Verzonden", "De bestelling is gemarkeerd als verzonden.");
+      void markSellerNotificationsHandledForOrder(order.id);
+      void refreshSellerFulfillment();
+      setShipConfirmVisible(false);
+      setShipChecklist(EMPTY_SELLER_SHIP_CHECKLIST);
+      Alert.alert("Verzonden", "Bestelling gemarkeerd als verzonden.");
     } catch (e) {
       const msg =
         e instanceof Error ? e.message : "Verzending bijwerken mislukt.";
@@ -137,7 +160,14 @@ export function OrderDetailScreen() {
     } finally {
       setShipBusy(false);
     }
-  }, [mode, order, trackingCode]);
+  }, [mode, order, refreshSellerFulfillment, trackingCode]);
+
+  const onConfirmShipPress = useCallback(() => {
+    if (!order || mode !== "seller" || !readyToShip) {
+      return;
+    }
+    setShipConfirmVisible(true);
+  }, [mode, order, readyToShip]);
 
   const onPayOrder = useCallback(async () => {
     if (!order || mode !== "buyer") {
@@ -346,6 +376,12 @@ export function OrderDetailScreen() {
 
           {mode === "seller" && sellerOrder ? (
             <>
+              {readyToShip ? (
+                <SellerShipChecklist
+                  value={shipChecklist}
+                  onChange={setShipChecklist}
+                />
+              ) : null}
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Koper</Text>
                 <View style={styles.buyerRow}>
@@ -426,10 +462,10 @@ export function OrderDetailScreen() {
                     <Pressable
                       style={[
                         styles.primaryBtn,
-                        !readyToShip && styles.primaryBtnDisabled,
+                        (!readyToShip || !checklistComplete) && styles.primaryBtnDisabled,
                       ]}
-                      onPress={() => void markAsShipped()}
-                      disabled={shipBusy || !readyToShip}
+                      onPress={onConfirmShipPress}
+                      disabled={shipBusy || !readyToShip || !checklistComplete}
                       accessibilityRole="button"
                       accessibilityLabel="Markeer als verzonden"
                     >
@@ -474,6 +510,51 @@ export function OrderDetailScreen() {
           ) : null}
         </ScrollView>
       )}
+
+      <Modal
+        visible={shipConfirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShipConfirmVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Pakket daadwerkelijk verzonden?</Text>
+            <Text style={styles.modalBody}>
+              Bevestig alleen wanneer je het juiste product hebt verpakt en dit naar het
+              juiste afleveradres hebt afgegeven of verstuurd. Na bevestiging wordt deze
+              bestelling gemarkeerd als verzonden.
+              {trackingCode.trim()
+                ? `\n\nTracking: ${trackingCode.trim()}`
+                : ""}
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                style={styles.modalSecondaryBtn}
+                onPress={() => setShipConfirmVisible(false)}
+                disabled={shipBusy}
+                accessibilityRole="button"
+                accessibilityLabel="Annuleren"
+              >
+                <Text style={styles.modalSecondaryBtnText}>Terug</Text>
+              </Pressable>
+              <Pressable
+                style={styles.modalPrimaryBtn}
+                onPress={() => void markAsShipped()}
+                disabled={shipBusy}
+                accessibilityRole="button"
+                accessibilityLabel="Bevestig verzending"
+              >
+                {shipBusy ? (
+                  <ActivityIndicator size="small" color={theme.bg} />
+                ) : (
+                  <Text style={styles.modalPrimaryBtnText}>Ja, pakket is verzonden</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -716,5 +797,65 @@ const styles = StyleSheet.create({
   },
   buyerPayBtn: {
     marginTop: 12,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 16,
+    padding: 18,
+    backgroundColor: theme.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  modalTitle: {
+    color: theme.text,
+    fontSize: 18,
+    fontWeight: "900",
+    marginBottom: 8,
+  },
+  modalBody: {
+    color: theme.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  modalSecondaryBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.bg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  modalSecondaryBtnText: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  modalPrimaryBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.accent,
+  },
+  modalPrimaryBtnText: {
+    color: theme.bg,
+    fontSize: 14,
+    fontWeight: "900",
   },
 });

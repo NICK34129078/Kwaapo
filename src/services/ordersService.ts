@@ -19,6 +19,11 @@ import {
 } from "../constants/platformFee";
 import { fetchProductsByIds } from "./productsService";
 import { fetchProductVariants } from "./productVariantService";
+import {
+  formatCheckoutAddressDraft,
+  validateCheckoutAddressForPayment,
+  validateCheckoutAddressSync,
+} from "../utils/checkoutAddressValidation";
 
 const ORDER_COLUMNS =
   "id, buyer_id, seller_id, status, subtotal_amount, platform_fee_amount, seller_amount, payment_status, buyer_email, buyer_full_name, shipping_country, shipping_city, shipping_postal_code, shipping_street, shipping_house_number, shipping_phone, seller_note, shipping_status, tracking_code, shipped_at, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, created_at";
@@ -65,42 +70,37 @@ function clean(value: string | null | undefined): string {
 }
 
 function validateCheckoutInput(input: CheckoutOrderInput): CheckoutOrderInput {
-  const buyerFullName = clean(input.buyerFullName);
-  const buyerEmail = clean(input.buyerEmail).toLowerCase();
-  const shippingCountry = clean(input.shippingCountry);
-  const shippingCity = clean(input.shippingCity);
-  const shippingPostalCode = clean(input.shippingPostalCode);
-  const shippingStreet = clean(input.shippingStreet);
-  const shippingHouseNumber = clean(input.shippingHouseNumber);
-  const shippingPhone = clean(input.shippingPhone) || null;
+  const formatted = formatCheckoutAddressDraft({
+    buyerFullName: input.buyerFullName,
+    buyerEmail: input.buyerEmail,
+    shippingCountry: input.shippingCountry,
+    shippingCity: input.shippingCity,
+    shippingPostalCode: input.shippingPostalCode,
+    shippingStreet: input.shippingStreet,
+    shippingHouseNumber: input.shippingHouseNumber,
+    shippingPhone: input.shippingPhone,
+  });
+  const syncErrors = validateCheckoutAddressSync(formatted);
+  const firstError = Object.values(syncErrors)[0];
+  if (firstError) {
+    throw new Error(firstError);
+  }
+
   const sellerNote = clean(input.sellerNote) || null;
   const quantity = Math.floor(Number(input.quantity));
-
-  if (!buyerFullName) {
-    throw new Error("Vul je volledige naam in.");
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(buyerEmail)) {
-    throw new Error("Vul een geldig emailadres in.");
-  }
-  if (!shippingCountry || !shippingCity || !shippingPostalCode) {
-    throw new Error("Vul land, stad en postcode in.");
-  }
-  if (!shippingStreet || !shippingHouseNumber) {
-    throw new Error("Vul straat en huisnummer in.");
-  }
   if (!Number.isFinite(quantity) || quantity < 1) {
     throw new Error("Aantal moet minimaal 1 zijn.");
   }
 
   return {
-    buyerFullName,
-    buyerEmail,
-    shippingCountry,
-    shippingCity,
-    shippingPostalCode,
-    shippingStreet,
-    shippingHouseNumber,
-    shippingPhone,
+    buyerFullName: formatted.buyerFullName,
+    buyerEmail: formatted.buyerEmail,
+    shippingCountry: formatted.shippingCountry,
+    shippingCity: formatted.shippingCity,
+    shippingPostalCode: formatted.shippingPostalCode,
+    shippingStreet: formatted.shippingStreet,
+    shippingHouseNumber: formatted.shippingHouseNumber,
+    shippingPhone: formatted.shippingPhone,
     sellerNote,
     quantity,
     size: clean(input.size) || null,
@@ -241,6 +241,24 @@ export async function createOrderFromProduct(
     throw new Error("Je kunt je eigen product niet bestellen.");
   }
 
+  const isRealCheckout = typeof inputOrSize === "object" && inputOrSize !== null;
+  if (isRealCheckout) {
+    const addressErrors = await validateCheckoutAddressForPayment({
+      buyerFullName: checkout.buyerFullName,
+      buyerEmail: checkout.buyerEmail,
+      shippingCountry: checkout.shippingCountry,
+      shippingCity: checkout.shippingCity,
+      shippingPostalCode: checkout.shippingPostalCode,
+      shippingStreet: checkout.shippingStreet,
+      shippingHouseNumber: checkout.shippingHouseNumber,
+      shippingPhone: checkout.shippingPhone,
+    });
+    const firstAddressError = Object.values(addressErrors)[0];
+    if (firstAddressError) {
+      throw new Error(firstAddressError);
+    }
+  }
+
   const subtotal = roundMoney(product.price * checkout.quantity);
   const platformFee = computePlatformFeeAmount(subtotal);
   const sellerAmount = computeSellerAmount(subtotal);
@@ -300,6 +318,32 @@ export async function markSellerOrderAsShipped(
   trackingCode?: string | null
 ): Promise<Order> {
   const sellerId = await getCurrentUserId();
+
+  const { data: existing, error: readError } = await supabase
+    .from("orders")
+    .select("shipping_status")
+    .eq("id", orderId)
+    .eq("seller_id", sellerId)
+    .maybeSingle<{ shipping_status: string }>();
+
+  if (readError) {
+    throw readError;
+  }
+  if (!existing) {
+    throw new Error("Bestelling niet gevonden.");
+  }
+  if (existing.shipping_status === "shipped" || existing.shipping_status === "delivered") {
+    const { data, error } = await supabase
+      .from("orders")
+      .select(ORDER_COLUMNS)
+      .eq("id", orderId)
+      .single<OrderRow>();
+    if (error) {
+      throw error;
+    }
+    return mapOrderRow(data);
+  }
+
   const patch: Record<string, unknown> = {
     status: "shipped",
     shipping_status: "shipped",
@@ -323,36 +367,6 @@ export async function markSellerOrderAsShipped(
   }
 
   return mapOrderRow(data);
-}
-
-export async function updateSellerOrderPaymentStatus(
-  orderId: string,
-  paymentStatus: PaymentStatus
-): Promise<Order> {
-  const sellerId = await getCurrentUserId();
-  const patch: Record<string, unknown> = { payment_status: paymentStatus };
-  if (paymentStatus === "paid") {
-    patch.status = "paid";
-  }
-
-  const { data, error } = await supabase
-    .from("orders")
-    .update(patch)
-    .eq("id", orderId)
-    .eq("seller_id", sellerId)
-    .select(ORDER_COLUMNS)
-    .single<OrderRow>();
-
-  if (error) {
-    throw error;
-  }
-
-  return mapOrderRow(data);
-}
-
-/** Test/dev: markeer betaling als ontvangen zonder Stripe. */
-export async function markSellerOrderAsPaid(orderId: string): Promise<Order> {
-  return updateSellerOrderPaymentStatus(orderId, "paid");
 }
 
 export type SellerOrderActivity = {

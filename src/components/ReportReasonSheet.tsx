@@ -16,12 +16,16 @@ import {
   REPORT_REASONS,
   type ReportReason,
 } from "../services/feedModerationService";
+import type { ModerationReasonOption } from "../constants/moderationReasons";
 
 type Props = {
   visible: boolean;
   onClose: () => void;
-  onSubmit: (reason: ReportReason) => void;
+  onSubmit: (reason: string) => void;
   busy?: boolean;
+  title?: string;
+  subtitle?: string;
+  reasons?: readonly ModerationReasonOption[];
 };
 
 export function ReportReasonSheet({
@@ -29,6 +33,9 @@ export function ReportReasonSheet({
   onClose,
   onSubmit,
   busy = false,
+  title = "Waarom meld je dit?",
+  subtitle = "Je melding is anoniem voor de maker.",
+  reasons = REPORT_REASONS,
 }: Props) {
   const insets = useSafeAreaInsets();
 
@@ -40,7 +47,7 @@ export function ReportReasonSheet({
   }, []);
 
   const handleSelect = useCallback(
-    (reason: ReportReason) => {
+    (reason: string) => {
       if (busy) {
         return;
       }
@@ -72,11 +79,9 @@ export function ReportReasonSheet({
           ]}
         >
           <View style={styles.grabber} />
-          <Text style={styles.sheetTitle}>Waarom meld je dit?</Text>
-          <Text style={styles.sheetSubtitle}>
-            Je melding is anoniem voor de maker.
-          </Text>
-          {REPORT_REASONS.map((reason, index) => (
+          <Text style={styles.sheetTitle}>{title}</Text>
+          <Text style={styles.sheetSubtitle}>{subtitle}</Text>
+          {reasons.map((reason, index) => (
             <View key={reason.id}>
               {index > 0 ? <View style={styles.separator} /> : null}
               <Pressable

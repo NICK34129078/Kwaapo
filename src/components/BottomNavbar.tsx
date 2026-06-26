@@ -1,9 +1,10 @@
 import React from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { PressableScale } from "./PressableScale";
+import { useSellerFulfillmentOptional } from "../context/SellerFulfillmentContext";
 
 /** Instagram-achtig: dunne witte lijnen, geen accentkleur in de balk. */
 const IG = {
@@ -61,6 +62,11 @@ export function BottomNavbar({
 }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const bottomPad = Math.max(insets.bottom, 8);
+  const fulfillment = useSellerFulfillmentOptional();
+  const profileActionCount =
+    fulfillment?.isBusinessSeller && fulfillment.actionCount > 0
+      ? fulfillment.actionCount
+      : 0;
 
   return (
     <View
@@ -89,11 +95,20 @@ export function BottomNavbar({
           };
 
           const iconEl = (
-            <Ionicons
-              name={focused ? cfg.iconActive : cfg.icon}
-              size={ICON}
-              color={color}
-            />
+            <View style={styles.iconWrap}>
+              <Ionicons
+                name={focused ? cfg.iconActive : cfg.icon}
+                size={ICON}
+                color={color}
+              />
+              {route.name === "Profile" && profileActionCount > 0 ? (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>
+                    {profileActionCount > 99 ? "99+" : profileActionCount}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           );
 
           const last = index === state.routes.length - 1;
@@ -167,5 +182,24 @@ const styles = StyleSheet.create({
   iconWrap: {
     alignItems: "center",
     justifyContent: "center",
+  },
+  tabBadge: {
+    position: "absolute",
+    top: -4,
+    right: -10,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: "#FF3B30",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: IG.barBg,
+  },
+  tabBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "900",
   },
 });
