@@ -19,6 +19,10 @@ import {
   sanitizeUploadProduct,
   type UploadProductInput,
 } from "../utils/uploadProduct";
+import {
+  formatWorkerAuthClientError,
+  formatWorkerUploadError,
+} from "../utils/workerUploadErrors";
 import { createUuidV4 } from "../utils/uuid";
 import { uploadPostAudio } from "../utils/uploadPostAudio";
 import { buildWorkerAudioFields, type PostAudioInput } from "../types/postAudio";
@@ -123,26 +127,23 @@ type ThumbnailUploadJson = {
   thumbnailUrl?: string;
 };
 
-function uploadErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.length > 0) {
-    return error.message;
-  }
-  return "De upload kon niet worden voltooid.";
-}
-
 function workerErrorFromJson(
   status: number,
   data: { message?: string; hint?: string },
   bodyText: string
 ): string {
-  if (typeof data.message === "string" && data.message.length > 0) {
-    return data.hint ? `${data.message} (${data.hint})` : data.message;
+  const base = formatWorkerUploadError(status, data.message, bodyText);
+  if (typeof data.hint === "string" && data.hint.length > 0 && !base.includes(data.hint)) {
+    return `${base} (${data.hint})`;
   }
-  const trimmed = bodyText.trim();
-  if (trimmed.length > 0 && trimmed.length <= 600) {
-    return trimmed;
+  return base;
+}
+
+function uploadErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.length > 0) {
+    return formatWorkerAuthClientError(error);
   }
-  return `Upload mislukt (${status})`;
+  return "De upload kon niet worden voltooid.";
 }
 
 async function postWorkerJson<T extends { success?: boolean; message?: string }>(

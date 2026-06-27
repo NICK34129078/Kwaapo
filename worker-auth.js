@@ -66,10 +66,17 @@ export async function verifySupabaseAccessToken(env, accessToken) {
  * @param {number} [status]
  */
 export function authErrorResponse(cors = {}, status = 401) {
-  return new Response(JSON.stringify({ error: "Unauthorized" }), {
-    status,
-    headers: { "Content-Type": "application/json", ...cors },
-  });
+  return new Response(
+    JSON.stringify({
+      success: false,
+      message: "Unauthorized",
+      error: "Unauthorized",
+    }),
+    {
+      status,
+      headers: { "Content-Type": "application/json", ...cors },
+    }
+  );
 }
 
 /**

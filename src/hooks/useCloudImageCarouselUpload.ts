@@ -16,6 +16,7 @@ import {
   sanitizeUploadProduct,
   type UploadProductInput,
 } from "../utils/uploadProduct";
+import { formatWorkerAuthClientError, formatWorkerUploadError } from "../utils/workerUploadErrors";
 import { createUuidV4 } from "../utils/uuid";
 import { uploadPostAudio } from "../utils/uploadPostAudio";
 import { buildWorkerAudioFields, type PostAudioInput } from "../types/postAudio";
@@ -54,7 +55,7 @@ function mediaFromWorkerJson(
 
 function uploadErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.length > 0) {
-    return error.message;
+    return formatWorkerAuthClientError(error);
   }
   return "De upload kon niet worden voltooid.";
 }
@@ -182,10 +183,10 @@ export function useCloudImageCarouselUpload() {
         }
 
         if (!response.ok) {
-          const msg =
-            typeof data.message === "string" && data.message.length > 0
-              ? data.message
-              : `Upload mislukt (${response.status})`;
+          const msg = formatWorkerUploadError(
+            response.status,
+            typeof data.message === "string" ? data.message : undefined
+          );
           throw new Error(data.hint ? `${msg} (${data.hint})` : msg);
         }
 

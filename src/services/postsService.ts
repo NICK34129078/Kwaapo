@@ -532,7 +532,9 @@ async function attachLinkedProductsToPosts(
   }
 
   const activeById = new Map(
-    products.filter((product) => product.isActive).map((product) => [product.id, product])
+    products
+      .filter((product) => product.isActive && product.stock > 0)
+      .map((product) => [product.id, product])
   );
 
   return posts.map((post) => {
@@ -602,7 +604,62 @@ async function fetchOwnerProfilesByIds(
 }
 
 /**
- * Profielposts: alleen rows voor de opgegeven gebruiker via Worker `?userPosts=1`.
+ * Profielposts voor ingelogde gebruiker: Supabase (RLS + auth.uid()).
+ * Publieke profielen: Worker `?userPosts=1&userId=`.
+ */
+async function fetchOwnUserPostsFromSupabase(
+  expectedUserId: string
+): Promise<UserVideoPost[]> {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user?.id || user.id !== expectedUserId) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("is_deleted", false)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return mapSupabasePostRowsToUserVideoPosts(data ?? [], "own_profile");
+}
+
+async function mapSupabasePostRowsToUserVideoPosts(
+  raw: unknown[],
+  scope: UserVideoPostMappingScope
+): Promise<UserVideoPost[]> {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return [];
+  }
+  const asRows = raw as MaybePostRow[];
+  const normalized = asRows
+    .map((p) => normalizePostRow(p))
+    .filter((p) => !p.is_deleted);
+  if (normalized.length === 0) {
+    return [];
+  }
+  const ownerProfilesById = await fetchOwnerProfilesByIds(normalized);
+  const carouselIds = normalized
+    .filter((p) => p.type === "image_carousel")
+    .map((p) => p.id);
+  const mediaByPostId = await fetchPostMediaByPostIds(carouselIds);
+  const mapped = normalized.map((row) =>
+    mapRowToUserVideoPost(row, scope, ownerProfilesById.get(row.user_id), mediaByPostId)
+  );
+  return attachLinkedProductsToPosts(mapped);
+}
+
+/**
+ * Profielposts: eigen profiel via Supabase; andere profielen via Worker.
  * @returns `undefined` als `json.posts` ontbreekt — caller moet state niet leegmaken.
  */
 export async function fetchUserPosts(
@@ -611,6 +668,10 @@ export async function fetchUserPosts(
 ): Promise<UserVideoPost[] | undefined> {
   if (!userId || userId.length === 0) {
     return [];
+  }
+
+  if (scope === "own_profile") {
+    return fetchOwnUserPostsFromSupabase(userId);
   }
 
   const workerUrl = new URL(CLOUD_VIDEO_WORKER_BASE);
@@ -658,25 +719,7 @@ export async function enrichPostWithLinkedProduct(
 export async function mapSupabasePostRowsToGlobalUserVideoPosts(
   raw: unknown[]
 ): Promise<UserVideoPost[]> {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return [];
-  }
-  const asRows = raw as MaybePostRow[];
-  const normalized = asRows
-    .map((p) => normalizePostRow(p))
-    .filter((p) => !p.is_deleted);
-  if (normalized.length === 0) {
-    return [];
-  }
-  const ownerProfilesById = await fetchOwnerProfilesByIds(normalized);
-  const carouselIds = normalized
-    .filter((p) => p.type === "image_carousel")
-    .map((p) => p.id);
-  const mediaByPostId = await fetchPostMediaByPostIds(carouselIds);
-  const mapped = normalized.map((row) =>
-    mapRowToUserVideoPost(row, "global", ownerProfilesById.get(row.user_id), mediaByPostId)
-  );
-  return attachLinkedProductsToPosts(mapped);
+  return mapSupabasePostRowsToUserVideoPosts(raw, "global");
 }
 
 /**
