@@ -86,16 +86,16 @@ Project skills live in `.agents/skills/`. Locked versions are listed in `skills-
 - Stay on the stated task; avoid scope drift into unrelated infra (e.g. Supabase CLI linking) unless the user asks.
 - Use relevant skills from `.agents/skills/` proactively — manual skill attachment is optional, not required.
 - When implementing an attached plan, do not edit the plan file itself.
+- Avoid nested React Native `Modal`s for pickers/sheets atop an open modal; use in-modal overlay panels (e.g. `UploadProductPickerPanel` inside the upload sheet).
 
 ## Learned Workspace Facts
 
 - App display name is **Kwaapo** (`expo.name` in `app.json`); Expo slug remains `lumen-fashion` until identifier migration (see `docs/BRANDING_AND_DEMO_CONTENT_AUDIT.md`).
 - Supabase production project ref: `mvngamvkdtcprgiizcvk`; linked via `supabase/.temp/project-ref`. (Eerdere sessies linkten per ongeluk naar `xshnwnxvmdtvqcfglfzy` — negeer dat project.)
-- Primary Cloudflare Worker base URL: `wild-mountain-072a.n-vandullemen.workers.dev` (see `src/constants/cloudVideo.ts`).
+- Cloudflare Worker `wild-mountain-072a` (`wrangler.jsonc`, `src/constants/cloudVideo.ts`): deploy via `npm run deploy:worker`; pre-deploy check secrets with `npx wrangler secret list` (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, Stripe, KVK, R2). Client auth: `buildWorkerAuthHeaders()` sends `Authorization: Bearer` only — never `X-App-User-Id`; server identity via `worker-auth.js` → Supabase `/auth/v1/user`. Stale live worker after JWT migration returns `userId required` on uploads — deploy worker with client auth changes.
 - KVK credentials (`KVK_API_KEY`, `KVK_API_BASE`) live on the Cloudflare Worker via `wrangler secret put` or `.dev.vars` for local dev — not in Expo `.env`.
-- Feed: `ReelsScreen` + `GlobalFeedContext`; global posts paginate via worker `?posts=1&limit=&cursor=`; guests use `get_explore_feed`, logged-in users use `get_personalized_feed`.
-- Feed moderation (`0029_feed_moderation.sql`): tables `user_blocks`, `post_reports`, `feed_not_interested`; RPCs `block_user`, `unblock_user`, `report_post`, `mark_not_interested`; client in `feedModerationService.ts`, `PostMoreSheet`, `ReportReasonSheet`, `GlobalFeedContext` mute layer.
-- Block/report/not-interested filters run server-side in `get_personalized_feed` only; worker global feed has no user context — enforce mutes client-side via `feedMuteFilter.ts`. Prod gebruikt creator-affinity `get_personalized_feed` + moderatiefilters via `0032_personalized_feed_moderation_filters.sql`.
+- Feed: `ReelsScreen` + `GlobalFeedContext`; worker `?posts=1` pagination; guests `get_explore_feed`, logged-in `get_personalized_feed`; rolling window trim in `feedRollingWindow.ts` (target 15, max 18) / `shopRollingWindow.ts` (20/24) — never call `prunePostIds` inside a `setState` updater; moderation mutes client-side on global feed (`feedMuteFilter.ts`), server-side in personalized feed only (`0029`/`0032`).
+- Reel↔product link: `posts.product_id` (no new migration); upload flow in `ProfileScreen` + `UploadProductPickerPanel`; linkable products = active + stock > 0 (`linkableUploadProducts.ts`, `fetchMyLinkableProducts`); feed card `ProductReelShopCard`; manual checklist `docs/REEL_PRODUCT_LINK_TEST_CHECKLIST.md`.
 - `public.follows` (`0031_follows.sql`): `follower_id` / `following_id` → `profiles(id)`; used by FeedItem, ProfileScreen, ActivityScreen; `block_user` unfollows both directions when table exists; `0030` still guards with `to_regclass` for legacy setups.
 - If remote DB has schema but empty `schema_migrations`, run `supabase migration repair --status applied` for existing versions before `db push`.
 - Install Expo skills with `npx skills@latest add expo/skills` — do not use `--skill '*'` (not treated as a wildcard).
