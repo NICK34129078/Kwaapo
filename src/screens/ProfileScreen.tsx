@@ -53,7 +53,7 @@ import { getReadableErrorMessage } from "../utils/getReadableErrorMessage";
 import { supabase } from "../lib/supabase";
 import { fetchUserPosts } from "../services/postsService";
 import { parseHashtagInput } from "../utils/hashtags";
-import { fetchMyActiveProducts } from "../services/productsService";
+import { fetchMyLinkableProducts } from "../services/productsService";
 import {
   canSellerManageProducts,
   fetchMySellerOnboarding,
@@ -77,6 +77,7 @@ import {
   AudioPickerCard,
   AUDIO_VOLUME_NORMAL,
 } from "../components/AudioPickerCard";
+import { UploadProductPickerPanel } from "../components/UploadProductPickerPanel";
 import { SETTINGS_LEGAL_LINKS, SUPPORT_EMAIL } from "../constants/appPolicies";
 
 const GAP = 2;
@@ -235,6 +236,7 @@ function ProfileAuthenticatedScreen({
   const [productPickerVisible, setProductPickerVisible] = useState(false);
   const [uploadProducts, setUploadProducts] = useState<Product[]>([]);
   const [uploadProductsLoading, setUploadProductsLoading] = useState(false);
+  const [uploadProductsLoadError, setUploadProductsLoadError] = useState(false);
   const [sellerCanLinkProducts, setSellerCanLinkProducts] = useState(false);
   const [productPickerQuery, setProductPickerQuery] = useState("");
   const selectedUploadProduct = useMemo(
@@ -348,18 +350,29 @@ function ProfileAuthenticatedScreen({
 
   useEffect(() => {
     if (!uploadDraftMedia || !sellerCanLinkProducts) {
+      setUploadProducts([]);
+      setUploadProductsLoading(false);
+      setUploadProductsLoadError(false);
       return;
     }
     let cancelled = false;
-    void fetchMyActiveProducts()
+    setUploadProductsLoading(true);
+    setUploadProductsLoadError(false);
+    void fetchMyLinkableProducts()
       .then((rows) => {
         if (!cancelled) {
-          setUploadProducts(rows.filter((product) => product.stock > 0));
+          setUploadProducts(rows);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setUploadProducts([]);
+          setUploadProductsLoadError(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setUploadProductsLoading(false);
         }
       });
     return () => {
@@ -368,31 +381,33 @@ function ProfileAuthenticatedScreen({
   }, [sellerCanLinkProducts, uploadDraftMedia]);
 
   useEffect(() => {
-    if (!productPickerVisible || !isOwnProfile || !isBusinessProfile) {
+    if (!productPickerVisible || !sellerCanLinkProducts) {
       return;
     }
     let cancelled = false;
     setUploadProductsLoading(true);
-    void (async () => {
-      try {
-        const rows = await fetchMyActiveProducts();
+    setUploadProductsLoadError(false);
+    void fetchMyLinkableProducts()
+      .then((rows) => {
         if (!cancelled) {
-          setUploadProducts(rows.filter((product) => product.stock > 0));
+          setUploadProducts(rows);
         }
-      } catch {
+      })
+      .catch(() => {
         if (!cancelled) {
           setUploadProducts([]);
+          setUploadProductsLoadError(true);
         }
-      } finally {
+      })
+      .finally(() => {
         if (!cancelled) {
           setUploadProductsLoading(false);
         }
-      }
-    })();
+      });
     return () => {
       cancelled = true;
     };
-  }, [isBusinessProfile, isOwnProfile, productPickerVisible]);
+  }, [productPickerVisible, sellerCanLinkProducts]);
 
   const filteredUploadProducts = useMemo(() => {
     const q = productPickerQuery.trim().toLowerCase();
@@ -409,9 +424,13 @@ function ProfileAuthenticatedScreen({
   }, [productPickerQuery, uploadProducts]);
 
   const dismissUploadModal = useCallback(() => {
+    if (productPickerVisible) {
+      setProductPickerVisible(false);
+      return;
+    }
     setUploadModalVisible(false);
     resetUploadDrafts();
-  }, [resetUploadDrafts]);
+  }, [productPickerVisible, resetUploadDrafts]);
 
   const openProductPicker = useCallback(() => {
     if (!sellerCanLinkProducts) {
@@ -1535,30 +1554,51 @@ function ProfileAuthenticatedScreen({
                     </Text>
                   ) : null}
                 </View>
-                {sellerCanLinkProducts && uploadProducts.length > 0 ? (
+                {sellerCanLinkProducts ? (
                   <>
                     <Text style={styles.uploadSheetSectionLabel}>Product toevoegen</Text>
                     <Text style={styles.uploadSheetHashtagHelp}>
                       Maak je video direct shoppable door een product te koppelen.
                     </Text>
-                    {selectedUploadProduct ? (
+                    {uploadProductsLoading && uploadProducts.length === 0 ? (
+                      <View style={styles.uploadProductLoadingRow}>
+                        <ActivityIndicator size="small" color={theme.accent} />
+                        <Text style={styles.uploadProductLoadingText}>
+                          Producten laden…
+                        </Text>
+                      </View>
+                    ) : selectedUploadProduct ? (
                       <View style={styles.linkedProductCard}>
-                        <View style={styles.linkedProductHeader}>
-                          <Text style={styles.linkedProductEyebrow}>
-                            Geselecteerd product
-                          </Text>
-                          <Ionicons
-                            name="bag-handle-outline"
-                            size={18}
-                            color={theme.accent}
-                          />
+                        <Text style={styles.linkedProductEyebrow}>Gekoppeld product</Text>
+                        <View style={styles.linkedProductPreviewRow}>
+                          {selectedUploadProduct.images[0] ? (
+                            <Image
+                              source={{ uri: selectedUploadProduct.images[0] }}
+                              style={styles.linkedProductThumb}
+                            />
+                          ) : (
+                            <View
+                              style={[
+                                styles.linkedProductThumb,
+                                styles.linkedProductThumbFallback,
+                              ]}
+                            >
+                              <Ionicons
+                                name="bag-outline"
+                                size={18}
+                                color={theme.textMuted}
+                              />
+                            </View>
+                          )}
+                          <View style={styles.linkedProductPreviewText}>
+                            <Text style={styles.linkedProductName} numberOfLines={1}>
+                              {selectedUploadProduct.name}
+                            </Text>
+                            <Text style={styles.linkedProductPrice}>
+                              {formatPriceEur(selectedUploadProduct.price)}
+                            </Text>
+                          </View>
                         </View>
-                        <Text style={styles.linkedProductName} numberOfLines={1}>
-                          {selectedUploadProduct.name}
-                        </Text>
-                        <Text style={styles.linkedProductPrice}>
-                          {formatPriceEur(selectedUploadProduct.price)}
-                        </Text>
                         <View style={styles.linkedProductActions}>
                           <Pressable
                             style={styles.linkedProductAction}
@@ -1586,21 +1626,19 @@ function ProfileAuthenticatedScreen({
                           style={styles.addProductTagButton}
                           onPress={openProductPicker}
                           accessibilityRole="button"
-                          accessibilityLabel="Kies een product"
+                          accessibilityLabel="Product toevoegen"
                         >
                           <Ionicons name="pricetag-outline" size={18} color={theme.accent} />
-                          <Text style={styles.addProductTagText}>Kies een product</Text>
+                          <Text style={styles.addProductTagText}>Product toevoegen</Text>
                         </Pressable>
-                        <Pressable
-                          style={styles.skipProductBtn}
-                          onPress={() => setSelectedProductId(null)}
-                          accessibilityRole="button"
-                          accessibilityLabel="Deze video heeft geen product"
-                        >
-                          <Text style={styles.skipProductBtnText}>
-                            Deze video heeft geen product
+                        {!uploadProductsLoading &&
+                        !uploadProductsLoadError &&
+                        uploadProducts.length === 0 ? (
+                          <Text style={styles.uploadProductEmptyHint}>
+                            Je hebt nog geen producten in je shop. Voeg eerst een product
+                            toe om het aan je video te koppelen.
                           </Text>
-                        </Pressable>
+                        ) : null}
                       </View>
                     )}
                   </>
@@ -1629,113 +1667,23 @@ function ProfileAuthenticatedScreen({
                   <Text style={styles.uploadSheetBtnSecondaryText}>Annuleren</Text>
                 </Pressable>
                 </ScrollView>
+                {sellerCanLinkProducts ? (
+                  <UploadProductPickerPanel
+                    visible={productPickerVisible}
+                    bottomInset={insets.bottom}
+                    products={filteredUploadProducts}
+                    loading={uploadProductsLoading}
+                    loadError={uploadProductsLoadError}
+                    query={productPickerQuery}
+                    onQueryChange={setProductPickerQuery}
+                    selectedProductId={selectedProductId}
+                    onSelect={selectUploadProduct}
+                    onClose={() => setProductPickerVisible(false)}
+                  />
+                ) : null}
               </View>
             </View>
           </KeyboardAvoidingView>
-        </Modal>
-      ) : null}
-
-      {isOwnProfile && isBusinessProfile && sellerCanLinkProducts ? (
-        <Modal
-          visible={productPickerVisible}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setProductPickerVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
-              <View style={styles.modalHeader}>
-                <View>
-                  <Text style={styles.modalTitle}>Kies een product</Text>
-                  <Text style={styles.productPickerSubtitle}>
-                    Alleen je actieve producten met voorraad
-                  </Text>
-                </View>
-                <Pressable
-                  style={styles.iconButton}
-                  onPress={() => setProductPickerVisible(false)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Sluit productkiezer"
-                >
-                  <Ionicons name="close" size={22} color={theme.text} />
-                </Pressable>
-              </View>
-
-              <TextInput
-                style={styles.productPickerSearch}
-                value={productPickerQuery}
-                onChangeText={setProductPickerQuery}
-                placeholder="Zoek in jouw producten"
-                placeholderTextColor={theme.textMuted}
-                autoCorrect={false}
-                autoCapitalize="none"
-              />
-
-              {uploadProductsLoading ? (
-                <View style={styles.productPickerLoading}>
-                  <ActivityIndicator size="small" color={theme.accent} />
-                </View>
-              ) : (
-                <FlatList
-                  data={filteredUploadProducts}
-                  keyExtractor={(item) => item.id}
-                  keyboardShouldPersistTaps="handled"
-                  contentContainerStyle={styles.productPickerList}
-                  renderItem={({ item }) => {
-                    const selected = selectedProductId === item.id;
-                    return (
-                      <Pressable
-                        style={styles.productPickerRow}
-                        onPress={() => selectUploadProduct(item)}
-                        accessibilityRole="button"
-                        accessibilityLabel={item.name}
-                      >
-                        {item.images[0] ? (
-                          <Image
-                            source={{ uri: item.images[0] }}
-                            style={styles.productPickerThumb}
-                          />
-                        ) : (
-                          <View
-                            style={[
-                              styles.productPickerThumb,
-                              styles.productPickerThumbFallback,
-                            ]}
-                          >
-                            <Ionicons
-                              name="image-outline"
-                              size={20}
-                              color={theme.textMuted}
-                            />
-                          </View>
-                        )}
-                        <View style={styles.productPickerTextWrap}>
-                          <Text style={styles.productPickerName} numberOfLines={1}>
-                            {item.name}
-                          </Text>
-                          <Text style={styles.productPickerPrice}>
-                            {formatPriceEur(item.price)}
-                          </Text>
-                        </View>
-                        {selected ? (
-                          <View style={styles.productPickerSelected}>
-                            <Ionicons name="checkmark" size={18} color={theme.bg} />
-                          </View>
-                        ) : null}
-                      </Pressable>
-                    );
-                  }}
-                  ListEmptyComponent={
-                    <View style={styles.productPickerEmpty}>
-                      <Text style={styles.followListEmptyText}>
-                        Voeg eerst producten toe via Mijn Winkel.
-                      </Text>
-                    </View>
-                  }
-                />
-              )}
-            </View>
-          </View>
         </Modal>
       ) : null}
 
@@ -2408,6 +2356,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
     flexShrink: 1,
+    position: "relative",
+    overflow: "hidden",
   },
   uploadSheetScroll: {
     flexShrink: 1,
@@ -2604,6 +2554,42 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     textTransform: "uppercase",
     letterSpacing: 0.4,
+    marginBottom: 8,
+  },
+  linkedProductPreviewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  linkedProductThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: theme.bg,
+  },
+  linkedProductThumbFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  linkedProductPreviewText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  uploadProductLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 14,
+    paddingVertical: 8,
+  },
+  uploadProductLoadingText: {
+    color: theme.textMuted,
+    fontSize: 13,
+  },
+  uploadProductEmptyHint: {
+    color: theme.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
   },
   linkedProductName: {
     color: theme.text,

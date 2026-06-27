@@ -12,6 +12,7 @@ import {
   type ProductInput,
   type ProductRow,
 } from "../types/product";
+import { filterLinkableUploadProducts } from "../utils/linkableUploadProducts";
 import { addProductStock } from "./productStockService";
 
 const PRODUCT_COLUMNS =
@@ -69,6 +70,12 @@ export async function fetchProductsByIds(ids: string[]): Promise<Product[]> {
 
 export async function fetchMyActiveProducts(): Promise<Product[]> {
   return fetchMyProducts(false);
+}
+
+/** Actieve eigen producten met voorraad — geschikt om aan reels te koppelen. */
+export async function fetchMyLinkableProducts(): Promise<Product[]> {
+  const rows = await fetchMyActiveProducts();
+  return filterLinkableUploadProducts(rows);
 }
 
 export async function fetchActiveProducts(limit = 80): Promise<Product[]> {

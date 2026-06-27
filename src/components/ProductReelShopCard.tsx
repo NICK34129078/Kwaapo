@@ -91,19 +91,15 @@ export function ProductReelShopCard({
           </View>
         )}
         <View style={styles.body}>
-          <Text style={styles.eyebrow}>Te koop</Text>
+          <Text style={styles.eyebrow}>Bekijk product</Text>
           <Text style={styles.name} numberOfLines={2}>
-            {product.name}
+            {product.name} · {formatPriceEur(product.price)}
           </Text>
-          <Text style={styles.price}>{formatPriceEur(product.price)}</Text>
           {!inStock ? (
             <Text style={styles.stockHint}>Niet op voorraad</Text>
           ) : null}
         </View>
-        <View style={styles.cta}>
-          <Text style={styles.ctaText}>Bekijk product</Text>
-          <Ionicons name="chevron-forward" size={14} color={theme.bg} />
-        </View>
+        <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
       </Pressable>
       <Pressable
         style={styles.dismissBtn}
