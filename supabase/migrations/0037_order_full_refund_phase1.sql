@@ -23,7 +23,10 @@ create index if not exists order_payment_events_order_idx
   on public.order_payment_events (order_id, processed_at desc);
 
 comment on table public.order_payment_events is
-  'Idempotent ledger for Stripe payment/refund webhooks. Service role only — no client access.';
+  'Processed Stripe payment/refund webhooks only — row inserted after full DB success (P1-safe). Service role only.';
+
+comment on column public.order_payment_events.processed_at is
+  'Set when the full refund/order side-effects succeeded; not when the webhook was merely received.';
 
 alter table public.order_payment_events enable row level security;
 
@@ -221,7 +224,7 @@ comment on function public.restore_product_stock_for_refunded_order(uuid) is
   'Restore stock once for pre-ship full refunds. No-op when already shipped.';
 
 -- ---------------------------------------------------------------------------
--- 5. apply_full_order_refund — atomic refund state + optional stock restore
+-- 5. apply_full_order_refund — single transaction; event ledger LAST (P1-safe)
 -- ---------------------------------------------------------------------------
 create or replace function public.apply_full_order_refund(
   p_order_id uuid,
@@ -240,7 +243,7 @@ declare
   v_requires_return boolean;
   v_stock jsonb;
   v_stock_restored boolean := false;
-  v_inserted_event text;
+  v_restore_reason text;
 begin
   if p_order_id is null or p_stripe_event_id is null or length(trim(p_stripe_event_id)) = 0 then
     return jsonb_build_object(
@@ -250,29 +253,12 @@ begin
     );
   end if;
 
-  insert into public.order_payment_events (
-    stripe_event_id,
-    order_id,
-    event_type,
-    stripe_object_id,
-    amount_cents,
-    payload_summary
-  )
-  values (
-    p_stripe_event_id,
-    p_order_id,
-    'charge.refunded',
-    p_charge_id,
-    p_amount_refunded_cents,
-    jsonb_build_object(
-      'charge_id', p_charge_id,
-      'amount_refunded_cents', p_amount_refunded_cents
-    )
-  )
-  on conflict (stripe_event_id) do nothing
-  returning stripe_event_id into v_inserted_event;
-
-  if v_inserted_event is null then
+  -- Idempotency: only successfully processed events are stored (insert happens at end).
+  if exists (
+    select 1
+    from public.order_payment_events e
+    where e.stripe_event_id = p_stripe_event_id
+  ) then
     return jsonb_build_object('duplicate', true, 'applied', false);
   end if;
 
@@ -298,6 +284,28 @@ begin
   end if;
 
   if ord.payment_status = 'refunded' or ord.status = 'refunded' then
+    insert into public.order_payment_events (
+      stripe_event_id,
+      order_id,
+      event_type,
+      stripe_object_id,
+      amount_cents,
+      payload_summary
+    )
+    values (
+      p_stripe_event_id,
+      p_order_id,
+      'charge.refunded',
+      p_charge_id,
+      p_amount_refunded_cents,
+      jsonb_build_object(
+        'charge_id', p_charge_id,
+        'amount_refunded_cents', p_amount_refunded_cents,
+        'note', 'order_already_refunded'
+      )
+    )
+    on conflict (stripe_event_id) do nothing;
+
     return jsonb_build_object(
       'duplicate', true,
       'applied', false,
@@ -328,12 +336,12 @@ begin
   if not v_requires_return then
     v_stock := public.restore_product_stock_for_refunded_order(p_order_id);
     v_stock_restored := coalesce((v_stock->>'restored')::boolean, false);
+    v_restore_reason := v_stock->>'reason';
+
     if v_stock_restored is not true then
-      return jsonb_build_object(
-        'duplicate', false,
-        'applied', false,
-        'reason', coalesce(v_stock->>'reason', 'stock_restore_failed')
-      );
+      raise exception 'refund_stock_restore_failed:%',
+        coalesce(v_restore_reason, 'unknown')
+        using errcode = 'P0001';
     end if;
   end if;
 
@@ -346,6 +354,28 @@ begin
     refund_requires_return = v_requires_return,
     stripe_charge_id = coalesce(stripe_charge_id, nullif(trim(p_charge_id), ''))
   where id = p_order_id;
+
+  insert into public.order_payment_events (
+    stripe_event_id,
+    order_id,
+    event_type,
+    stripe_object_id,
+    amount_cents,
+    payload_summary
+  )
+  values (
+    p_stripe_event_id,
+    p_order_id,
+    'charge.refunded',
+    p_charge_id,
+    p_amount_refunded_cents,
+    jsonb_build_object(
+      'charge_id', p_charge_id,
+      'amount_refunded_cents', p_amount_refunded_cents,
+      'refund_requires_return', v_requires_return,
+      'stock_restored', v_stock_restored
+    )
+  );
 
   return jsonb_build_object(
     'duplicate', false,
@@ -364,7 +394,7 @@ revoke all on function public.apply_full_order_refund(uuid, text, int, text) fro
 grant execute on function public.apply_full_order_refund(uuid, text, int, text) to service_role;
 
 comment on function public.apply_full_order_refund(uuid, text, int, text) is
-  'Apply full refund after Stripe charge.refunded verification. Idempotent via order_payment_events.';
+  'Atomic full refund: stock restore (pre-ship) → order refunded → event ledger insert. Rolls back on stock failure.';
 
 -- ---------------------------------------------------------------------------
 -- 6. Integrity guard — block seller mutations on refund/return/stock fields

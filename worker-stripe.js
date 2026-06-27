@@ -7,6 +7,7 @@ import {
   buildRefundNotificationCopy,
   isFullChargeRefundSucceeded,
   isRefundUpdatedFailed,
+  isRetriableRefundApplyError,
   shouldSendRefundNotifications,
 } from "./order-refund-logic.js";
 
@@ -1284,8 +1285,9 @@ export async function handleStripeWebhook(request, env) {
   } catch (e) {
     const message = (e && e.message) || String(e);
     console.error(logPrefix, "failed", message);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 400,
+    const status = isRetriableRefundApplyError(message) ? 500 : 400;
+    return new Response(JSON.stringify({ error: message, retriable: status === 500 }), {
+      status,
       headers: { "Content-Type": "application/json" },
     });
   }
