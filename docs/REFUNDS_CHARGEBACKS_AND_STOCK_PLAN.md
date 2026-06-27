@@ -130,20 +130,24 @@ Worker: **INSERT … ON CONFLICT (stripe_event_id) DO NOTHING** → skip duplica
 
 | Kolom | Doel |
 |-------|------|
-| `refunded_amount` | cumulatief terugbetaald |
+| `refunded_amount_cents` | cumulatief terugbetaald |
 | `refunded_at` | eerste volledige refund timestamp |
-| `dispute_status` | `none`, `open`, `won`, `lost` |
-| `stock_restored_at` | idempotency voor stock restore na refund |
+| `refund_requires_return` | `true` wanneer refund terwijl `shipping_status` al shipped/delivered |
+| `return_approved_at` | Fase 2+: retour goedgekeurd (geen UI Fase 1) |
+| `returned_received_at` | Fase 2+: pakket ontvangen door seller |
+| `stock_restored_at` | idempotency stock restore (refund pre-ship **of** retour-flow post-ship) |
+| `stripe_charge_id` | traceability (optioneel) |
 
 Optioneel: `payment_status` uitbreiden met `partially_refunded` **of** afleiden uit `refunded_amount < subtotal_amount`.
 
 ### 3.3 Nieuwe RPC: `restore_product_stock_for_refunded_order`
 
 - Alleen **service_role**
-- Vereist: `payment_status` in (`refunded`, `partially_refunded`) of expliciet admin flag
-- Idempotent: als `stock_restored_at` gezet → return true
+- **Alleen** als `shipping_status = 'not_shipped'` — anders no-op `{ restored: false, reason: 'already_shipped_return_required' }`
+- Idempotent: als `stock_restored_at` gezet → return `{ restored: false, reason: 'already_restored' }`
 - Voegt quantity terug (product / variant), log `product_stock_adjustment` met reason `Terugbetaling`
 - **Niet** `release_product_stock_for_order` hergebruiken (blokkeert na commit)
+- Post-ship voorraad: aparte retour-RPC (Fase 2+) via `return_approved_at` / `returned_received_at`
 
 ### 3.4 Notification types uitbreiden
 
@@ -197,11 +201,12 @@ Legenda kolommen: **Stock** | **Transfer** | **Idempotency**
 | **order.status** | `refunded` |
 | **payment_status** | `refunded` |
 | **shipping_status** | `not_shipped` (ongewijzigd) |
-| **Stock** | `restore_product_stock_for_refunded_order` (+1 qty) |
-| **Transfer** | Stripe `reverse_transfer` + `refund_application_fee=true` |
-| **Buyer melding** | `order_refunded` — “Je bestelling is terugbetaald.” |
-| **Seller melding** | `order_refunded` — “Bestelling terugbetaald; voorraad hersteld.” |
-| **Admin** | Refund in Stripe Dashboard; verify webhook processed |
+| **refund_requires_return** | `false` |
+| **Stock** | `restore_product_stock_for_refunded_order` (+qty, één keer) |
+| **Transfer** | Stripe API: `reverse_transfer=true` + `refund_application_fee=true` |
+| **Buyer melding** | “Je bestelling is terugbetaald.” |
+| **Seller melding** | “De bestelling is terugbetaald. Verzend dit pakket niet.” |
+| **Admin** | Refund via API (aanbevolen); zie `docs/REFUNDS_PHASE1_TEST_MATRIX.md` |
 | **Idempotency** | `order_payment_events.stripe_event_id`; `stock_restored_at` set once |
 
 ---
@@ -213,15 +218,16 @@ Legenda kolommen: **Stock** | **Transfer** | **Idempotency**
 | **Stripe event** | `charge.refunded` |
 | **order.status** | `refunded` |
 | **payment_status** | `refunded` |
-| **shipping_status** | `shipped` (historisch) — optioneel kolom `fulfillment_cancelled` later |
-| **Stock** | **Productbesluit:** restore stock (return expected) **of** niet restore (damaged/keep) — default **restore** voor marketplace MVP |
-| **Transfer** | reverse_transfer + refund_application_fee |
-| **Buyer melding** | refund + retour instructie via policy (geen adres in push) |
-| **Seller melding** | refund + “Retour afhandelen volgens policy” |
-| **Admin** | Case-by-case; mogelijk geen auto-restock |
-| **Idempotency** | idem |
+| **shipping_status** | `shipped` (historisch behouden) |
+| **refund_requires_return** | `true` |
+| **Stock** | **Geen** automatisch herstel — alleen via aparte retour-flow (`return_approved_at`, `returned_received_at`, `stock_restored_at`) |
+| **Transfer** | reverse_transfer + refund_application_fee (API) |
+| **Buyer melding** | “Je bestelling is terugbetaald. Neem contact op met support als retourinstructies nodig zijn.” |
+| **Seller melding** | “De bestelling is terugbetaald. Het pakket staat al als verzonden; volg de retour-/supportinstructies.” |
+| **Admin** | Refund via API + runbook; retour fysiek afhandelen buiten Fase 1 |
+| **Idempotency** | idem; `stock_restored_at` blijft null tot retour-flow |
 
-**Juridisch:** retourrecht consument B2C — apart review (§9).
+**Juridisch:** retourrecht consument B2C — apart review (§9). Zie `docs/REFUNDS_PHASE1_TEST_MATRIX.md`.
 
 ---
 

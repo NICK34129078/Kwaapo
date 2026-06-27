@@ -42,9 +42,12 @@ In Stripe Dashboard → Developers → Webhooks (live mode):
   - `checkout.session.async_payment_succeeded`
   - `checkout.session.expired`
   - `payment_intent.payment_failed`
-  - `charge.refunded` (logging)
+  - `charge.refunded` (volledige refund → order + stock/notifications; zie migration 0037)
+  - `refund.updated` (alleen log bij `status=failed`)
 
 Kopieer het **signing secret** naar `STRIPE_WEBHOOK_SECRET`.
+
+**Admin refunds (destination charges):** gebruik bij voorkeur Stripe API met `reverse_transfer=true` en `refund_application_fee=true`. Zie `docs/REFUNDS_PHASE1_TEST_MATRIX.md`.
 
 ## 4. Database migraties
 

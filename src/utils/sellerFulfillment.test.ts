@@ -65,6 +65,10 @@ export function runSellerFulfillmentTests(): void {
   assert(orderNeedsSellerAction(toShip.order), "paid not shipped needs action");
   assert(!orderNeedsSellerAction(unpaid.order), "unpaid excluded");
   assert(!orderNeedsSellerAction(cancelled.order), "cancelled excluded");
+  const refunded = makeSellerOrder(
+    makeOrder({ id: "e", paymentStatus: "refunded", status: "refunded" })
+  );
+  assert(!orderNeedsSellerAction(refunded.order), "refunded excluded");
   assert(countSellerOrdersNeedingAttention([toShip, unpaid, cancelled]) === 1, "count");
   assert(matchesSellerOrderFilter(toShip.order, "action_required"), "filter");
   assert(!matchesSellerOrderFilter(unpaid.order, "action_required"), "unpaid filter");

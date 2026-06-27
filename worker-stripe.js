@@ -3,6 +3,12 @@ import {
   isSellerReadyForCheckout,
 } from "./worker-seller-readiness.js";
 import { requireAuthUser } from "./worker-auth.js";
+import {
+  buildRefundNotificationCopy,
+  isFullChargeRefundSucceeded,
+  isRefundUpdatedFailed,
+  shouldSendRefundNotifications,
+} from "./order-refund-logic.js";
 
 /**
  * Stripe Checkout — server-side only.
@@ -287,6 +293,54 @@ async function releaseProductStockForOrder(env, orderId) {
   return callOrderStockRpc(env, "release_product_stock_for_order", orderId);
 }
 
+async function resolveStripeChargeIdFromPaymentIntent(env, paymentIntentId) {
+  if (!paymentIntentId || typeof paymentIntentId !== "string") {
+    return null;
+  }
+  try {
+    const pi = await stripeRequest(
+      env,
+      "GET",
+      `/payment_intents/${encodeURIComponent(paymentIntentId)}?expand[]=latest_charge`
+    );
+    const latest = pi?.latest_charge;
+    if (typeof latest === "string" && latest.startsWith("ch_")) {
+      return latest;
+    }
+    if (latest && typeof latest.id === "string") {
+      return latest.id;
+    }
+  } catch (e) {
+    console.warn(
+      "[resolveStripeChargeIdFromPaymentIntent]",
+      paymentIntentId,
+      e instanceof Error ? e.message : String(e)
+    );
+  }
+  return null;
+}
+
+async function applyFullOrderRefundRpc(
+  env,
+  orderId,
+  stripeEventId,
+  amountRefundedCents,
+  chargeId
+) {
+  return supabaseRequest(
+    env,
+    "POST",
+    "/rpc/apply_full_order_refund",
+    JSON.stringify({
+      p_order_id: orderId,
+      p_stripe_event_id: stripeEventId,
+      p_amount_refunded_cents: amountRefundedCents,
+      p_charge_id: chargeId || null,
+    }),
+    { preferRepresentation: false }
+  );
+}
+
 const PLATFORM_FEE_RATE = 0.125;
 /** Stripe Checkout Session TTL (min 30 min per Stripe API). */
 const CHECKOUT_SESSION_EXPIRES_SECONDS = 30 * 60;
@@ -428,6 +482,14 @@ async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
     );
   }
 
+  let stripeChargeId = order?.stripe_charge_id || null;
+  if (!stripeChargeId && paymentIntentId) {
+    stripeChargeId = await resolveStripeChargeIdFromPaymentIntent(
+      env,
+      paymentIntentId
+    );
+  }
+
   const patch = {
     status: "paid",
     payment_status: "paid",
@@ -439,6 +501,9 @@ async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
   if (paymentIntentId) {
     patch.stripe_payment_intent_id = paymentIntentId;
   }
+  if (stripeChargeId) {
+    patch.stripe_charge_id = stripeChargeId;
+  }
   const updated = await supabaseRequest(
     env,
     "PATCH",
@@ -449,7 +514,7 @@ async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
   if (!updated || (Array.isArray(updated) && updated.length === 0)) {
     throw new Error(`PostgREST: order ${orderId} not updated (0 rows)`);
   }
-  console.log("[markOrderPaid] ok", orderId);
+  console.log("[markOrderPaid] ok", orderId, stripeChargeId ? "charge stored" : "no charge id");
   await notifySellerNewPaidOrder(env, orderId);
 }
 
@@ -509,6 +574,195 @@ async function notifySellerNewPaidOrder(env, orderId) {
       e instanceof Error ? e.message : String(e)
     );
   }
+}
+
+async function notifyBuyerOrderRefunded(env, order, productName, refundRequiresReturn) {
+  try {
+    if (!order?.buyer_id || !order?.id) {
+      return;
+    }
+    const copy = buildRefundNotificationCopy(refundRequiresReturn);
+    await supabaseRequest(
+      env,
+      "POST",
+      "/buyer_notifications",
+      JSON.stringify({
+        buyer_id: order.buyer_id,
+        order_id: order.id,
+        notification_type: "order_refunded",
+        title: copy.buyerTitle,
+        body: copy.buyerBody,
+        product_name: productName,
+      }),
+      { preferRepresentation: false, preferIgnoreDuplicates: true }
+    );
+  } catch (e) {
+    console.warn(
+      "[notifyBuyerOrderRefunded]",
+      order?.id,
+      e instanceof Error ? e.message : String(e)
+    );
+  }
+}
+
+async function notifySellerOrderRefunded(env, order, productName, refundRequiresReturn) {
+  try {
+    if (!order?.seller_id || !order?.id) {
+      return;
+    }
+    const copy = buildRefundNotificationCopy(refundRequiresReturn);
+    await supabaseRequest(
+      env,
+      "POST",
+      "/seller_notifications",
+      JSON.stringify({
+        seller_id: order.seller_id,
+        order_id: order.id,
+        notification_type: "order_refunded",
+        title: copy.sellerTitle,
+        body: copy.sellerBody,
+        product_name: productName,
+      }),
+      { preferRepresentation: false, preferIgnoreDuplicates: true }
+    );
+  } catch (e) {
+    console.warn(
+      "[notifySellerOrderRefunded]",
+      order?.id,
+      e instanceof Error ? e.message : String(e)
+    );
+  }
+}
+
+async function resolveOrderIdFromPaymentIntent(env, paymentIntentId) {
+  if (!paymentIntentId || typeof paymentIntentId !== "string") {
+    return null;
+  }
+  const rows = await supabaseRequest(
+    env,
+    "GET",
+    `/orders?stripe_payment_intent_id=eq.${encodeURIComponent(paymentIntentId)}&select=id&limit=1`
+  );
+  if (Array.isArray(rows) && rows[0]?.id) {
+    return rows[0].id;
+  }
+  try {
+    const pi = await stripeRequest(
+      env,
+      "GET",
+      `/payment_intents/${encodeURIComponent(paymentIntentId)}`
+    );
+    const metaId = pi?.metadata?.order_id;
+    if (isStandardUuid(metaId)) {
+      return metaId;
+    }
+  } catch (e) {
+    console.warn(
+      "[resolveOrderIdFromPaymentIntent]",
+      paymentIntentId,
+      e instanceof Error ? e.message : String(e)
+    );
+  }
+  return null;
+}
+
+async function handleChargeRefunded(env, event) {
+  const logPrefix = "[chargeRefunded]";
+  const chargeFromEvent = event?.data?.object;
+  const chargeId = chargeFromEvent?.id;
+  const paymentIntentRaw = chargeFromEvent?.payment_intent;
+  const paymentIntentId =
+    typeof paymentIntentRaw === "string"
+      ? paymentIntentRaw
+      : paymentIntentRaw?.id ?? null;
+
+  if (!chargeId) {
+    console.warn(logPrefix, "missing charge id");
+    return { handled: false, reason: "missing_charge_id" };
+  }
+
+  let verifiedCharge;
+  try {
+    verifiedCharge = await stripeRequest(
+      env,
+      "GET",
+      `/charges/${encodeURIComponent(chargeId)}`
+    );
+  } catch (e) {
+    console.error(
+      logPrefix,
+      "stripe verify failed",
+      chargeId,
+      e instanceof Error ? e.message : String(e)
+    );
+    throw e;
+  }
+
+  if (!isFullChargeRefundSucceeded(verifiedCharge)) {
+    console.log(logPrefix, "skip — not a succeeded full refund", {
+      chargeId,
+      refunded: verifiedCharge?.refunded ?? null,
+      amountRefunded: verifiedCharge?.amount_refunded ?? null,
+      amount: verifiedCharge?.amount ?? null,
+    });
+    return { handled: false, reason: "not_full_refund_succeeded" };
+  }
+
+  const piForLookup =
+    typeof verifiedCharge.payment_intent === "string"
+      ? verifiedCharge.payment_intent
+      : verifiedCharge.payment_intent?.id ?? paymentIntentId;
+
+  const orderId = await resolveOrderIdFromPaymentIntent(env, piForLookup);
+  if (!isStandardUuid(orderId)) {
+    console.warn(logPrefix, "order not found for payment intent", piForLookup);
+    return { handled: false, reason: "order_not_found" };
+  }
+
+  const amountRefundedCents = Number(verifiedCharge.amount_refunded ?? 0);
+  const rpcResult = await applyFullOrderRefundRpc(
+    env,
+    orderId,
+    event.id,
+    amountRefundedCents,
+    chargeId
+  );
+
+  console.log(logPrefix, "rpc result", {
+    orderId,
+    eventId: event.id,
+    duplicate: rpcResult?.duplicate ?? null,
+    applied: rpcResult?.applied ?? null,
+    refundRequiresReturn: rpcResult?.refund_requires_return ?? null,
+    stockRestored: rpcResult?.stock_restored ?? null,
+  });
+
+  if (!shouldSendRefundNotifications(rpcResult)) {
+    return {
+      handled: true,
+      orderId,
+      duplicate: rpcResult?.duplicate === true,
+      applied: rpcResult?.applied === true,
+    };
+  }
+
+  const order = await fetchOrderById(env, orderId);
+  const item = await fetchFirstOrderItem(env, orderId);
+  const productName = item?.product_id
+    ? await fetchProductNameById(env, item.product_id)
+    : "Product";
+  const refundRequiresReturn = rpcResult?.refund_requires_return === true;
+
+  await notifyBuyerOrderRefunded(env, order, productName, refundRequiresReturn);
+  await notifySellerOrderRefunded(env, order, productName, refundRequiresReturn);
+
+  return {
+    handled: true,
+    orderId,
+    applied: true,
+    refundRequiresReturn,
+    stockRestored: rpcResult?.stock_restored === true,
+  };
 }
 
 async function releaseStockForExpiredCheckout(env, orderId) {
@@ -1010,11 +1264,17 @@ export async function handleStripeWebhook(request, env) {
         payoutReady: result.payoutReady,
       });
     } else if (event.type === "charge.refunded") {
-      const charge = event.data.object;
-      console.log(logPrefix, "charge.refunded", {
-        chargeId: charge?.id,
-        paymentIntent: charge?.payment_intent ?? null,
-      });
+      const result = await handleChargeRefunded(env, event);
+      console.log(logPrefix, "charge.refunded", result);
+    } else if (event.type === "refund.updated") {
+      const refund = event.data.object;
+      if (isRefundUpdatedFailed(refund)) {
+        console.log(logPrefix, "refund.updated failed (order unchanged)", {
+          refundId: refund?.id ?? null,
+          chargeId: refund?.charge ?? null,
+          paymentIntent: refund?.payment_intent ?? null,
+        });
+      }
     }
 
     return new Response(JSON.stringify({ received: true, type: event.type }), {

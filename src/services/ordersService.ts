@@ -321,16 +321,19 @@ export async function markSellerOrderAsShipped(
 
   const { data: existing, error: readError } = await supabase
     .from("orders")
-    .select("shipping_status")
+    .select("shipping_status, payment_status")
     .eq("id", orderId)
     .eq("seller_id", sellerId)
-    .maybeSingle<{ shipping_status: string }>();
+    .maybeSingle<{ shipping_status: string; payment_status: string }>();
 
   if (readError) {
     throw readError;
   }
   if (!existing) {
     throw new Error("Bestelling niet gevonden.");
+  }
+  if (existing.payment_status !== "paid") {
+    throw new Error("Deze bestelling kan niet meer als verzonden worden gemarkeerd.");
   }
   if (existing.shipping_status === "shipped" || existing.shipping_status === "delivered") {
     const { data, error } = await supabase
