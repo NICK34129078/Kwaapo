@@ -35,6 +35,7 @@ import {
   DoubleTapHeartAnimation,
   type DoubleTapHeartHandle,
 } from "./DoubleTapHeartAnimation";
+import { ReelPauseIndicator } from "./ReelPauseIndicator";
 import type { ProfilePostMediaItem } from "../types/userVideoPost";
 import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
@@ -186,6 +187,7 @@ type ReelImageCarouselProps = {
   dotsBottom: number;
   onCarouselDraggingChange?: (dragging: boolean) => void;
   onSlidePress?: (e: GestureResponderEvent) => void;
+  tapToPauseAudio?: boolean;
 };
 
 function ReelImageCarousel({
@@ -196,6 +198,7 @@ function ReelImageCarousel({
   dotsBottom,
   onCarouselDraggingChange,
   onSlidePress,
+  tapToPauseAudio = false,
 }: ReelImageCarouselProps) {
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -260,7 +263,11 @@ function ReelImageCarousel({
             style={{ width: pageWidth, height: pageHeight }}
             onPress={onSlidePress}
             accessibilityRole="button"
-            accessibilityLabel="Dubbel tik om te liken"
+            accessibilityLabel={
+              tapToPauseAudio
+                ? "Tik om audio te pauzeren, dubbel tik om te liken"
+                : "Dubbel tik om te liken"
+            }
           >
             <Image
               source={{ uri: slide.url }}
@@ -329,9 +336,11 @@ export function FeedItem({
     return Number.isNaN(parsed) ? 0 : parsed;
   });
   const [shopCardVisible, setShopCardVisible] = useState(true);
+  const [userPaused, setUserPaused] = useState(false);
 
   useEffect(() => {
     setShopCardVisible(true);
+    setUserPaused(false);
   }, [item.id]);
   const ownerLabel =
     item.ownerUsername && item.ownerUsername.length > 0
@@ -354,11 +363,20 @@ export function FeedItem({
   const activeVideoUri = item.videoUrl ?? "";
   const carouselSlides = useMemo(() => buildCarouselSlides(item), [item]);
   const asCarouselReel = carouselSlides.length > 0 && isCarouselReelItem(item);
+  const asStaticImageReel =
+    !asVideo &&
+    !asCarouselReel &&
+    typeof item.imageUrl === "string" &&
+    item.imageUrl.length > 0;
   const postAudioUrl =
     typeof item.audioUrl === "string" && item.audioUrl.length > 0
       ? item.audioUrl
       : null;
-  const hasPostAudio = postAudioUrl != null && (asCarouselReel || asVideo);
+  const hasPostAudio =
+    postAudioUrl != null &&
+    (asVideo || asCarouselReel || asStaticImageReel);
+  const supportsTapToPause =
+    asVideo || (hasPostAudio && (asCarouselReel || asStaticImageReel));
   // Video met eigen audio-overlay: video dempen zodat er geen dubbele audio is.
   // Op web spelen we de overlay-track niet af, dus daar houden we het videogeluid.
   const muteVideoForOverlay =
@@ -381,6 +399,12 @@ export function FeedItem({
 
   const captionText = (item.caption ?? "").trim();
   const isLongCaption = captionText.length > CAPTION_COLLAPSE_CHARS;
+
+  useEffect(() => {
+    if (!isActive) {
+      setUserPaused(false);
+    }
+  }, [isActive]);
 
   useEffect(() => {
     setCaptionExpanded(false);
@@ -490,21 +514,25 @@ export function FeedItem({
     }
   }, []);
 
-  // Web: exact één speler tegelijk — pauze, reset, daarna play bij actief
+  // Web: play/pause op actief + gebruikers-pauze
   useEffect(() => {
     if (Platform.OS !== "web" || !asVideo) return;
-    if (isActive) {
-      const v = webVideoRef.current;
-      if (!v) return;
-      v.muted = false;
-      const p = v.play();
-      if (p && typeof (p as Promise<unknown>).catch === "function") {
-        (p as Promise<unknown>).catch(() => {});
-      }
-    } else {
+    const v = webVideoRef.current;
+    if (!v) return;
+    if (!isActive) {
       stopWebPlayback();
+      return;
     }
-  }, [isActive, asVideo, stopWebPlayback]);
+    v.muted = muteVideoForOverlay;
+    if (userPaused) {
+      v.pause();
+      return;
+    }
+    const p = v.play();
+    if (p && typeof (p as Promise<unknown>).catch === "function") {
+      (p as Promise<unknown>).catch(() => {});
+    }
+  }, [isActive, userPaused, asVideo, muteVideoForOverlay, stopWebPlayback]);
 
   // Native: bij inactief expliciet pauze + seek 0; afspeel volgt `shouldPlay={isActive}`
   useEffect(() => {
@@ -580,12 +608,12 @@ export function FeedItem({
         if (postAudioStartMs > 0) {
           await sound.setPositionAsync(postAudioStartMs);
         }
-        if (isActive) {
+        if (isActive && !userPaused) {
           await sound.playAsync();
         }
       } catch (error) {
         if (__DEV__) {
-          console.warn("[FeedItem] carousel audio load failed", {
+          console.warn("[FeedItem] post audio load failed", {
             id: item.id,
             error,
           });
@@ -618,7 +646,7 @@ export function FeedItem({
     }
     void (async () => {
       try {
-        if (isActive) {
+        if (isActive && !userPaused) {
           await sound.playAsync();
         } else {
           await sound.pauseAsync();
@@ -627,7 +655,7 @@ export function FeedItem({
         /* playback state nog niet klaar */
       }
     })();
-  }, [hasPostAudio, isActive]);
+  }, [hasPostAudio, isActive, userPaused]);
 
   useEffect(() => {
     if (!hasPostAudio) {
@@ -1079,8 +1107,29 @@ export function FeedItem({
   }, [clickSource, item.id, item.linkedProduct, item.productUrl, navigation, user]);
 
   const lastMediaTapAtRef = useRef(0);
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const carouselDraggingRef = useRef(false);
   const heartAnimRef = useRef<DoubleTapHeartHandle | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (singleTapTimerRef.current) {
+        clearTimeout(singleTapTimerRef.current);
+      }
+    };
+  }, []);
+
+  const toggleUserPaused = useCallback(() => {
+    if (!supportsTapToPause) {
+      return;
+    }
+    setUserPaused((prev) => !prev);
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+        () => {}
+      );
+    }
+  }, [supportsTapToPause]);
 
   const onCarouselDraggingChange = useCallback((dragging: boolean) => {
     carouselDraggingRef.current = dragging;
@@ -1119,14 +1168,26 @@ export function FeedItem({
       }
       const now = Date.now();
       if (now - lastMediaTapAtRef.current <= DOUBLE_TAP_MS) {
+        if (singleTapTimerRef.current) {
+          clearTimeout(singleTapTimerRef.current);
+          singleTapTimerRef.current = null;
+        }
         lastMediaTapAtRef.current = 0;
         const ne = e?.nativeEvent;
         onDoubleTapLike(ne?.pageX, ne?.pageY);
         return;
       }
       lastMediaTapAtRef.current = now;
+
+      if (singleTapTimerRef.current) {
+        clearTimeout(singleTapTimerRef.current);
+      }
+      singleTapTimerRef.current = setTimeout(() => {
+        singleTapTimerRef.current = null;
+        toggleUserPaused();
+      }, DOUBLE_TAP_MS);
     },
-    [onDoubleTapLike]
+    [onDoubleTapLike, toggleUserPaused]
   );
 
   return (
@@ -1172,7 +1233,7 @@ export function FeedItem({
           source={{ uri: activeVideoUri }}
           style={StyleSheet.absoluteFill}
           resizeMode={ResizeMode.COVER}
-          shouldPlay={isActive}
+          shouldPlay={isActive && !userPaused}
           isLooping
           isMuted={!isActive || muteVideoForOverlay}
           useNativeControls={false}
@@ -1197,6 +1258,7 @@ export function FeedItem({
             dotsBottom={carouselDotsBottom}
             onCarouselDraggingChange={onCarouselDraggingChange}
             onSlidePress={onMediaAreaPress}
+            tapToPauseAudio={hasPostAudio}
           />
         </View>
       ) : !asVideo ? (
@@ -1216,19 +1278,19 @@ export function FeedItem({
         pointerEvents="none"
       />
 
-      {!asCarouselReel ? (
+      {supportsTapToPause && (asVideo || asStaticImageReel) ? (
         <Pressable
-          style={[
-            styles.mediaTapLayer,
-            {
-              bottom: reelsBottomInset + 72,
-              right: 72,
-            },
-          ]}
+          style={styles.mediaTapLayer}
           onPress={onMediaAreaPress}
           accessibilityRole="button"
-          accessibilityLabel="Dubbel tik om te liken"
+          accessibilityLabel={
+            userPaused ? "Tik om af te spelen" : "Tik om te pauzeren"
+          }
         />
+      ) : null}
+
+      {supportsTapToPause ? (
+        <ReelPauseIndicator visible={userPaused && isActive} />
       ) : null}
 
       <DoubleTapHeartAnimation ref={heartAnimRef} />
@@ -1479,6 +1541,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     alignItems: "center",
     gap: GROUP_GAP,
+    zIndex: 20,
+    elevation: 20,
   },
   railAction: {
     alignItems: "center",
@@ -1582,9 +1646,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.15,
   },
   mediaTapLayer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
+    ...StyleSheet.absoluteFillObject,
     zIndex: 8,
     elevation: 8,
   },

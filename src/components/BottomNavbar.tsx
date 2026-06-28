@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { PressableScale } from "./PressableScale";
 import { useSellerFulfillmentOptional } from "../context/SellerFulfillmentContext";
+import { useActivityNotificationsOptional } from "../context/ActivityNotificationsContext";
 
 /** Instagram-achtig: dunne witte lijnen, geen accentkleur in de balk. */
 const IG = {
@@ -63,10 +64,12 @@ export function BottomNavbar({
   const insets = useSafeAreaInsets();
   const bottomPad = Math.max(insets.bottom, 8);
   const fulfillment = useSellerFulfillmentOptional();
+  const activityNotifications = useActivityNotificationsOptional();
   const profileActionCount =
     fulfillment?.isBusinessSeller && fulfillment.actionCount > 0
       ? fulfillment.actionCount
       : 0;
+  const activityUnreadCount = activityNotifications?.unreadCount ?? 0;
 
   return (
     <View
@@ -105,6 +108,13 @@ export function BottomNavbar({
                 <View style={styles.tabBadge}>
                   <Text style={styles.tabBadgeText}>
                     {profileActionCount > 99 ? "99+" : profileActionCount}
+                  </Text>
+                </View>
+              ) : null}
+              {route.name === "Activity" && activityUnreadCount > 0 ? (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>
+                    {activityUnreadCount > 99 ? "99+" : activityUnreadCount}
                   </Text>
                 </View>
               ) : null}

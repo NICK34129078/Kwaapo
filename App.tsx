@@ -31,7 +31,9 @@ import { SellerTermsScreen } from "./src/screens/SellerTermsScreen";
 import { PolicyDocumentScreen } from "./src/screens/PolicyDocumentScreen";
 import { AccountDeletionScreen } from "./src/screens/AccountDeletionScreen";
 import { SellerFulfillmentProvider } from "./src/context/SellerFulfillmentContext";
+import { ActivityNotificationsProvider } from "./src/context/ActivityNotificationsContext";
 import { BottomNavbar } from "./src/components/BottomNavbar";
+import { ActivityInAppToast } from "./src/components/ActivityInAppToast";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { AuthPromptProvider } from "./src/context/AuthPromptContext";
 import { GlobalFeedProvider } from "./src/context/GlobalFeedContext";
@@ -105,6 +107,7 @@ function AppGate() {
   return (
     <AuthPromptProvider>
       <SellerFulfillmentProvider>
+      <ActivityNotificationsProvider>
       <LikesProvider>
         <GlobalFeedProvider>
           <UserUploadsProvider>
@@ -204,10 +207,12 @@ function AppGate() {
                   options={{ animation: "slide_from_right" }}
                 />
               </RootStack.Navigator>
+              <ActivityInAppToast />
             </NavigationContainer>
           </UserUploadsProvider>
         </GlobalFeedProvider>
       </LikesProvider>
+      </ActivityNotificationsProvider>
       </SellerFulfillmentProvider>
     </AuthPromptProvider>
   );

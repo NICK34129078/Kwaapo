@@ -16,7 +16,6 @@ import {
 } from "react-native";
 import { Video, ResizeMode } from "expo-av";
 import { useNavigation } from "@react-navigation/native";
-import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FeedItem, type FeedItemPlaybackMetrics } from "../components/FeedItem";
 import { useGlobalFeed } from "../context/GlobalFeedContext";
@@ -54,55 +53,46 @@ type AggregatedPlaybackMetrics = {
 
 function ReelsFeedTopBar() {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
   const { user } = useAuth();
   const { openAuthPrompt } = useAuthPrompt();
+
+  if (user) {
+    return null;
+  }
 
   return (
     <View
       style={[styles.feedTopBar, { paddingTop: insets.top + 6 }]}
       pointerEvents="box-none"
     >
-      <View style={styles.feedTopBarSide} />
-      {user ? (
+      <View style={styles.feedTopBarAuth}>
         <Pressable
-          style={styles.feedTopBarIconBtn}
-          onPress={() => navigation.navigate("Profile" as never)}
+          style={styles.feedTopBarAuthBtn}
+          onPress={() =>
+            openAuthPrompt({
+              message: "Welkom terug — log hieronder in.",
+            })
+          }
           accessibilityRole="button"
-          accessibilityLabel="Ga naar profiel"
+          accessibilityLabel="Inloggen"
         >
-          <Ionicons name="person-circle-outline" size={30} color={theme.text} />
+          <Text style={styles.feedTopBarAuthTxt}>Inloggen</Text>
         </Pressable>
-      ) : (
-        <View style={styles.feedTopBarAuth}>
-          <Pressable
-            style={styles.feedTopBarAuthBtn}
-            onPress={() =>
-              openAuthPrompt({
-                message: "Welkom terug — log hieronder in.",
-              })
-            }
-            accessibilityRole="button"
-            accessibilityLabel="Inloggen"
-          >
-            <Text style={styles.feedTopBarAuthTxt}>Inloggen</Text>
-          </Pressable>
-          <Pressable
-            style={styles.feedTopBarAuthBtn}
-            onPress={() =>
-              openAuthPrompt({
-                message: "Maak een account om te liken, reageren en te uploaden.",
-              })
-            }
-            accessibilityRole="button"
-            accessibilityLabel="Account maken"
-          >
-            <Text style={[styles.feedTopBarAuthTxt, styles.feedTopBarAuthAccent]}>
-              Account maken
-            </Text>
-          </Pressable>
-        </View>
-      )}
+        <Pressable
+          style={styles.feedTopBarAuthBtn}
+          onPress={() =>
+            openAuthPrompt({
+              message: "Maak een account om te liken, reageren en te uploaden.",
+            })
+          }
+          accessibilityRole="button"
+          accessibilityLabel="Account maken"
+        >
+          <Text style={[styles.feedTopBarAuthTxt, styles.feedTopBarAuthAccent]}>
+            Account maken
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -188,6 +178,9 @@ export function ReelsScreen() {
   const [activeReelId, setActiveReelId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const isFocused = useIsFocused();
+  const listRef = useRef<FlatList<FeedPost>>(null);
+  const wasFocusedBeforeTabPressRef = useRef(false);
+  const pendingHomeReselectRef = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -309,6 +302,45 @@ export function ReelsScreen() {
       setRefreshing(false);
     });
   }, [refreshGlobalFeed]);
+
+  const onHomeTabReselect = useCallback(() => {
+    pendingHomeReselectRef.current = true;
+    finalizeActiveView();
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    onPullRefresh();
+  }, [finalizeActiveView, onPullRefresh]);
+
+  useFocusEffect(
+    useCallback(() => {
+      wasFocusedBeforeTabPressRef.current = true;
+      return () => {
+        wasFocusedBeforeTabPressRef.current = false;
+      };
+    }, [])
+  );
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("tabPress", () => {
+      if (wasFocusedBeforeTabPressRef.current) {
+        onHomeTabReselect();
+      }
+    });
+    return unsubscribe;
+  }, [navigation, onHomeTabReselect]);
+
+  useEffect(() => {
+    if (!pendingHomeReselectRef.current || refreshing) {
+      return;
+    }
+    if (finalFeedData.length === 0) {
+      pendingHomeReselectRef.current = false;
+      setActiveReelId(null);
+      return;
+    }
+    pendingHomeReselectRef.current = false;
+    setActiveReelId(finalFeedData[0]!.id);
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [finalFeedData, refreshing]);
 
   useEffect(() => {
     if (isFocused) {
@@ -551,6 +583,7 @@ export function ReelsScreen() {
         </View>
       ) : (
         <FlatList
+          ref={listRef}
           data={finalFeedData}
           extraData={`${activeReelId}:${interactionRevision}`}
           renderItem={renderItem}
@@ -653,9 +686,6 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
     pointerEvents: "box-none",
   },
-  feedTopBarSide: {
-    flex: 1,
-  },
   feedTopBarAuth: {
     flexDirection: "row",
     alignItems: "center",
@@ -677,11 +707,6 @@ const styles = StyleSheet.create({
   },
   feedTopBarAuthAccent: {
     color: theme.accent,
-  },
-  feedTopBarIconBtn: {
-    padding: 6,
-    borderRadius: 20,
-    backgroundColor: "rgba(0,0,0,0.25)",
   },
   preloadBox: {
     position: "absolute",
