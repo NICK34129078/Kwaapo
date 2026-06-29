@@ -12,6 +12,7 @@ import { buildWorkerAuthHeaders } from "./workerRequest";
 import type { ProfilePostMediaItem, UserVideoPost } from "../types/userVideoPost";
 import type { Product } from "../types/product";
 import { fetchProductsByIds } from "./productsService";
+import { fetchMusicTracksByIds } from "./musicTracksService";
 import { logForYouControlledMix } from "../utils/feedRanking";
 
 /** Profiel (mijn uploads): vaste owner-handle. Globale feed: afgeleid van `user_id`. */
@@ -96,6 +97,7 @@ function audioFieldsFromRow(row: MaybePostRow): Pick<
   | "audioStartMs"
   | "audioVolume"
   | "audioDurationMs"
+  | "audioTrackId"
 > {
   const audioUrlRaw =
     typeof row.audio_url === "string"
@@ -105,8 +107,22 @@ function audioFieldsFromRow(row: MaybePostRow): Pick<
         : null;
   const audioUrl =
     audioUrlRaw && audioUrlRaw.trim().length > 0 ? audioUrlRaw.trim() : null;
-  if (!audioUrl) {
+  const trackIdRaw =
+    typeof row.audio_track_id === "string"
+      ? row.audio_track_id
+      : typeof (row as { audioTrackId?: string }).audioTrackId === "string"
+        ? (row as { audioTrackId?: string }).audioTrackId
+        : null;
+  const audioTrackId =
+    trackIdRaw && trackIdRaw.trim().length > 0 && isUuid(trackIdRaw.trim())
+      ? trackIdRaw.trim()
+      : undefined;
+
+  if (!audioUrl && !audioTrackId) {
     return {};
+  }
+  if (!audioUrl) {
+    return { audioTrackId };
   }
 
   const audioTitle =
@@ -146,6 +162,7 @@ function audioFieldsFromRow(row: MaybePostRow): Pick<
     audioStartMs,
     audioVolume,
     audioDurationMs,
+    ...(audioTrackId ? { audioTrackId } : {}),
   };
 }
 
@@ -514,6 +531,36 @@ async function fetchPostMediaByPostIds(
   return map;
 }
 
+async function attachMusicThumbsToPosts(
+  posts: UserVideoPost[]
+): Promise<UserVideoPost[]> {
+  const trackIds = posts
+    .map((post) => post.audioTrackId)
+    .filter((id): id is string => typeof id === "string" && isUuid(id));
+  if (trackIds.length === 0) {
+    return posts;
+  }
+
+  const tracksById = await fetchMusicTracksByIds(trackIds);
+  if (tracksById.size === 0) {
+    return posts;
+  }
+
+  return posts.map((post) => {
+    if (!post.audioTrackId) {
+      return post;
+    }
+    const track = tracksById.get(post.audioTrackId);
+    if (!track?.coverUrl) {
+      return post;
+    }
+    return {
+      ...post,
+      musicThumbUrl: track.coverUrl,
+    };
+  });
+}
+
 async function attachLinkedProductsToPosts(
   posts: UserVideoPost[]
 ): Promise<UserVideoPost[]> {
@@ -572,7 +619,7 @@ async function mapWorkerPostsToUserVideoPosts(
   const mapped = normalized.map((row) =>
     mapRowToUserVideoPost(row, scope, ownerProfilesById.get(row.user_id), mediaByPostId)
   );
-  return attachLinkedProductsToPosts(mapped);
+  return attachMusicThumbsToPosts(await attachLinkedProductsToPosts(mapped));
 }
 
 async function fetchOwnerProfilesByIds(
@@ -655,7 +702,7 @@ async function mapSupabasePostRowsToUserVideoPosts(
   const mapped = normalized.map((row) =>
     mapRowToUserVideoPost(row, scope, ownerProfilesById.get(row.user_id), mediaByPostId)
   );
-  return attachLinkedProductsToPosts(mapped);
+  return attachMusicThumbsToPosts(await attachLinkedProductsToPosts(mapped));
 }
 
 /**
@@ -708,7 +755,9 @@ export function userVideoPostFromPostRow(
 export async function enrichPostWithLinkedProduct(
   post: UserVideoPost
 ): Promise<UserVideoPost> {
-  const [enriched] = await attachLinkedProductsToPosts([post]);
+  const [enriched] = await attachMusicThumbsToPosts(
+    await attachLinkedProductsToPosts([post])
+  );
   return enriched;
 }
 
@@ -833,6 +882,29 @@ export async function fetchPostsByProductId(
     .select("*")
     .eq("is_deleted", false)
     .eq("product_id", productId)
+    .order("created_at", { ascending: false })
+    .limit(cap);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return mapSupabasePostRowsToGlobalUserVideoPosts(data ?? []);
+}
+
+export async function fetchPostsByAudioTrackId(
+  trackId: string,
+  limit = 24
+): Promise<UserVideoPost[]> {
+  if (!isUuid(trackId)) {
+    return [];
+  }
+  const cap = Math.min(Math.max(1, limit), 60);
+  const { data, error } = await supabase
+    .from("posts")
+    .select("*")
+    .eq("is_deleted", false)
+    .eq("audio_track_id", trackId)
     .order("created_at", { ascending: false })
     .limit(cap);
 

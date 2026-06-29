@@ -54,6 +54,8 @@ export type FeedPost = {
   audioStartMs?: number;
   audioVolume?: number;
   audioDurationMs?: number | null;
+  /** FK naar music_tracks wanneer audio via Spotify/bibliotheek is gekozen. */
+  audioTrackId?: string;
   /** Avatar naast naam (optioneel; anders gegenereerde placeholder). */
   avatarUrl?: string;
   /** Genormaliseerde hashtags (zonder #), uit `public.posts.tags`. */

@@ -1,8 +1,17 @@
-import React, { useCallback } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../constants/theme";
+import type { SpotifyTrackResult } from "../services/spotifyService";
 
 export const AUDIO_VOLUME_LOW = 0.35;
 export const AUDIO_VOLUME_NORMAL = 0.7;
@@ -19,23 +28,37 @@ const VOLUME_PRESETS: VolumePreset[] = [
   { label: "Hoog", value: AUDIO_VOLUME_HIGH },
 ];
 
+type AudioMode = "none" | "local" | "spotify";
+
 type Props = {
   selectedUri: string | null;
   selectedName: string | null;
+  selectedSpotifyTrack: SpotifyTrackResult | null;
   volume: number;
-  onSelected: (uri: string, name: string) => void;
-  onClear: () => void;
+  onLocalSelected: (uri: string, name: string) => void;
+  onLocalClear: () => void;
+  onSpotifyClear: () => void;
   onVolumeChange: (volume: number) => void;
+  onOpenSpotifyPicker: (query?: string) => void;
 };
 
 export function AudioPickerCard({
   selectedUri,
   selectedName,
+  selectedSpotifyTrack,
   volume,
-  onSelected,
-  onClear,
+  onLocalSelected,
+  onLocalClear,
+  onSpotifyClear,
   onVolumeChange,
+  onOpenSpotifyPicker,
 }: Props) {
+  const mode: AudioMode = selectedSpotifyTrack
+    ? "spotify"
+    : selectedUri
+      ? "local"
+      : "none";
+
   const handlePickAudio = useCallback(async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -55,51 +78,95 @@ export function AudioPickerCard({
 
       const name =
         asset.name && asset.name.length > 0 ? asset.name : "Eigen audio";
-      onSelected(asset.uri, name);
+      onLocalSelected(asset.uri, name);
     } catch {
       Alert.alert(
         "Audio kiezen mislukt",
         "Probeer het opnieuw of plaats je post zonder audio."
       );
     }
-  }, [onSelected]);
+  }, [onLocalSelected]);
 
-  const hasAudio = !!selectedUri;
+  const handleClear = useCallback(() => {
+    if (mode === "spotify") {
+      onSpotifyClear();
+    } else {
+      onLocalClear();
+    }
+  }, [mode, onLocalClear, onSpotifyClear]);
+
+  const hasAudio = mode !== "none";
 
   return (
     <View style={styles.card}>
       <Text style={styles.title}>Muziek toevoegen</Text>
+
       {!hasAudio ? (
         <>
           <Text style={styles.helper}>
-            Voeg optioneel eigen audio toe aan je post.
+            Voeg optioneel eigen audio of een Spotify-preview toe.
           </Text>
+          <View style={styles.modeRow}>
+            <Pressable
+              style={styles.modeButton}
+              onPress={() => {
+                void handlePickAudio();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Eigen audio kiezen"
+            >
+              <Ionicons name="folder-open-outline" size={18} color={theme.bg} />
+              <Text style={styles.modeButtonText}>Eigen audio</Text>
+            </Pressable>
+          </View>
+          <View style={styles.spotifySearchRow}>
+            <Ionicons name="search" size={18} color={theme.textMuted} />
+            <TextInput
+              style={styles.spotifySearchInput}
+              placeholder="Zoek op Spotify (bijv. Drake)"
+              placeholderTextColor={theme.textMuted}
+              autoCorrect={false}
+              autoCapitalize="none"
+              returnKeyType="search"
+              onFocus={() => onOpenSpotifyPicker()}
+              onChangeText={(text) => {
+                if (text.trim().length >= 2) {
+                  onOpenSpotifyPicker(text);
+                }
+              }}
+              onSubmitEditing={(e) => onOpenSpotifyPicker(e.nativeEvent.text)}
+            />
+            <Ionicons name="musical-notes-outline" size={18} color={theme.accent} />
+          </View>
           <Text style={styles.legal}>
-            Gebruik alleen audio waarvoor je toestemming hebt.
+            Gebruik alleen audio waarvoor je toestemming hebt. Spotify: alleen
+            previewfragmenten.
           </Text>
-          <Pressable
-            style={styles.pickButton}
-            onPress={() => {
-              void handlePickAudio();
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Audio kiezen"
-          >
-            <Ionicons name="musical-notes-outline" size={18} color={theme.bg} />
-            <Text style={styles.pickButtonText}>Audio kiezen</Text>
-          </Pressable>
         </>
       ) : (
         <>
           <View style={styles.selectedRow}>
-            <View style={styles.iconWrap}>
-              <Ionicons name="musical-notes" size={22} color={theme.accent} />
-            </View>
+            {mode === "spotify" && selectedSpotifyTrack?.coverUrl ? (
+              <Image
+                source={{ uri: selectedSpotifyTrack.coverUrl }}
+                style={styles.cover}
+              />
+            ) : (
+              <View style={styles.iconWrap}>
+                <Ionicons name="musical-notes" size={22} color={theme.accent} />
+              </View>
+            )}
             <View style={styles.selectedInfo}>
               <Text style={styles.fileName} numberOfLines={2}>
-                {selectedName ?? "Eigen audio"}
+                {mode === "spotify"
+                  ? selectedSpotifyTrack?.title ?? "Spotify-nummer"
+                  : selectedName ?? "Eigen audio"}
               </Text>
-              <Text style={styles.sourceLabel}>Eigen audio</Text>
+              <Text style={styles.sourceLabel}>
+                {mode === "spotify"
+                  ? selectedSpotifyTrack?.artist ?? "Spotify"
+                  : "Eigen audio"}
+              </Text>
             </View>
           </View>
           <Text style={styles.volumeLabel}>Volume</Text>
@@ -128,7 +195,7 @@ export function AudioPickerCard({
           </View>
           <Pressable
             style={styles.removeButton}
-            onPress={onClear}
+            onPress={handleClear}
             accessibilityRole="button"
             accessibilityLabel="Audio verwijderen"
           >
@@ -136,6 +203,7 @@ export function AudioPickerCard({
           </Pressable>
         </>
       )}
+
     </View>
   );
 }
@@ -152,7 +220,6 @@ const styles = StyleSheet.create({
     gap: 8,
     width: "100%",
     alignSelf: "stretch",
-    overflow: "hidden",
   },
   title: {
     color: theme.text,
@@ -176,8 +243,13 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     flexWrap: "wrap",
   },
-  pickButton: {
+  modeRow: {
+    flexDirection: "row",
+    gap: 8,
     marginTop: 4,
+  },
+  modeButton: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -186,8 +258,42 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: theme.accent,
   },
-  pickButtonText: {
+  modeButtonText: {
     color: theme.bg,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  spotifySearchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    backgroundColor: theme.bg,
+  },
+  spotifySearchInput: {
+    flex: 1,
+    color: theme.text,
+    fontSize: 14,
+    paddingVertical: 0,
+  },
+  modeButtonSecondary: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.accent,
+    backgroundColor: theme.accentSoft,
+  },
+  modeButtonSecondaryText: {
+    color: theme.accent,
     fontSize: 14,
     fontWeight: "800",
   },
@@ -214,6 +320,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: theme.accentSoft,
+    flexShrink: 0,
+  },
+  cover: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: theme.bg,
     flexShrink: 0,
   },
   fileName: {

@@ -1,166 +1,126 @@
-{
-  "version": 1,
-  "lastUpdated": "2026-06-27T13:57:00+02:00",
-  "transcripts": {
-    "09a9011b-27fc-4dde-b164-5f2a78e57529": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\09a9011b-27fc-4dde-b164-5f2a78e57529\\09a9011b-27fc-4dde-b164-5f2a78e57529.jsonl",
-      "mtime": "2026-05-05T22:33:20.9132577+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "0cf9bfdd-4b87-42ed-9e5f-2c55ebf703a8": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\0cf9bfdd-4b87-42ed-9e5f-2c55ebf703a8\\0cf9bfdd-4b87-42ed-9e5f-2c55ebf703a8.jsonl",
-      "mtime": "2026-06-27T13:57:14.8313737+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "15150f73-59de-4bd1-ae23-aa6821cd8d6f": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\15150f73-59de-4bd1-ae23-aa6821cd8d6f\\15150f73-59de-4bd1-ae23-aa6821cd8d6f.jsonl",
-      "mtime": "2026-06-22T17:54:23.6906884+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "168ac1ae-0281-4752-a088-0b73f2020cae": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\168ac1ae-0281-4752-a088-0b73f2020cae\\168ac1ae-0281-4752-a088-0b73f2020cae.jsonl",
-      "mtime": "2026-05-11T22:35:01.8292163+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "176ae58c-9497-43e5-8188-0e8865fe2374": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\176ae58c-9497-43e5-8188-0e8865fe2374\\176ae58c-9497-43e5-8188-0e8865fe2374.jsonl",
-      "mtime": "2026-05-15T20:41:24.4328348+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "219cf538-47bb-43ec-9bf0-8cfe8522c765": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\219cf538-47bb-43ec-9bf0-8cfe8522c765\\219cf538-47bb-43ec-9bf0-8cfe8522c765.jsonl",
-      "mtime": "2026-06-15T18:18:05.8578958+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "237fe04b-ab5b-4cb7-9a57-cfb5d12cf9a3": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\237fe04b-ab5b-4cb7-9a57-cfb5d12cf9a3\\237fe04b-ab5b-4cb7-9a57-cfb5d12cf9a3.jsonl",
-      "mtime": "2026-06-21T00:00:35.0087455+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "23fd2d73-2d10-47a2-971f-4ee725af99e5": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\23fd2d73-2d10-47a2-971f-4ee725af99e5\\23fd2d73-2d10-47a2-971f-4ee725af99e5.jsonl",
-      "mtime": "2026-05-17T21:09:32.4145141+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "2a8302b0-03bf-4598-8dc4-1e176b1f3664": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\2a8302b0-03bf-4598-8dc4-1e176b1f3664\\2a8302b0-03bf-4598-8dc4-1e176b1f3664.jsonl",
-      "mtime": "2026-05-09T01:22:56.0390786+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "32f2a60c-b531-4a2b-b108-27f51847bd70": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\32f2a60c-b531-4a2b-b108-27f51847bd70\\32f2a60c-b531-4a2b-b108-27f51847bd70.jsonl",
-      "mtime": "2026-04-15T20:07:06.2643733+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "3975c46f-6f1c-48d3-8dde-a8b854868878": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\3975c46f-6f1c-48d3-8dde-a8b854868878\\3975c46f-6f1c-48d3-8dde-a8b854868878.jsonl",
-      "mtime": "2026-05-03T00:04:05.6515169+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "3a1f8ca6-24d3-4997-a125-bd811408eab0": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\3a1f8ca6-24d3-4997-a125-bd811408eab0\\3a1f8ca6-24d3-4997-a125-bd811408eab0.jsonl",
-      "mtime": "2026-06-24T18:40:29.1229758+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "40d7df36-ea8b-4da1-b344-d2ba3dc035db": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\40d7df36-ea8b-4da1-b344-d2ba3dc035db\\40d7df36-ea8b-4da1-b344-d2ba3dc035db.jsonl",
-      "mtime": "2026-04-16T20:01:47.2280095+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "41567486-b90c-48cc-b066-8f3197703e95": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\41567486-b90c-48cc-b066-8f3197703e95\\41567486-b90c-48cc-b066-8f3197703e95.jsonl",
-      "mtime": "2026-05-04T22:04:24.3867110+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "43723b26-80c1-4594-b8ca-f1359d4c0895": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\43723b26-80c1-4594-b8ca-f1359d4c0895\\43723b26-80c1-4594-b8ca-f1359d4c0895.jsonl",
-      "mtime": "2026-05-02T23:06:40.6601411+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "472d9e8f-67c4-43f7-9e1d-35a2068119b5": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\472d9e8f-67c4-43f7-9e1d-35a2068119b5\\472d9e8f-67c4-43f7-9e1d-35a2068119b5.jsonl",
-      "mtime": "2026-04-10T22:47:44.4461245+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "4d9582bf-25d0-43c4-84e9-e5335bc915e2": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\4d9582bf-25d0-43c4-84e9-e5335bc915e2\\4d9582bf-25d0-43c4-84e9-e5335bc915e2.jsonl",
-      "mtime": "2026-04-27T15:46:00.5954699+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "534a9466-a959-4a2a-a240-6c046f9f1eb3": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\534a9466-a959-4a2a-a240-6c046f9f1eb3\\534a9466-a959-4a2a-a240-6c046f9f1eb3.jsonl",
-      "mtime": "2026-04-28T20:58:03.6138443+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "5875f486-0ce2-4dfc-9cb6-a1126c5c4aa0": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\5875f486-0ce2-4dfc-9cb6-a1126c5c4aa0\\5875f486-0ce2-4dfc-9cb6-a1126c5c4aa0.jsonl",
-      "mtime": "2026-04-20T19:59:08.9563326+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "5b013f33-fe4b-4e8f-b110-c553d8cec0cc": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\5b013f33-fe4b-4e8f-b110-c553d8cec0cc\\5b013f33-fe4b-4e8f-b110-c553d8cec0cc.jsonl",
-      "mtime": "2026-06-02T20:26:06.2580390+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "687fcff4-2291-4563-9661-3582f71b72f1": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\687fcff4-2291-4563-9661-3582f71b72f1\\687fcff4-2291-4563-9661-3582f71b72f1.jsonl",
-      "mtime": "2026-04-19T05:18:43.8761880+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "696856a4-2232-4156-a4e9-6126fdc433c5": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\696856a4-2232-4156-a4e9-6126fdc433c5\\696856a4-2232-4156-a4e9-6126fdc433c5.jsonl",
-      "mtime": "2026-06-22T17:52:09.4871843+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "7a1f212c-0511-479a-9a2b-e4926a377852": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\7a1f212c-0511-479a-9a2b-e4926a377852\\7a1f212c-0511-479a-9a2b-e4926a377852.jsonl",
-      "mtime": "2026-05-01T23:00:10.5002930+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "7fde171b-b65e-427a-b869-50378535884c": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\7fde171b-b65e-427a-b869-50378535884c\\7fde171b-b65e-427a-b869-50378535884c.jsonl",
-      "mtime": "2026-05-15T23:05:19.0745231+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "8f02137d-9af1-4cc7-81cc-644cf748e5a5": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\8f02137d-9af1-4cc7-81cc-644cf748e5a5\\8f02137d-9af1-4cc7-81cc-644cf748e5a5.jsonl",
-      "mtime": "2026-04-25T23:18:26.9049034+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "ab7ba814-82c6-4e60-b192-e48d3df7ddeb": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\ab7ba814-82c6-4e60-b192-e48d3df7ddeb\\ab7ba814-82c6-4e60-b192-e48d3df7ddeb.jsonl",
-      "mtime": "2026-04-09T21:53:34.2706601+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "b1d82737-0c8a-4def-b806-e4dd790b1bb6": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\b1d82737-0c8a-4def-b806-e4dd790b1bb6\\b1d82737-0c8a-4def-b806-e4dd790b1bb6.jsonl",
-      "mtime": "2026-04-12T22:37:55.7709024+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "c2bc8302-2fa5-45b9-94e2-0a3597abf5c4": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\c2bc8302-2fa5-45b9-94e2-0a3597abf5c4\\c2bc8302-2fa5-45b9-94e2-0a3597abf5c4.jsonl",
-      "mtime": "2026-05-02T02:58:07.0462907+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "ca4a9a1e-44c5-4b56-83f9-b485fcbdeba9": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\ca4a9a1e-44c5-4b56-83f9-b485fcbdeba9\\ca4a9a1e-44c5-4b56-83f9-b485fcbdeba9.jsonl",
-      "mtime": "2026-05-28T20:39:04.3105571+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "d6e0a3fd-0903-4e0d-963e-245143e82d3e": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\d6e0a3fd-0903-4e0d-963e-245143e82d3e\\d6e0a3fd-0903-4e0d-963e-245143e82d3e.jsonl",
-      "mtime": "2026-06-20T23:47:26.9090917+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "e187a3f2-8b64-4907-ace0-366d5bb65536": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\e187a3f2-8b64-4907-ace0-366d5bb65536\\e187a3f2-8b64-4907-ace0-366d5bb65536.jsonl",
-      "mtime": "2026-05-10T22:41:06.1226453+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    },
-    "ea5a301e-38aa-4df5-8260-ec1c282b27bd": {
-      "path": "C:\\Users\\nvand\\.cursor\\projects\\c-Users-nvand-Documents-Cursor-Projecten-Sociaal-media-app-Cursor\\agent-transcripts\\ea5a301e-38aa-4df5-8260-ec1c282b27bd\\ea5a301e-38aa-4df5-8260-ec1c282b27bd.jsonl",
-      "mtime": "2026-05-28T20:37:05.6520386+02:00",
-      "processedAt": "2026-06-27T13:57:00+02:00"
-    }
-  }
+﻿{
+    "transcripts":  {
+                        "52592f33-3f8b-437c-92f7-43e31b39807d":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\52592f33-3f8b-437c-92f7-43e31b39807d\\52592f33-3f8b-437c-92f7-43e31b39807d.jsonl",
+                                                                     "mtime":  "2026-06-06T21:00:39.7873849+02:00"
+                                                                 },
+                        "ee41cdc2-13b0-4efb-9359-ba8e12d534ab":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\ee41cdc2-13b0-4efb-9359-ba8e12d534ab\\ee41cdc2-13b0-4efb-9359-ba8e12d534ab.jsonl",
+                                                                     "mtime":  "2026-06-24T17:51:09.5276692+02:00"
+                                                                 },
+                        "6b8ba36a-8bf9-43f6-8fa2-561f71999cc5":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\2e387186-4e4d-4927-8671-571f8263f03e\\subagents\\6b8ba36a-8bf9-43f6-8fa2-561f71999cc5.jsonl",
+                                                                     "mtime":  "2026-06-28T14:30:54.6681423+02:00"
+                                                                 },
+                        "126850f7-66cd-40cc-aedd-7a383352a186":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\27da7cea-5678-4bd5-8d43-e79f322edf67\\subagents\\126850f7-66cd-40cc-aedd-7a383352a186.jsonl",
+                                                                     "mtime":  "2026-06-24T16:16:47.9038942+02:00"
+                                                                 },
+                        "5c76b107-825b-466f-bb9a-c0414ba59d58":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\75fedf2d-68ba-47bf-b671-bf62cc697f55\\subagents\\5c76b107-825b-466f-bb9a-c0414ba59d58.jsonl",
+                                                                     "mtime":  "2026-06-24T17:16:23.2623606+02:00"
+                                                                 },
+                        "959221ff-6734-44c8-8522-09fe6ce53f97":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\959221ff-6734-44c8-8522-09fe6ce53f97\\959221ff-6734-44c8-8522-09fe6ce53f97.jsonl",
+                                                                     "mtime":  "2026-06-24T15:50:12.1445861+02:00"
+                                                                 },
+                        "d6636231-3eb6-4722-9dcf-d181b06cd5a3":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\2e387186-4e4d-4927-8671-571f8263f03e\\subagents\\d6636231-3eb6-4722-9dcf-d181b06cd5a3.jsonl",
+                                                                     "mtime":  "2026-06-28T13:25:09.8989616+02:00"
+                                                                 },
+                        "746b8a57-b5d2-4144-854a-b167c6ef25b3":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\746b8a57-b5d2-4144-854a-b167c6ef25b3\\746b8a57-b5d2-4144-854a-b167c6ef25b3.jsonl",
+                                                                     "mtime":  "2026-06-28T13:15:43.8626445+02:00"
+                                                                 },
+                        "fcd4395a-dac0-4ec5-adb8-d29796df7fb0":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\fcd4395a-dac0-4ec5-adb8-d29796df7fb0\\fcd4395a-dac0-4ec5-adb8-d29796df7fb0.jsonl",
+                                                                     "mtime":  "2026-06-24T15:39:02.6980601+02:00"
+                                                                 },
+                        "aee0b314-45a0-4057-8e7f-f223eb6fd6d0":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\27da7cea-5678-4bd5-8d43-e79f322edf67\\subagents\\aee0b314-45a0-4057-8e7f-f223eb6fd6d0.jsonl",
+                                                                     "mtime":  "2026-06-24T16:17:05.6335578+02:00"
+                                                                 },
+                        "27da7cea-5678-4bd5-8d43-e79f322edf67":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\27da7cea-5678-4bd5-8d43-e79f322edf67\\27da7cea-5678-4bd5-8d43-e79f322edf67.jsonl",
+                                                                     "mtime":  "2026-06-24T17:02:49.3841833+02:00"
+                                                                 },
+                        "aca94743-dace-4d45-974e-2c22012a4ef6":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\aca94743-dace-4d45-974e-2c22012a4ef6\\aca94743-dace-4d45-974e-2c22012a4ef6.jsonl",
+                                                                     "mtime":  "2026-06-02T20:29:16.6921897+02:00"
+                                                                 },
+                        "2e387186-4e4d-4927-8671-571f8263f03e":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\2e387186-4e4d-4927-8671-571f8263f03e\\2e387186-4e4d-4927-8671-571f8263f03e.jsonl",
+                                                                     "mtime":  "2026-06-28T14:30:51.0952977+02:00"
+                                                                 },
+                        "2f2a9345-62a2-4fe3-9d45-1504ab6d11c6":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\2f2a9345-62a2-4fe3-9d45-1504ab6d11c6\\2f2a9345-62a2-4fe3-9d45-1504ab6d11c6.jsonl",
+                                                                     "mtime":  "2026-06-04T12:07:09.0932136+02:00"
+                                                                 },
+                        "b98955a4-d18a-40fc-aa12-ff821a1451b9":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\2e387186-4e4d-4927-8671-571f8263f03e\\subagents\\b98955a4-d18a-40fc-aa12-ff821a1451b9.jsonl",
+                                                                     "mtime":  "2026-06-28T13:24:48.5146570+02:00"
+                                                                 },
+                        "45ae41ec-c396-4da0-ab28-793c3c0770fe":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\45ae41ec-c396-4da0-ab28-793c3c0770fe\\45ae41ec-c396-4da0-ab28-793c3c0770fe.jsonl",
+                                                                     "mtime":  "2026-06-10T17:24:51.3509758+02:00"
+                                                                 },
+                        "49acd8d8-993d-4a45-b0f3-219fa3fb97f4":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\e98e2051-8087-4762-85f2-90e16b39bf2f\\subagents\\49acd8d8-993d-4a45-b0f3-219fa3fb97f4.jsonl",
+                                                                     "mtime":  "2026-06-24T17:53:17.4869899+02:00"
+                                                                 },
+                        "75fedf2d-68ba-47bf-b671-bf62cc697f55":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\75fedf2d-68ba-47bf-b671-bf62cc697f55\\75fedf2d-68ba-47bf-b671-bf62cc697f55.jsonl",
+                                                                     "mtime":  "2026-06-24T17:20:54.2745926+02:00"
+                                                                 },
+                        "c2f24664-6d89-4740-800b-d36c822e6939":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\c2f24664-6d89-4740-800b-d36c822e6939\\c2f24664-6d89-4740-800b-d36c822e6939.jsonl",
+                                                                     "mtime":  "2026-06-10T14:38:30.1330756+02:00"
+                                                                 },
+                        "70f17a29-3d63-4663-9c02-a30d354a45a5":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\70f17a29-3d63-4663-9c02-a30d354a45a5\\70f17a29-3d63-4663-9c02-a30d354a45a5.jsonl",
+                                                                     "mtime":  "2026-06-24T15:12:39.1282346+02:00"
+                                                                 },
+                        "e98e2051-8087-4762-85f2-90e16b39bf2f":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\e98e2051-8087-4762-85f2-90e16b39bf2f\\e98e2051-8087-4762-85f2-90e16b39bf2f.jsonl",
+                                                                     "mtime":  "2026-06-25T12:43:47.6497222+02:00"
+                                                                 },
+                        "b0325d7d-f0cc-40f2-98de-3c8d3ba643a2":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\2e387186-4e4d-4927-8671-571f8263f03e\\subagents\\b0325d7d-f0cc-40f2-98de-3c8d3ba643a2.jsonl",
+                                                                     "mtime":  "2026-06-28T13:24:33.4012782+02:00"
+                                                                 },
+                        "cf4d674c-5ec3-4ee9-9e9c-0307c3a78779":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\cf4d674c-5ec3-4ee9-9e9c-0307c3a78779\\cf4d674c-5ec3-4ee9-9e9c-0307c3a78779.jsonl",
+                                                                     "mtime":  "2026-06-06T20:26:13.7195386+02:00"
+                                                                 },
+                        "99ba6c5a-f6fa-430b-8475-0e3f74d55ff1":  {
+                                                                     "processedAt":  "2026-06-28T14:32:23.7422660+02:00",
+                                                                     "path":  "C:\\Users\\julez\\.cursor\\projects\\c-Users-julez-OneDrive-Documenten-GitHub-Kwaapo\\agent-transcripts\\99ba6c5a-f6fa-430b-8475-0e3f74d55ff1\\99ba6c5a-f6fa-430b-8475-0e3f74d55ff1.jsonl",
+                                                                     "mtime":  "2026-05-02T01:47:21.9818119+02:00"
+                                                                 }
+                    },
+    "lastUpdated":  "2026-06-28T14:32:23.7422660+02:00",
+    "version":  1
 }

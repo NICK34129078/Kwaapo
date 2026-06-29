@@ -11,6 +11,9 @@
  *   - WORKER_PUBLIC_URL          optional HTTPS base for Stripe Connect return/refresh links
  *   - KVK_API_KEY                KVK Handelsregister API key (test key ok for KVK_API_BASE test URL)
  *   - KVK_API_BASE               optional (default https://api.kvk.nl/api/v1; test: https://api.kvk.nl/test/api/v1)
+ *   - SPOTIFY_CLIENT_ID          Spotify Web API app (Client Credentials)
+ *   - SPOTIFY_CLIENT_SECRET
+ *   - SPOTIFY_MARKET             optional ISO market for search (default NL)
  *
  * Local dev: .dev.vars with the same names (not committed; see .dev.vars.example)
  */
@@ -32,6 +35,10 @@ import {
   handleStripeConnectStatus,
 } from "./worker-stripe-connect.js";
 import { handleKvkVerify } from "./worker-kvk.js";
+import {
+  handleSpotifyResolveTrack,
+  handleSpotifySearch,
+} from "./worker-spotify.js";
 import { requireAuthUser } from "./worker-auth.js";
 
 const cors = {
@@ -345,7 +352,7 @@ async function handleUploadComplete(request, env) {
     productBrand: body.productBrand,
     productPriceText: body.productPriceText,
   };
-  const audioFields = sanitizeVideoAudioFromBody(env, body);
+  const audioFields = await sanitizeVideoAudioFromBody(env, body);
   try {
     const post = await insertPostRow(
       env,
@@ -543,6 +550,71 @@ function emptyPostAudioFields() {
     audio_start_ms: 0,
     audio_volume: 1,
     audio_duration_ms: null,
+    audio_track_id: null,
+  };
+}
+
+/**
+ * Trusted Spotify / external library track via music_tracks FK (client stuurt geen raw URL).
+ * @param {any} env
+ * @param {string} trackId
+ * @param {(key: string) => unknown} get
+ */
+async function resolveAudioFromTrackId(env, trackId, get) {
+  const rows = await supabaseRequest(
+    env,
+    "GET",
+    `/music_tracks?id=eq.${trackId}&is_active=eq.true&select=id,title,artist,audio_url,duration_ms,external_provider`
+  );
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (
+    !row ||
+    row.external_provider !== "spotify" ||
+    typeof row.audio_url !== "string" ||
+    row.audio_url.trim().length === 0
+  ) {
+    return emptyPostAudioFields();
+  }
+
+  const volumeRaw = get("audioVolume");
+  let audioVolume = 0.7;
+  if (typeof volumeRaw === "string" || typeof volumeRaw === "number") {
+    const n = Number(volumeRaw);
+    if (Number.isFinite(n)) {
+      audioVolume = Math.min(1, Math.max(0, n));
+    }
+  }
+
+  const startRaw = get("audioStartMs");
+  let audioStartMs = 0;
+  if (typeof startRaw === "string" || typeof startRaw === "number") {
+    const n = Number(startRaw);
+    if (Number.isFinite(n) && n >= 0) {
+      audioStartMs = Math.floor(n);
+    }
+  }
+
+  const title =
+    typeof row.title === "string" && row.title.trim().length > 0
+      ? row.title.trim().slice(0, 120)
+      : "Onbekend nummer";
+  const artist =
+    typeof row.artist === "string" && row.artist.trim().length > 0
+      ? row.artist.trim().slice(0, 120)
+      : null;
+
+  return {
+    audio_url: row.audio_url.trim(),
+    audio_title: title,
+    audio_artist: artist,
+    audio_source: "external",
+    audio_start_ms: audioStartMs,
+    audio_volume: audioVolume,
+    audio_duration_ms:
+      typeof row.duration_ms === "number" && row.duration_ms > 0
+        ? Math.floor(row.duration_ms)
+        : null,
+    audio_track_id: row.id,
   };
 }
 
@@ -550,9 +622,18 @@ function emptyPostAudioFields() {
  * Generieke audio-sanitizer voor zowel foto-carousel (FormData) als video (JSON).
  * @param {any} env
  * @param {(key: string) => unknown} get
- * @returns {Record<string, unknown>}
+ * @returns {Promise<Record<string, unknown>>}
  */
-function sanitizePostAudioFields(env, get) {
+async function sanitizePostAudioFields(env, get) {
+  const trackIdRaw = get("audioTrackId");
+  if (
+    typeof trackIdRaw === "string" &&
+    trackIdRaw.trim().length > 0 &&
+    isStandardUuid(trackIdRaw.trim())
+  ) {
+    return resolveAudioFromTrackId(env, trackIdRaw.trim(), get);
+  }
+
   const url = sanitizePostAudioUrl(env, get("audioUrl"));
   if (!url) {
     return emptyPostAudioFields();
@@ -611,24 +692,25 @@ function sanitizePostAudioFields(env, get) {
     audio_start_ms: audioStartMs,
     audio_volume: audioVolume,
     audio_duration_ms: audioDurationMs,
+    audio_track_id: null,
   };
 }
 
 /**
  * @param {any} env
  * @param {FormData} fd
- * @returns {Record<string, unknown>}
+ * @returns {Promise<Record<string, unknown>>}
  */
-function sanitizeCarouselAudioFromForm(env, fd) {
+async function sanitizeCarouselAudioFromForm(env, fd) {
   return sanitizePostAudioFields(env, (key) => fd.get(key));
 }
 
 /**
  * @param {any} env
  * @param {Record<string, unknown>} body
- * @returns {Record<string, unknown>}
+ * @returns {Promise<Record<string, unknown>>}
  */
-function sanitizeVideoAudioFromBody(env, body) {
+async function sanitizeVideoAudioFromBody(env, body) {
   const src = body && typeof body === "object" ? body : {};
   return sanitizePostAudioFields(env, (key) => src[key]);
 }
@@ -1533,6 +1615,10 @@ export default {
       }
     }
 
+    if (request.method === "GET" && url.searchParams.get("spotifySearch") === "1") {
+      return handleSpotifySearch(request, env, cors);
+    }
+
     if (request.method === "GET" && url.searchParams.get("health") === "1") {
       return json({ ok: true });
     }
@@ -1719,6 +1805,9 @@ export default {
       if (url.searchParams.get("kvkVerify") === "1") {
         return handleKvkVerify(request, env, cors);
       }
+      if (url.searchParams.get("spotifyResolveTrack") === "1") {
+        return handleSpotifyResolveTrack(request, env, cors);
+      }
       if (url.searchParams.get("stripeWebhook") === "1") {
         return handleStripeWebhook(request, env);
       }
@@ -1879,7 +1968,7 @@ export default {
             urls.push(getPublicPostImageUrl(request, key));
           }
           const carouselProductRaw = productRawFromFormData(fd);
-          const carouselAudioFields = sanitizeCarouselAudioFromForm(env, fd);
+          const carouselAudioFields = await sanitizeCarouselAudioFromForm(env, fd);
           try {
             const post = await insertCarouselPostRow(
               env,

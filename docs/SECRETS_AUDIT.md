@@ -8,6 +8,7 @@
 | `STRIPE_SECRET_KEY` | Worker secrets | **No** ✓ |
 | `STRIPE_WEBHOOK_SECRET` | Worker secrets | **No** ✓ |
 | `KVK_API_KEY` | Worker secrets | **No** ✓ |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Worker `.dev.vars` / Wrangler secrets | **No** ✓ |
 | R2 credentials | Cloudflare binding | **No** ✓ |
 | Supabase DB password | Dashboard only | **No** ✓ |
 
@@ -42,4 +43,10 @@ Als `.env.example` met **echte** anon key eerder gecommit was en repo ooit publi
 ## `.env` (lokaal)
 
 - Blijft gitignored ✓
-- Bevat alleen anon key + URL voor dev
+- Bevat alleen `EXPO_PUBLIC_SUPABASE_*` (+ optioneel `EXPO_PUBLIC_SHARE_BASE_URL`)
+- **Geen** `SPOTIFY_*`, `NEXT_PUBLIC_*`, Stripe of service role
+
+## `.dev.vars` (lokaal worker)
+
+- Kopieer van `.dev.vars.example`; gitignored ✓
+- Spotify + Supabase service role voor `wrangler dev`

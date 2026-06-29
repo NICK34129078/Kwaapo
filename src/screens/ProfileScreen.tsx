@@ -78,6 +78,8 @@ import {
   AUDIO_VOLUME_NORMAL,
 } from "../components/AudioPickerCard";
 import { UploadProductPickerPanel } from "../components/UploadProductPickerPanel";
+import { SpotifySoundPickerPanel } from "../components/SpotifySoundPickerPanel";
+import type { SpotifyTrackResult } from "../services/spotifyService";
 import { SETTINGS_LEGAL_LINKS, SUPPORT_EMAIL } from "../constants/appPolicies";
 
 const GAP = 2;
@@ -233,6 +235,10 @@ function ProfileAuthenticatedScreen({
   const [selectedAudioUri, setSelectedAudioUri] = useState<string | null>(null);
   const [selectedAudioName, setSelectedAudioName] = useState<string | null>(null);
   const [selectedAudioVolume, setSelectedAudioVolume] = useState(AUDIO_VOLUME_NORMAL);
+  const [selectedSpotifyTrack, setSelectedSpotifyTrack] =
+    useState<SpotifyTrackResult | null>(null);
+  const [spotifyPickerVisible, setSpotifyPickerVisible] = useState(false);
+  const [spotifyPickerQuery, setSpotifyPickerQuery] = useState("");
   const [productPickerVisible, setProductPickerVisible] = useState(false);
   const [uploadProducts, setUploadProducts] = useState<Product[]>([]);
   const [uploadProductsLoading, setUploadProductsLoading] = useState(false);
@@ -323,6 +329,9 @@ function ProfileAuthenticatedScreen({
     setSelectedAudioUri(null);
     setSelectedAudioName(null);
     setSelectedAudioVolume(AUDIO_VOLUME_NORMAL);
+    setSelectedSpotifyTrack(null);
+    setSpotifyPickerVisible(false);
+    setSpotifyPickerQuery("");
     setProductPickerVisible(false);
   }, []);
 
@@ -440,6 +449,11 @@ function ProfileAuthenticatedScreen({
     setProductPickerVisible(true);
   }, [sellerCanLinkProducts]);
 
+  const openSpotifyPicker = useCallback((query?: string) => {
+    setSpotifyPickerQuery(query?.trim() ?? "");
+    setSpotifyPickerVisible(true);
+  }, []);
+
   const selectUploadProduct = useCallback((product: Product) => {
     setSelectedProductId(product.id);
     setProductPickerVisible(false);
@@ -515,7 +529,16 @@ function ProfileAuthenticatedScreen({
       void (async () => {
         try {
           setUploadFlowBusy(true);
-          const audioOption = selectedAudioUri
+          const audioOption = selectedSpotifyTrack?.trackId
+            ? {
+                spotifyAudio: {
+                  trackId: selectedSpotifyTrack.trackId,
+                  title: selectedSpotifyTrack.title,
+                  artist: selectedSpotifyTrack.artist,
+                  volume: selectedAudioVolume,
+                },
+              }
+            : selectedAudioUri
             ? {
                 audio: {
                   localUri: selectedAudioUri,
@@ -548,6 +571,7 @@ function ProfileAuthenticatedScreen({
     selectedAudioName,
     selectedAudioUri,
     selectedAudioVolume,
+    selectedSpotifyTrack,
     uploadDraftMedia,
     uploadVideoAsset,
   ]);
@@ -1491,17 +1515,24 @@ function ProfileAuthenticatedScreen({
                 <AudioPickerCard
                   selectedUri={selectedAudioUri}
                   selectedName={selectedAudioName}
+                  selectedSpotifyTrack={selectedSpotifyTrack}
                   volume={selectedAudioVolume}
-                  onSelected={(uri, name) => {
+                  onLocalSelected={(uri, name) => {
+                    setSelectedSpotifyTrack(null);
                     setSelectedAudioUri(uri);
                     setSelectedAudioName(name);
                   }}
-                  onClear={() => {
+                  onLocalClear={() => {
                     setSelectedAudioUri(null);
                     setSelectedAudioName(null);
                     setSelectedAudioVolume(AUDIO_VOLUME_NORMAL);
                   }}
+                  onSpotifyClear={() => {
+                    setSelectedSpotifyTrack(null);
+                    setSelectedAudioVolume(AUDIO_VOLUME_NORMAL);
+                  }}
                   onVolumeChange={setSelectedAudioVolume}
+                  onOpenSpotifyPicker={openSpotifyPicker}
                 />
                 <Text style={styles.uploadSheetLabel}>Beschrijving</Text>
                 <TextInput
@@ -1682,6 +1713,18 @@ function ProfileAuthenticatedScreen({
                   />
                 ) : null}
               </View>
+              <SpotifySoundPickerPanel
+                visible={spotifyPickerVisible}
+                bottomInset={insets.bottom}
+                initialQuery={spotifyPickerQuery}
+                onSelect={(track) => {
+                  setSelectedAudioUri(null);
+                  setSelectedAudioName(null);
+                  setSelectedSpotifyTrack(track);
+                  setSpotifyPickerVisible(false);
+                }}
+                onClose={() => setSpotifyPickerVisible(false)}
+              />
             </View>
           </KeyboardAvoidingView>
         </Modal>
@@ -2343,6 +2386,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "flex-end",
     backgroundColor: "rgba(0,0,0,0.55)",
+    position: "relative",
   },
   uploadSheetFill: {
     flex: 1,

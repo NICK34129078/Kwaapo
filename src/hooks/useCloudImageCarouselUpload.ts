@@ -19,7 +19,7 @@ import {
 import { formatWorkerAuthClientError, formatWorkerUploadError } from "../utils/workerUploadErrors";
 import { createUuidV4 } from "../utils/uuid";
 import { uploadPostAudio } from "../utils/uploadPostAudio";
-import { buildWorkerAudioFields, type PostAudioInput } from "../types/postAudio";
+import { buildWorkerAudioFields, buildSpotifyWorkerAudioFields, type PostAudioInput, type SpotifyAudioSelection } from "../types/postAudio";
 
 const MAX_IMAGES = 10;
 const CAROUSEL_UPLOAD_TIMEOUT_MS = 600_000;
@@ -66,6 +66,7 @@ export type PickCarouselOptions = UploadProductInput & {
   hashtagsRaw?: string;
   caption?: string;
   audio?: CarouselAudioInput;
+  spotifyAudio?: SpotifyAudioSelection;
 };
 
 export type PickedCarouselAsset = ImagePicker.ImagePickerAsset;
@@ -101,7 +102,9 @@ export function useCloudImageCarouselUpload() {
         const captionForPost = sanitizeUploadCaption(options?.caption);
         const product = sanitizeUploadProduct(options);
         let audioFields: Record<string, string> | null = null;
-        if (options?.audio?.localUri) {
+        if (options?.spotifyAudio?.trackId) {
+          audioFields = buildSpotifyWorkerAudioFields(options.spotifyAudio);
+        } else if (options?.audio?.localUri) {
           try {
             const audioPublicUrl = await uploadPostAudio(
               options.audio.localUri,

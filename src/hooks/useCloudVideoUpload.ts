@@ -25,7 +25,7 @@ import {
 } from "../utils/workerUploadErrors";
 import { createUuidV4 } from "../utils/uuid";
 import { uploadPostAudio } from "../utils/uploadPostAudio";
-import { buildWorkerAudioFields, type PostAudioInput } from "../types/postAudio";
+import { buildWorkerAudioFields, buildSpotifyWorkerAudioFields, type PostAudioInput, type SpotifyAudioSelection } from "../types/postAudio";
 
 /** Waarschuwing bij zeer grote bestanden; geen harde blokkade (direct PUT naar R2). */
 const LARGE_VIDEO_WARN_BYTES = 300 * 1024 * 1024;
@@ -98,6 +98,7 @@ export type PickUploadOptions = UploadProductInput & {
   hashtagsRaw?: string;
   caption?: string;
   audio?: PostAudioInput;
+  spotifyAudio?: SpotifyAudioSelection;
 };
 
 type UploadInitJson = {
@@ -321,9 +322,11 @@ export function useCloudVideoUpload() {
       const productPayload = productFieldsForWorkerPayload(product);
       const clientPostId = createUuidV4();
 
-      // Optionele eigen audio: faalt zacht — bij fout uploaden we de video zonder audio.
+      // Optionele audio: Spotify via trackId, anders eigen upload. Faalt zacht bij fout.
       let audioFields: Record<string, string> | null = null;
-      if (options?.audio?.localUri) {
+      if (options?.spotifyAudio?.trackId) {
+        audioFields = buildSpotifyWorkerAudioFields(options.spotifyAudio);
+      } else if (options?.audio?.localUri) {
         try {
           const audioPublicUrl = await uploadPostAudio(
             options.audio.localUri,

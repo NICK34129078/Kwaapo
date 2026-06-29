@@ -364,11 +364,15 @@ export function FeedItem({
   const muteVideoForOverlay =
     asVideo && postAudioUrl != null && Platform.OS !== "web";
   const postAudioLabel =
-    (item.audioTitle && item.audioTitle.length > 0
-      ? item.audioTitle
+    item.audioTitle && item.audioTitle.length > 0
+      ? item.audioArtist && item.audioArtist.length > 0
+        ? `${item.audioTitle} · ${item.audioArtist}`
+        : item.audioTitle
       : item.audioArtist && item.audioArtist.length > 0
         ? item.audioArtist
-        : "Eigen audio") ?? "Eigen audio";
+        : "Eigen audio";
+  const canOpenSoundReels =
+    typeof item.audioTrackId === "string" && item.audioTrackId.length > 0;
   const postAudioVolume =
     typeof item.audioVolume === "number" && Number.isFinite(item.audioVolume)
       ? Math.min(1, Math.max(0, item.audioVolume))
@@ -1078,6 +1082,16 @@ export function FeedItem({
     })();
   }, [clickSource, item.id, item.linkedProduct, item.productUrl, navigation, user]);
 
+  const onSoundPress = useCallback(() => {
+    if (!canOpenSoundReels || !item.audioTrackId) {
+      return;
+    }
+    navigation.navigate("SoundReels", {
+      audioTrackId: item.audioTrackId,
+      initialPostId: item.id,
+    });
+  }, [canOpenSoundReels, item.audioTrackId, item.id, navigation]);
+
   const lastMediaTapAtRef = useRef(0);
   const carouselDraggingRef = useRef(false);
   const heartAnimRef = useRef<DoubleTapHeartHandle | null>(null);
@@ -1368,9 +1382,39 @@ export function FeedItem({
         ) : null}
 
         {hasPostAudio ? (
-          <Text style={styles.audioBadge} numberOfLines={1}>
-            🎵 {postAudioLabel}
-          </Text>
+          canOpenSoundReels ? (
+            <Pressable
+              onPress={onSoundPress}
+              style={styles.audioBadgeRow}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel={`Meer posts met ${postAudioLabel}`}
+            >
+              {item.musicThumbUrl ? (
+                <Image
+                  source={{ uri: item.musicThumbUrl }}
+                  style={styles.audioBadgeCover}
+                  contentFit="cover"
+                />
+              ) : (
+                <View style={styles.audioBadgeCoverPlaceholder}>
+                  <Ionicons name="musical-notes" size={14} color={theme.accent} />
+                </View>
+              )}
+              <Text style={styles.audioBadge} numberOfLines={1}>
+                {postAudioLabel}
+              </Text>
+              <Ionicons
+                name="chevron-forward"
+                size={14}
+                color="rgba(255,255,255,0.75)"
+              />
+            </Pressable>
+          ) : (
+            <Text style={styles.audioBadge} numberOfLines={1}>
+              🎵 {postAudioLabel}
+            </Text>
+          )
         ) : null}
 
         {showShopCta ? (
@@ -1544,13 +1588,34 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.78)",
   },
   audioBadge: {
+    flex: 1,
     color: "rgba(255,255,255,0.9)",
     fontSize: 12,
     fontWeight: "700",
-    marginTop: 6,
     textShadowColor: "rgba(0,0,0,0.45)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
+  },
+  audioBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 6,
+    maxWidth: "88%",
+  },
+  audioBadgeCover: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  audioBadgeCoverPlaceholder: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.35)",
   },
   shopBlock: {
     marginTop: 6,

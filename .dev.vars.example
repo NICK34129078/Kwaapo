@@ -15,6 +15,12 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 # CHECKOUT_SUCCESS_URL=lumen-fashion://checkout/success?session_id={CHECKOUT_SESSION_ID}
 # CHECKOUT_CANCEL_URL=lumen-fashion://checkout/cancel
 
+# Spotify Web API (music picker — Client Credentials; Dashboard → Create app)
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
+# Optional ISO market for catalog search (default NL)
+# SPOTIFY_MARKET=NL
+
 # KVK Handelsregister Basisprofiel (seller onboarding)
 # Productie-key via https://developers.kvk.nl (betaald abonnement)
 KVK_API_BASE=https://api.kvk.nl/api/v1

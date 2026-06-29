@@ -15,6 +15,7 @@ import { ActivityTabScreen } from "./src/screens/TabScreens";
 import { ProfileScreen } from "./src/screens/ProfileScreen";
 import { PublicProfileScreen } from "./src/screens/PublicProfileScreen";
 import { ProfileReelsScreen } from "./src/screens/ProfileReelsScreen";
+import { SoundReelsScreen } from "./src/screens/SoundReelsScreen";
 import { SharedPostScreen } from "./src/screens/SharedPostScreen";
 import { CreatorStatsScreen } from "./src/screens/CreatorStatsScreen";
 import { MyShopScreen } from "./src/screens/MyShopScreen";
@@ -133,6 +134,14 @@ function AppGate() {
                 <RootStack.Screen
                   name="ProfileReels"
                   component={ProfileReelsScreen}
+                  options={{
+                    animation: "fade",
+                    presentation: "fullScreenModal",
+                  }}
+                />
+                <RootStack.Screen
+                  name="SoundReels"
+                  component={SoundReelsScreen}
                   options={{
                     animation: "fade",
                     presentation: "fullScreenModal",
