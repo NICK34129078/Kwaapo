@@ -14,7 +14,9 @@ import {
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import {
   refreshStripeConnectStatus,
   startStripeConnectOnboarding,
@@ -52,6 +54,8 @@ function FormField({
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
   editable?: boolean;
 }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.field}>
       <Text style={styles.label}>
@@ -73,6 +77,8 @@ function FormField({
 }
 
 export function SellerOnboardingScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -640,7 +646,8 @@ export function SellerOnboardingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -888,4 +895,5 @@ const styles = StyleSheet.create({
   btnDisabled: {
     opacity: 0.6,
   },
-});
+  });
+}

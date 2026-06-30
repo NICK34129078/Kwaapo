@@ -10,7 +10,9 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { productMayUsePerSizeStock } from "../constants/productSizePresets";
 import type { Product } from "../types/product";
 import type { ProductVariant } from "../types/productVariant";
@@ -40,6 +42,8 @@ export function ProductVariantStockSection({
   onProductStockChanged,
   onPendingChange,
 }: Props) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const [variants, setVariants] = useState<ProductVariant[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -360,7 +364,8 @@ export function ProductVariantStockSection({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: { gap: 14, marginTop: 8 },
   loadingWrap: { paddingVertical: 16, alignItems: "center" },
   sectionTitle: {
@@ -548,4 +553,5 @@ const styles = StyleSheet.create({
     backgroundColor: theme.accent,
   },
   modalBtnPrimaryText: { color: theme.bg, fontWeight: "800", fontSize: 15 },
-});
+  });
+}

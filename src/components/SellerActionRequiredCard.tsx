@@ -8,7 +8,8 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { SellerMascotDance } from "./SellerMascotDance";
 
 type SellerActionRequiredCardProps = {
@@ -68,6 +69,8 @@ export function SellerActionRequiredCard({
   onPress,
   compact = false,
 }: SellerActionRequiredCardProps) {
+  const styles = useThemedStyles(createStyles);
+
   if (actionCount <= 0) {
     return null;
   }
@@ -118,77 +121,79 @@ export function SellerActionRequiredCard({
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    flexDirection: "row",
-    gap: 14,
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: theme.accent,
-    borderWidth: 2,
-    borderColor: "rgba(0,0,0,0.35)",
-    marginBottom: 14,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.28,
-        shadowRadius: 8,
-      },
-      android: { elevation: 6 },
-    }),
-  },
-  cardCompact: {
-    marginHorizontal: 16,
-    marginTop: 8,
-  },
-  mascotWrap: {
-    width: 58,
-    height: 58,
-    alignItems: "center",
-    justifyContent: "flex-end",
-    overflow: "visible",
-  },
-  body: {
-    flex: 1,
-    gap: 4,
-  },
-  titleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  countBadge: {
-    minWidth: 26,
-    height: 26,
-    paddingHorizontal: 8,
-    borderRadius: 13,
-    backgroundColor: theme.bg,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
-  },
-  countBadgeText: {
-    color: theme.accent,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  ctaPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-    gap: 6,
-    marginTop: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: theme.bg,
-  },
-  ctaText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "900",
-  },
-});
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+    card: {
+      flexDirection: "row",
+      gap: 14,
+      padding: 16,
+      borderRadius: 16,
+      backgroundColor: theme.accent,
+      borderWidth: 2,
+      borderColor: "rgba(0,0,0,0.35)",
+      marginBottom: 14,
+      ...Platform.select({
+        ios: {
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.28,
+          shadowRadius: 8,
+        },
+        android: { elevation: 6 },
+      }),
+    },
+    cardCompact: {
+      marginHorizontal: 16,
+      marginTop: 8,
+    },
+    mascotWrap: {
+      width: 58,
+      height: 58,
+      alignItems: "center",
+      justifyContent: "flex-end",
+      overflow: "visible",
+    },
+    body: {
+      flex: 1,
+      gap: 4,
+    },
+    titleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+    },
+    countBadge: {
+      minWidth: 26,
+      height: 26,
+      paddingHorizontal: 8,
+      borderRadius: 13,
+      backgroundColor: theme.bg,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.25)",
+    },
+    countBadgeText: {
+      color: theme.accent,
+      fontSize: 13,
+      fontWeight: "900",
+    },
+    ctaPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      alignSelf: "flex-start",
+      gap: 6,
+      marginTop: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 10,
+      backgroundColor: theme.bg,
+    },
+    ctaText: {
+      color: "#FFFFFF",
+      fontSize: 14,
+      fontWeight: "900",
+    },
+  });
+}

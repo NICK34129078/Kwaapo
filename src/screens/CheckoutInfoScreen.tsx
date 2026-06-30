@@ -14,7 +14,9 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { ProductListingImage } from "../components/ProductListingImage";
 import { createOrderFromProduct } from "../services/ordersService";
 import { payOrderWithStripe } from "../services/checkoutFlowService";
@@ -55,6 +57,8 @@ function FormField({
   error?: string | null;
   required?: boolean;
 }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.field}>
       <Text style={styles.label}>
@@ -76,6 +80,8 @@ function FormField({
 }
 
 export function CheckoutInfoScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
@@ -519,7 +525,8 @@ export function CheckoutInfoScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -722,4 +729,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
   },
-});
+  });
+}

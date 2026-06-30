@@ -17,7 +17,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ProductListingImage } from "../components/ProductListingImage";
 import { AvatarImage } from "../components/AvatarImage";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { useAuth } from "../context/AuthContext";
 import {
   getMainCategoryDef,
@@ -59,6 +61,7 @@ const GAP = 12;
 const LOW_STOCK_THRESHOLD = 5;
 
 function ShopProductSkeleton({ width }: { width: number }) {
+  const styles = useThemedStyles(createStyles);
   return (
     <View style={[styles.card, { width }]}>
       <View style={[styles.productImageWrap, styles.skeletonBlock]} />
@@ -79,6 +82,7 @@ function ShopProductCard({
   width: number;
   onPress: () => void;
 }) {
+  const styles = useThemedStyles(createStyles);
   const scale = useRef(new Animated.Value(1)).current;
   const imageUri = product.images[0];
 
@@ -137,6 +141,8 @@ function ShopBrandRow({
   brand: ShopBrandProfile;
   onPress: () => void;
 }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   return (
     <Pressable
       style={styles.brandRow}
@@ -192,6 +198,8 @@ function subtitleForTab(feedTab: ShopFeedTabId, hasUser: boolean): string {
 }
 
 export function ShopScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -794,7 +802,8 @@ export function ShopScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -1054,4 +1063,5 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.accentBorderMuted,
   },
-});
+  });
+}

@@ -2,7 +2,9 @@ import React, { useCallback } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 
 export const AUDIO_VOLUME_LOW = 0.35;
 export const AUDIO_VOLUME_NORMAL = 0.7;
@@ -36,6 +38,9 @@ export function AudioPickerCard({
   onClear,
   onVolumeChange,
 }: Props) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   const handlePickAudio = useCallback(async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -140,125 +145,127 @@ export function AudioPickerCard({
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    marginTop: 12,
-    marginBottom: 4,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    backgroundColor: theme.bgElevated,
-    gap: 8,
-    width: "100%",
-    alignSelf: "stretch",
-    overflow: "hidden",
-  },
-  title: {
-    color: theme.text,
-    fontSize: 15,
-    fontWeight: "800",
-    flexShrink: 1,
-    flexWrap: "wrap",
-  },
-  helper: {
-    color: theme.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-    flexShrink: 1,
-    flexWrap: "wrap",
-  },
-  legal: {
-    color: theme.textMuted,
-    fontSize: 11,
-    lineHeight: 15,
-    fontStyle: "italic",
-    flexShrink: 1,
-    flexWrap: "wrap",
-  },
-  pickButton: {
-    marginTop: 4,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: theme.accent,
-  },
-  pickButtonText: {
-    color: theme.bg,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  selectedRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    width: "100%",
-  },
-  selectedInfo: {
-    flex: 1,
-    flexShrink: 1,
-  },
-  sourceLabel: {
-    color: theme.accent,
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: 2,
-  },
-  iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.accentSoft,
-    flexShrink: 0,
-  },
-  fileName: {
-    flexShrink: 1,
-    color: theme.text,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  volumeLabel: {
-    color: theme.textMuted,
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: 4,
-  },
-  volumeRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  volumeChip: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    alignItems: "center",
-  },
-  volumeChipActive: {
-    borderColor: theme.accent,
-    backgroundColor: theme.accentSoft,
-  },
-  volumeChipText: {
-    color: theme.textMuted,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  volumeChipTextActive: {
-    color: theme.accent,
-  },
-  removeButton: {
-    alignSelf: "flex-start",
-    paddingVertical: 6,
-  },
-  removeButtonText: {
-    color: "#ff8a84",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-});
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+    card: {
+      marginTop: 12,
+      marginBottom: 4,
+      padding: 14,
+      borderRadius: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+      backgroundColor: theme.bgElevated,
+      gap: 8,
+      width: "100%",
+      alignSelf: "stretch",
+      overflow: "hidden",
+    },
+    title: {
+      color: theme.text,
+      fontSize: 15,
+      fontWeight: "800",
+      flexShrink: 1,
+      flexWrap: "wrap",
+    },
+    helper: {
+      color: theme.textMuted,
+      fontSize: 13,
+      lineHeight: 18,
+      flexShrink: 1,
+      flexWrap: "wrap",
+    },
+    legal: {
+      color: theme.textMuted,
+      fontSize: 11,
+      lineHeight: 15,
+      fontStyle: "italic",
+      flexShrink: 1,
+      flexWrap: "wrap",
+    },
+    pickButton: {
+      marginTop: 4,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      paddingVertical: 12,
+      borderRadius: 12,
+      backgroundColor: theme.accent,
+    },
+    pickButtonText: {
+      color: theme.bg,
+      fontSize: 14,
+      fontWeight: "800",
+    },
+    selectedRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      width: "100%",
+    },
+    selectedInfo: {
+      flex: 1,
+      flexShrink: 1,
+    },
+    sourceLabel: {
+      color: theme.accent,
+      fontSize: 12,
+      fontWeight: "700",
+      marginTop: 2,
+    },
+    iconWrap: {
+      width: 40,
+      height: 40,
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.accentSoft,
+      flexShrink: 0,
+    },
+    fileName: {
+      flexShrink: 1,
+      color: theme.text,
+      fontSize: 14,
+      fontWeight: "700",
+    },
+    volumeLabel: {
+      color: theme.textMuted,
+      fontSize: 12,
+      fontWeight: "700",
+      marginTop: 4,
+    },
+    volumeRow: {
+      flexDirection: "row",
+      gap: 8,
+    },
+    volumeChip: {
+      flex: 1,
+      paddingVertical: 8,
+      borderRadius: 10,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+      alignItems: "center",
+    },
+    volumeChipActive: {
+      borderColor: theme.accent,
+      backgroundColor: theme.accentSoft,
+    },
+    volumeChipText: {
+      color: theme.textMuted,
+      fontSize: 12,
+      fontWeight: "700",
+    },
+    volumeChipTextActive: {
+      color: theme.accent,
+    },
+    removeButton: {
+      alignSelf: "flex-start",
+      paddingVertical: 6,
+    },
+    removeButtonText: {
+      color: "#ff8a84",
+      fontSize: 13,
+      fontWeight: "700",
+    },
+  });
+}

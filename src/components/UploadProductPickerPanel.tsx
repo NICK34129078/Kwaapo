@@ -10,7 +10,9 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import type { Product } from "../types/product";
 import { formatPriceEur } from "../utils/formatPrice";
 
@@ -39,6 +41,9 @@ export function UploadProductPickerPanel({
   onSelect,
   onClose,
 }: Props) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   if (!visible) {
     return null;
   }
@@ -148,7 +153,8 @@ export function UploadProductPickerPanel({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 30,
@@ -280,4 +286,5 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 18,
   },
-});
+  });
+}

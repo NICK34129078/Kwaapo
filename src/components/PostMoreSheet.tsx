@@ -11,7 +11,9 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import type { FeedPost } from "../data/placeholder";
 import { resolvePostUsername } from "../services/sharePostService";
 
@@ -50,6 +52,9 @@ function MoreActionRow({
   action: SheetAction;
   onPress: () => void;
 }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   const labelColor = action.destructive
     ? "#FF6B6B"
     : action.accent
@@ -94,6 +99,7 @@ export function PostMoreSheet({
   onReport,
   onBlock,
 }: Props) {
+  const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const handle = resolvePostUsername(post);
 
@@ -262,77 +268,79 @@ export function PostMoreSheet({
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: theme.overlay,
-  },
-  sheet: {
-    backgroundColor: theme.bgElevated,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 8,
-    paddingHorizontal: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-  },
-  grabber: {
-    alignSelf: "center",
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.22)",
-    marginBottom: 12,
-  },
-  sheetTitle: {
-    color: theme.textMuted,
-    fontSize: 13,
-    fontWeight: "600",
-    textAlign: "center",
-    marginBottom: 4,
-    letterSpacing: 0.2,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    minHeight: 56,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-  },
-  rowPressed: {
-    backgroundColor: theme.accentFaint,
-  },
-  rowDisabled: {
-    opacity: 0.45,
-  },
-  rowLabel: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: theme.border,
-    marginHorizontal: 8,
-  },
-  cancelGap: {
-    height: 8,
-  },
-  cancelBtn: {
-    minHeight: 52,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.bg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    marginBottom: 4,
-  },
-  cancelLabel: {
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-});
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+    overlay: {
+      flex: 1,
+      justifyContent: "flex-end",
+      backgroundColor: theme.overlay,
+    },
+    sheet: {
+      backgroundColor: theme.bgElevated,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingTop: 8,
+      paddingHorizontal: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+    },
+    grabber: {
+      alignSelf: "center",
+      width: 36,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: "rgba(255,255,255,0.22)",
+      marginBottom: 12,
+    },
+    sheetTitle: {
+      color: theme.textMuted,
+      fontSize: 13,
+      fontWeight: "600",
+      textAlign: "center",
+      marginBottom: 4,
+      letterSpacing: 0.2,
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 14,
+      minHeight: 56,
+      paddingHorizontal: 8,
+      borderRadius: 12,
+    },
+    rowPressed: {
+      backgroundColor: theme.accentFaint,
+    },
+    rowDisabled: {
+      opacity: 0.45,
+    },
+    rowLabel: {
+      flex: 1,
+      fontSize: 16,
+      fontWeight: "500",
+    },
+    separator: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: theme.border,
+      marginHorizontal: 8,
+    },
+    cancelGap: {
+      height: 8,
+    },
+    cancelBtn: {
+      minHeight: 52,
+      borderRadius: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.bg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+      marginBottom: 4,
+    },
+    cancelLabel: {
+      color: theme.text,
+      fontSize: 16,
+      fontWeight: "600",
+    },
+  });
+}

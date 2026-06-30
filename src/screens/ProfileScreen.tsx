@@ -43,7 +43,9 @@ import {
 import { isPersistablePostId } from "../services/postLikesService";
 import { useCloudImageCarouselUpload } from "../hooks/useCloudImageCarouselUpload";
 import { useCloudVideoUpload } from "../hooks/useCloudVideoUpload";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { useAuth } from "../context/AuthContext";
 import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
@@ -101,6 +103,8 @@ type FollowListProfile = {
 };
 
 function GuestProfileScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { openAuthPrompt } = useAuthPrompt();
 
@@ -162,9 +166,19 @@ function ProfileAuthenticatedScreen({
 }: {
   profileId?: string;
 }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { width, height: windowHeight } = useWindowDimensions();
+  const settingsSheetMaxHeight = useMemo(
+    () => Math.round(windowHeight * 0.88),
+    [windowHeight]
+  );
+  const settingsScrollMaxHeight = useMemo(
+    () => Math.max(240, settingsSheetMaxHeight - 56),
+    [settingsSheetMaxHeight]
+  );
   const cellSize = (width - GAP * 2) / 3;
   const { uploadedVideoPosts, deleteUserVideoPost } = useUserUploads();
   const uploads = uploadedVideoPosts;
@@ -191,7 +205,6 @@ function ProfileAuthenticatedScreen({
       syncFeedLikeState(visibleUploads);
     }
   }, [visibleUploads, syncFeedLikeState]);
-  const uploadsCount = visibleUploads.length;
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -1011,54 +1024,51 @@ function ProfileAuthenticatedScreen({
                   ? "Voeg een bio toe via profiel bewerken"
                   : "Deze gebruiker heeft nog geen bio toegevoegd."}
           </Text>
-          <View style={styles.stats}>
-            <View style={styles.stat}>
-              <Text style={styles.statNum}>{uploadsCount}</Text>
-              <Text style={styles.statLabel}>uploads</Text>
-            </View>
-            <Pressable
-              style={styles.stat}
-              onPress={() => openFollowList("followers")}
-              accessibilityRole="button"
-              accessibilityLabel="Bekijk volgers"
-            >
-              <Text style={styles.statNum}>{followersCount}</Text>
-              <Text style={styles.statLabel}>volgers</Text>
-            </Pressable>
-            <Pressable
-              style={styles.stat}
-              onPress={() => openFollowList("following")}
-              accessibilityRole="button"
-              accessibilityLabel="Bekijk volgend"
-            >
-              <Text style={styles.statNum}>{followingCount}</Text>
-              <Text style={styles.statLabel}>volgend</Text>
-            </Pressable>
-
-            {isOwnProfile && profileContentTab === "posts" ? (
+          <View style={styles.statsRow}>
+            <View style={styles.statsGroup}>
               <Pressable
-                style={styles.statsAddButton}
-                onPress={() => {
-                  if (isUploadBusy) return;
-                  resetUploadDrafts();
-                  setUploadModalVisible(true);
-                }}
-                disabled={isUploadBusy}
+                style={styles.stat}
+                onPress={() => openFollowList("followers")}
                 accessibilityRole="button"
-                accessibilityLabel="Uploaden"
+                accessibilityLabel="Bekijk volgers"
               >
-                <View style={styles.statsAddCircle}>
-                  {isUploadBusy ? (
-                    <ActivityIndicator size="small" color={theme.text} />
-                  ) : (
-                    <Ionicons name="add" size={24} color={theme.text} />
-                  )}
-                </View>
-                <Text style={styles.statsAddText}>
-                  {isUploadBusy ? "Uploaden..." : "Uploaden"}
-                </Text>
+                <Text style={styles.statNum}>{followersCount}</Text>
+                <Text style={styles.statLabel}>volgers</Text>
               </Pressable>
-            ) : null}
+              <Pressable
+                style={styles.stat}
+                onPress={() => openFollowList("following")}
+                accessibilityRole="button"
+                accessibilityLabel="Bekijk volgend"
+              >
+                <Text style={styles.statNum}>{followingCount}</Text>
+                <Text style={styles.statLabel}>volgend</Text>
+              </Pressable>
+              {isOwnProfile && profileContentTab === "posts" ? (
+                <Pressable
+                  style={styles.stat}
+                  onPress={() => {
+                    if (isUploadBusy) return;
+                    resetUploadDrafts();
+                    setUploadModalVisible(true);
+                  }}
+                  disabled={isUploadBusy}
+                  accessibilityRole="button"
+                  accessibilityLabel="Uploaden"
+                >
+                  <View style={styles.uploadStatIcon}>
+                    {isUploadBusy ? (
+                      <ActivityIndicator size="small" color={theme.text} />
+                    ) : (
+                      <Ionicons name="add" size={20} color={theme.text} />
+                    )}
+                  </View>
+                  <Text style={styles.statLabel}>
+                    {isUploadBusy ? "Uploaden..." : "Uploaden"}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
           {!isOwnProfile ? (
             <Pressable
@@ -1197,10 +1207,14 @@ function ProfileAuthenticatedScreen({
           animationType="slide"
           onRequestClose={() => setSettingsVisible(false)}
         >
-          <View
-            style={[styles.modalOverlay, { paddingBottom: insets.bottom + 16 }]}
-          >
-            <View style={styles.modalSheet}>
+          <View style={styles.modalOverlay}>
+            <View
+              style={[
+                styles.modalSheet,
+                styles.settingsModalSheet,
+                { maxHeight: settingsSheetMaxHeight },
+              ]}
+            >
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Settings</Text>
                 <Pressable
@@ -1213,6 +1227,20 @@ function ProfileAuthenticatedScreen({
                 </Pressable>
               </View>
 
+              <ScrollView
+                style={[
+                  styles.settingsModalScroll,
+                  { maxHeight: settingsScrollMaxHeight },
+                ]}
+                contentContainerStyle={[
+                  styles.settingsModalScrollContent,
+                  { paddingBottom: insets.bottom + 24 },
+                ]}
+                showsVerticalScrollIndicator
+                keyboardShouldPersistTaps="handled"
+                bounces
+                nestedScrollEnabled
+              >
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Account</Text>
               <Pressable
@@ -1366,6 +1394,7 @@ function ProfileAuthenticatedScreen({
                   <Text style={styles.logoutText}>Log out</Text>
                 )}
               </Pressable>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -1507,7 +1536,7 @@ function ProfileAuthenticatedScreen({
                 <TextInput
                   style={[styles.uploadSheetInput, styles.uploadSheetCaptionInput]}
                   placeholder="Vertel iets over je outfit..."
-                  placeholderTextColor={theme.textMuted}
+                  placeholderTextColor={theme.placeholder}
                   value={captionDraft}
                   onChangeText={setCaptionDraft}
                   maxLength={150}
@@ -1520,7 +1549,7 @@ function ProfileAuthenticatedScreen({
                 <TextInput
                   style={[styles.uploadSheetInput, styles.uploadSheetHashtagInput]}
                   placeholder="#oldmoney #zomervibe #classy"
-                  placeholderTextColor={theme.textMuted}
+                  placeholderTextColor={theme.placeholder}
                   value={hashtagsDraft}
                   onChangeText={setHashtagsDraft}
                   autoCorrect={false}
@@ -1768,7 +1797,8 @@ export function ProfileScreen() {
   return <ProfileAuthenticatedScreen profileId={routeProfileId} />;
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   scroll: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -1913,51 +1943,37 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     maxWidth: 280,
   },
-  stats: {
-    flexDirection: "row",
-    marginTop: 22,
-    gap: 28,
+  statsRow: {
+    marginTop: 18,
+    width: "100%",
     alignItems: "center",
+  },
+  statsGroup: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "center",
+    gap: 22,
   },
   stat: {
     alignItems: "center",
+    minWidth: 52,
   },
   statNum: {
     color: theme.text,
     fontSize: 17,
     fontWeight: "800",
+    lineHeight: 22,
   },
   statLabel: {
-    marginTop: 4,
+    marginTop: 2,
     color: theme.textMuted,
     fontSize: 12,
     fontWeight: "600",
   },
-  statsAddButton: {
-    height: 42,
-    minWidth: 132,
-    paddingLeft: 4,
-    paddingRight: 14,
-    borderRadius: 21,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.45)",
-    backgroundColor: "rgba(255,255,255,0.05)",
-  },
-  statsAddCircle: {
-    height: 42,
-    width: 42,
-    borderRadius: 999,
+  uploadStatIcon: {
+    height: 22,
     alignItems: "center",
     justifyContent: "center",
-  },
-  statsAddText: {
-    marginLeft: 4,
-    color: theme.text,
-    fontSize: 14,
-    fontWeight: "700",
   },
   followProfileBtn: {
     marginTop: 12,
@@ -2121,6 +2137,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 14,
     maxHeight: "88%",
+  },
+  settingsModalSheet: {
+    width: "100%",
+  },
+  settingsModalScroll: {
+    flexShrink: 1,
+  },
+  settingsModalScrollContent: {
+    flexGrow: 1,
   },
   modalHeader: {
     flexDirection: "row",
@@ -2660,7 +2685,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   uploadSheetBtnPrimaryText: {
-    color: "#0B0B0B",
+    color: theme.accentText,
     fontSize: 16,
     fontWeight: "700",
   },
@@ -2676,4 +2701,5 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 4,
   },
-});
+  });
+}

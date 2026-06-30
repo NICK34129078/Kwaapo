@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
 import {
   APP_POLICIES,
   getPolicyById,
@@ -11,15 +11,77 @@ import {
   type PolicyId,
 } from "../constants/appPolicies";
 import { SELLER_TERMS_SECTIONS } from "../constants/sellerTerms";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 
 type RouteParams = {
   policyId: PolicyId;
 };
 
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+    root: {
+      flex: 1,
+      backgroundColor: theme.bg,
+    },
+    topBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 8,
+      minHeight: 48,
+    },
+    topBtn: {
+      width: 44,
+      height: 44,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    screenTitle: {
+      flex: 1,
+      textAlign: "center",
+      color: theme.text,
+      fontSize: 17,
+      fontWeight: "700",
+    },
+    content: {
+      paddingHorizontal: 20,
+      paddingTop: 8,
+    },
+    version: {
+      color: theme.textMuted,
+      fontSize: 13,
+      marginBottom: 8,
+    },
+    disclaimer: {
+      color: theme.textMuted,
+      fontSize: 13,
+      lineHeight: 19,
+      marginBottom: 20,
+      fontStyle: "italic",
+    },
+    section: {
+      marginBottom: 20,
+    },
+    sectionTitle: {
+      color: theme.text,
+      fontSize: 16,
+      fontWeight: "700",
+      marginBottom: 8,
+    },
+    sectionBody: {
+      color: theme.textMuted,
+      fontSize: 15,
+      lineHeight: 22,
+    },
+  });
+}
+
 export function PolicyDocumentScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const policyId = (route.params?.policyId ?? "privacy") as PolicyId;
   const policy = getPolicyById(policyId);
 
@@ -66,61 +128,5 @@ export function PolicyDocumentScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: theme.bg,
-  },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    minHeight: 48,
-  },
-  topBtn: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  screenTitle: {
-    flex: 1,
-    textAlign: "center",
-    color: theme.text,
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  content: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-  },
-  version: {
-    color: theme.textMuted,
-    fontSize: 13,
-    marginBottom: 8,
-  },
-  disclaimer: {
-    color: theme.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 20,
-    fontStyle: "italic",
-  },
-  section: {
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 8,
-  },
-  sectionBody: {
-    color: theme.textMuted,
-    fontSize: 15,
-    lineHeight: 22,
-  },
-});
 
 export { APP_POLICIES };

@@ -1,7 +1,9 @@
 import { Image, type ImageContentFit } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { StyleSheet, View, type ImageStyle, type StyleProp } from "react-native";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 
 type Props = {
   uri?: string | null;
@@ -9,6 +11,22 @@ type Props = {
   contentFit?: ImageContentFit;
   recyclingKey?: string;
 };
+
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+    image: {
+      width: "100%",
+      height: "100%",
+    },
+    fallback: {
+      width: "100%",
+      height: "100%",
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.bgElevated,
+    },
+  });
+}
 
 /**
  * Betrouwbare productfoto (Shop / profiel-winkel / detail).
@@ -20,6 +38,9 @@ export function ProductListingImage({
   contentFit = "cover",
   recyclingKey,
 }: Props) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   if (!uri) {
     return (
       <View style={[styles.fallback, style]}>
@@ -39,17 +60,3 @@ export function ProductListingImage({
     />
   );
 }
-
-const styles = StyleSheet.create({
-  image: {
-    width: "100%",
-    height: "100%",
-  },
-  fallback: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.bgElevated,
-  },
-});

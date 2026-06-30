@@ -13,13 +13,17 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { LEGAL_DISCLAIMER } from "../constants/appPolicies";
 import { requestAccountDeletion } from "../services/accountDeletionService";
 import { useAuth } from "../context/AuthContext";
 import { getReadableErrorMessage } from "../utils/getReadableErrorMessage";
 
 export function AccountDeletionScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { signOut } = useAuth();
@@ -159,7 +163,8 @@ export function AccountDeletionScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   topBar: {
     flexDirection: "row",
@@ -265,4 +270,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-});
+  });
+}

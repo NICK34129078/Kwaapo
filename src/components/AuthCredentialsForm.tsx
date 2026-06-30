@@ -10,7 +10,10 @@ import {
 
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
-import { theme, spacing } from "../constants/theme";
+import { spacing } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 
 type PendingAction = "none" | "login" | "register";
 const USERNAME_MAX_LENGTH = 30;
@@ -24,6 +27,8 @@ function isValidEmailFormat(email: string): boolean {
 }
 
 export function AuthCredentialsForm() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const { signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -166,7 +171,7 @@ export function AuthCredentialsForm() {
       <TextInput
         style={styles.input}
         placeholder="E-mail"
-        placeholderTextColor={theme.textMuted}
+        placeholderTextColor={theme.placeholder}
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="email-address"
@@ -177,7 +182,7 @@ export function AuthCredentialsForm() {
       <TextInput
         style={styles.input}
         placeholder="Wachtwoord"
-        placeholderTextColor={theme.textMuted}
+        placeholderTextColor={theme.placeholder}
         secureTextEntry
         value={password}
         onChangeText={setPassword}
@@ -186,7 +191,7 @@ export function AuthCredentialsForm() {
       <TextInput
         style={styles.input}
         placeholder="Accountnaam"
-        placeholderTextColor={theme.textMuted}
+        placeholderTextColor={theme.placeholder}
         autoCapitalize="none"
         autoCorrect={false}
         value={username}
@@ -235,64 +240,66 @@ export function AuthCredentialsForm() {
   );
 }
 
-const styles = StyleSheet.create({
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    borderRadius: 12,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    fontSize: 16,
-    color: theme.text,
-    marginBottom: spacing.md,
-    backgroundColor: theme.bgElevated,
-  },
-  success: {
-    color: theme.accent,
-    marginBottom: spacing.md,
-    fontSize: 15,
-    fontWeight: "600",
-    lineHeight: 22,
-  },
-  error: {
-    color: "#FF6B6B",
-    marginBottom: spacing.md,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  buttonPrimary: {
-    backgroundColor: theme.accent,
-    borderRadius: 12,
-    paddingVertical: spacing.md,
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 48,
-    marginBottom: spacing.sm,
-  },
-  buttonPrimaryText: {
-    color: theme.bg,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  buttonSecondary: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    borderRadius: 12,
-    paddingVertical: spacing.md,
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 48,
-    backgroundColor: theme.bgElevated,
-  },
-  buttonSecondaryText: {
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-  disabled: {
-    opacity: 0.6,
-  },
-});
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+    input: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+      borderRadius: 12,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm + 2,
+      fontSize: 16,
+      color: theme.text,
+      marginBottom: spacing.md,
+      backgroundColor: theme.bgElevated,
+    },
+    success: {
+      color: theme.accent,
+      marginBottom: spacing.md,
+      fontSize: 15,
+      fontWeight: "600",
+      lineHeight: 22,
+    },
+    error: {
+      color: "#FF6B6B",
+      marginBottom: spacing.md,
+      fontSize: 14,
+      lineHeight: 20,
+    },
+    buttonPrimary: {
+      backgroundColor: theme.accent,
+      borderRadius: 12,
+      paddingVertical: spacing.md,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 48,
+      marginBottom: spacing.sm,
+    },
+    buttonPrimaryText: {
+      color: theme.bg,
+      fontSize: 16,
+      fontWeight: "600",
+    },
+    buttonSecondary: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+      borderRadius: 12,
+      paddingVertical: spacing.md,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 48,
+      backgroundColor: theme.bgElevated,
+    },
+    buttonSecondaryText: {
+      color: theme.text,
+      fontSize: 16,
+      fontWeight: "600",
+    },
+    pressed: {
+      opacity: 0.85,
+    },
+    disabled: {
+      opacity: 0.6,
+    },
+  });
+}

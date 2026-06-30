@@ -10,7 +10,9 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import {
   addProductStock,
   fetchProductStockHistory,
@@ -42,6 +44,8 @@ export function ProductStockSection({
   onPendingChange,
   openAddOnMount = false,
 }: Props) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const [displayStock, setDisplayStock] = useState(stock);
   const [history, setHistory] = useState<ProductStockAdjustment[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -292,7 +296,8 @@ export function ProductStockSection({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   section: {
     marginTop: 20,
     padding: 16,
@@ -475,4 +480,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
-});
+  });
+}

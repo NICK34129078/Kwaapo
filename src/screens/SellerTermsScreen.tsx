@@ -10,7 +10,9 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import {
   CURRENT_SELLER_TERMS_VERSION,
   SELLER_TERMS_ACCEPT_LABEL,
@@ -19,6 +21,8 @@ import {
 import { acceptCurrentSellerTerms } from "../services/sellerTermsService";
 
 export function SellerTermsScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
@@ -116,7 +120,8 @@ export function SellerTermsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -216,4 +221,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
   },
-});
+  });
+}

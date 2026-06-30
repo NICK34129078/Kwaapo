@@ -12,7 +12,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FeedItem } from "../components/FeedItem";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import type { FeedPost } from "../data/placeholder";
 import { fetchPostById } from "../services/postsService";
 import { buildPublicPostShareUrl } from "../services/sharePostService";
@@ -24,6 +26,8 @@ export type SharedPostRouteParams = {
 };
 
 export function SharedPostScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
@@ -109,7 +113,8 @@ export function SharedPostScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -163,4 +168,5 @@ const styles = StyleSheet.create({
     color: theme.text,
     fontWeight: "600",
   },
-});
+  });
+}

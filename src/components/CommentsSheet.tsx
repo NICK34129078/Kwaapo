@@ -31,9 +31,11 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
 import { AvatarImage } from "./AvatarImage";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import {
   addComment,
   deleteMyComment,
@@ -77,6 +79,8 @@ type CommentRowProps = {
 };
 
 function CommentRow({ item, isOwn, onDeletePress }: CommentRowProps) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const uname = item.username?.trim() || "gebruiker";
   return (
     <View style={styles.commentRow}>
@@ -122,6 +126,8 @@ export function CommentsSheet({
   onCommentAdded,
   onCommentDeleted,
 }: Props) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const { user } = useAuth();
@@ -539,7 +545,7 @@ export function CommentsSheet({
                   <TextInput
                     style={styles.input}
                     placeholder="Plaats een reactie…"
-                    placeholderTextColor={theme.textMuted}
+                    placeholderTextColor={theme.placeholder}
                     value={draft}
                     onChangeText={(t) => setDraft(t.slice(0, BODY_MAX))}
                     multiline
@@ -564,7 +570,7 @@ export function CommentsSheet({
                     accessibilityLabel="Plaatsen"
                   >
                     {submitting ? (
-                      <ActivityIndicator size="small" color="#0B0B0B" />
+                      <ActivityIndicator size="small" color={theme.accentText} />
                     ) : (
                       <Text style={styles.sendBtnText}>Plaatsen</Text>
                     )}
@@ -579,7 +585,8 @@ export function CommentsSheet({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   gestureRoot: {
     flex: 1,
   },
@@ -752,8 +759,9 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   sendBtnText: {
-    color: "#0B0B0B",
+    color: theme.accentText,
     fontSize: 14,
     fontWeight: "700",
   },
-});
+  });
+}

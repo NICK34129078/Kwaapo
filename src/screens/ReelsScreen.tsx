@@ -25,8 +25,10 @@ import {
   type FeedPost,
 } from "../data/placeholder";
 import type { UserVideoPost } from "../types/userVideoPost";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
 import { SellerActionRequiredCard } from "../components/SellerActionRequiredCard";
@@ -55,6 +57,7 @@ function ReelsFeedTopBar() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { openAuthPrompt } = useAuthPrompt();
+  const styles = useThemedStyles(createStyles);
 
   if (user) {
     return null;
@@ -113,6 +116,7 @@ function pickActiveViewable(
 }
 
 function ReelNextPreloader({ videoUrl }: { videoUrl: string | undefined | null }) {
+  const styles = useThemedStyles(createStyles);
   if (!videoUrl || Platform.OS === "web") {
     return null;
   }
@@ -138,6 +142,8 @@ function FeedListFooter({
   loading: boolean;
   endReached: boolean;
 }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   if (loading) {
     return (
       <View style={styles.footerWrap}>
@@ -156,6 +162,8 @@ function FeedListFooter({
 }
 
 export function ReelsScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const {
     globalFeedPosts,
     refreshGlobalFeed,
@@ -624,7 +632,8 @@ export function ReelsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -698,7 +707,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   feedTopBarAuthTxt: {
-    color: theme.text,
+    color: theme.onMediaText,
     fontSize: 15,
     fontWeight: "700",
     textShadowColor: "rgba(0,0,0,0.55)",
@@ -716,4 +725,5 @@ const styles = StyleSheet.create({
     opacity: 0,
     zIndex: -1,
   },
-});
+  });
+}

@@ -2,13 +2,67 @@ import React, { useEffect, useRef } from "react";
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { useActivityNotificationsOptional } from "../context/ActivityNotificationsContext";
 import type { ActivityToastPayload } from "../services/activityNotificationService";
 
 const SHOW_MS = 3200;
 const SLIDE_MS = 280;
+
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+    wrap: {
+      position: "absolute",
+      left: 12,
+      right: 12,
+      zIndex: 200,
+      elevation: 200,
+    },
+    card: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderRadius: 16,
+      backgroundColor: "rgba(18,18,18,0.96)",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: "rgba(255,255,255,0.12)",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.35,
+      shadowRadius: 16,
+    },
+    cardPressed: {
+      opacity: 0.92,
+    },
+    iconBubble: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.accentSoft,
+    },
+    textWrap: {
+      flex: 1,
+      minWidth: 0,
+    },
+    title: {
+      color: theme.onMediaText,
+      fontSize: 14,
+      fontWeight: "700",
+      lineHeight: 18,
+    },
+    subtitle: {
+      color: theme.onMediaTextMuted,
+      fontSize: 12,
+      marginTop: 2,
+    },
+  });
+}
 
 function ToastCard({
   toast,
@@ -19,6 +73,8 @@ function ToastCard({
   topInset: number;
   onDismiss: () => void;
 }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const translateY = useRef(new Animated.Value(-120)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
@@ -82,7 +138,7 @@ function ToastCard({
         accessibilityLabel={toast.message}
       >
         <View style={styles.iconBubble}>
-          <Ionicons name={iconName} size={18} color={theme.text} />
+          <Ionicons name={iconName} size={18} color={theme.accent} />
         </View>
         <View style={styles.textWrap}>
           <Text style={styles.title} numberOfLines={2}>
@@ -112,54 +168,3 @@ export function ActivityInAppToast() {
     />
   );
 }
-
-const styles = StyleSheet.create({
-  wrap: {
-    position: "absolute",
-    left: 12,
-    right: 12,
-    zIndex: 200,
-    elevation: 200,
-  },
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 16,
-    backgroundColor: "rgba(18,18,18,0.96)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.12)",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-  },
-  cardPressed: {
-    opacity: 0.92,
-  },
-  iconBubble: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.accentSoft,
-  },
-  textWrap: {
-    flex: 1,
-    minWidth: 0,
-  },
-  title: {
-    color: theme.text,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 18,
-  },
-  subtitle: {
-    color: theme.textMuted,
-    fontSize: 12,
-    marginTop: 2,
-  },
-});

@@ -13,7 +13,9 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import {
   fetchMyShopPostStats,
   type MyShopPostStat,
@@ -49,6 +51,8 @@ function buildProductMeta(stat: MyShopPostStat): string {
 }
 
 function StatRow({ stat }: { stat: MyShopPostStat }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const title =
     stat.productTitle?.trim() ||
     stat.caption?.trim() ||
@@ -86,6 +90,8 @@ function StatRow({ stat }: { stat: MyShopPostStat }) {
 }
 
 export function CreatorStatsScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState<MyShopPostStat[]>([]);
@@ -194,7 +200,8 @@ export function CreatorStatsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -326,4 +333,5 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: "center",
   },
-});
+  });
+}

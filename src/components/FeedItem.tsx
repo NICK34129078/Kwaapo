@@ -51,7 +51,9 @@ import {
 } from "../services/savedPostsService";
 import { formatPriceEur } from "../utils/formatPrice";
 import { PressableScale } from "./PressableScale";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { fetchPostShareCount } from "../services/postSharesService";
 import {
   buildPublicPostShareUrl,
@@ -200,6 +202,7 @@ function ReelImageCarousel({
   onSlidePress,
   tapToPauseAudio = false,
 }: ReelImageCarouselProps) {
+  const styles = useThemedStyles(createStyles);
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
@@ -309,6 +312,8 @@ export function FeedItem({
   onRequestRemove,
   onRequestRemoveAuthor,
 }: Props) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const { user } = useAuth();
   const { openAuthPrompt } = useAuthPrompt();
@@ -1306,7 +1311,7 @@ export function FeedItem({
           <Ionicons
             name={isLikedByCurrentUser ? "heart" : "heart-outline"}
             size={ACTION_ICON}
-            color={theme.text}
+            color={isLikedByCurrentUser ? "#ff375f" : theme.onMediaIcon}
           />
           <Text style={styles.railCount}>
             {formatLikesForDisplay(likesCount)}
@@ -1317,7 +1322,7 @@ export function FeedItem({
           <Ionicons
             name="chatbubble-outline"
             size={ACTION_ICON}
-            color={theme.text}
+            color={theme.onMediaIcon}
           />
           <Text style={styles.railCount}>
             {formatLikesForDisplay(commentsCount)}
@@ -1334,7 +1339,7 @@ export function FeedItem({
           <Ionicons
             name="paper-plane-outline"
             size={SHARE_ICON}
-            color={theme.text}
+            color={theme.onMediaIcon}
             style={styles.shareIcon}
           />
           <Text style={styles.railCount}>
@@ -1353,7 +1358,7 @@ export function FeedItem({
           <Ionicons
             name={isSaved ? "bookmark" : "bookmark-outline"}
             size={ACTION_ICON}
-            color={theme.text}
+            color={theme.onMediaIcon}
           />
         </PressableScale>
 
@@ -1367,7 +1372,7 @@ export function FeedItem({
           <Ionicons
             name="ellipsis-horizontal"
             size={MORE_ICON}
-            color={theme.text}
+            color={theme.onMediaIcon}
           />
         </PressableScale>
       </View>
@@ -1504,7 +1509,8 @@ export function FeedItem({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   card: {
     width: "100%",
     backgroundColor: theme.bg,
@@ -1556,7 +1562,7 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   railCount: {
-    color: theme.text,
+    color: theme.onMediaText,
     fontSize: COUNT_FS,
     fontWeight: "600",
     letterSpacing: 0.15,
@@ -1585,7 +1591,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.95)",
   },
   handle: {
-    color: theme.text,
+    color: theme.onMediaText,
     fontSize: HANDLE_FS,
     fontWeight: "700",
     letterSpacing: 0.2,
@@ -1640,7 +1646,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.14)",
   },
   shopCtaText: {
-    color: theme.text,
+    color: theme.onMediaText,
     fontSize: 11,
     fontWeight: "600",
     letterSpacing: 0.15,
@@ -1650,4 +1656,5 @@ const styles = StyleSheet.create({
     zIndex: 8,
     elevation: 8,
   },
-});
+  });
+}

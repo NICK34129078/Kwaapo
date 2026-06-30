@@ -13,7 +13,9 @@ import {
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { fetchBuyerOrders } from "../services/ordersService";
 import type { BuyerOrder } from "../types/order";
 import { formatPriceEur } from "../utils/formatPrice";
@@ -44,6 +46,8 @@ function BuyerOrderCard({
   buyerOrder: BuyerOrder;
   onPress: () => void;
 }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const firstItem = buyerOrder.items[0];
   const product = firstItem?.product;
   const order = buyerOrder.order;
@@ -90,6 +94,8 @@ function BuyerOrderCard({
 }
 
 export function MyOrdersScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const [orders, setOrders] = useState<BuyerOrder[]>([]);
@@ -216,7 +222,8 @@ export function MyOrdersScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -383,4 +390,5 @@ const styles = StyleSheet.create({
   orderBadgeTextMuted: {
     color: theme.textMuted,
   },
-});
+  });
+}

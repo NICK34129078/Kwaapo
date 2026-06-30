@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
@@ -39,7 +39,7 @@ import { AuthPromptProvider } from "./src/context/AuthPromptContext";
 import { GlobalFeedProvider } from "./src/context/GlobalFeedContext";
 import { LikesProvider } from "./src/context/LikesContext";
 import { UserUploadsProvider } from "./src/context/UserUploadsContext";
-import { theme } from "./src/constants/theme";
+import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
 import { PUBLIC_SHARE_BASE } from "./src/constants/shareLinks";
 
 const Tab = createBottomTabNavigator();
@@ -60,22 +60,39 @@ const linking = {
   },
 };
 
-const navTheme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    background: theme.bg,
-    card: theme.bg,
-    text: theme.text,
-    border: theme.border,
-    primary: theme.accent,
-  },
-};
+function ThemedNavigationContainer({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const { theme } = useTheme();
+  const navigationTheme = useMemo(
+    () => ({
+      ...DefaultTheme,
+      colors: {
+        ...DefaultTheme.colors,
+        background: theme.bg,
+        card: theme.bg,
+        text: theme.text,
+        border: theme.border,
+        primary: theme.accent,
+      },
+    }),
+    [theme]
+  );
+
+  return (
+    <NavigationContainer theme={navigationTheme} linking={linking as any}>
+      {children}
+    </NavigationContainer>
+  );
+}
 
 function MainTabs() {
+  const { theme } = useTheme();
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style={theme.statusBarStyle} />
       <Tab.Navigator
         initialRouteName="Home"
         tabBar={(props) => <BottomNavbar {...props} />}
@@ -95,10 +112,11 @@ function MainTabs() {
 
 function AppGate() {
   const { loading } = useAuth();
+  const { theme, isReady: themeReady } = useTheme();
 
-  if (loading) {
+  if (loading || !themeReady) {
     return (
-      <View style={styles.loadingRoot}>
+      <View style={[styles.loadingRoot, { backgroundColor: theme.bg }]}>
         <ActivityIndicator size="large" color={theme.accent} />
       </View>
     );
@@ -111,10 +129,7 @@ function AppGate() {
       <LikesProvider>
         <GlobalFeedProvider>
           <UserUploadsProvider>
-            <NavigationContainer
-              theme={navTheme}
-              linking={linking as any}
-            >
+            <ThemedNavigationContainer>
               <RootStack.Navigator
                 screenOptions={{
                   headerShown: false,
@@ -208,7 +223,7 @@ function AppGate() {
                 />
               </RootStack.Navigator>
               <ActivityInAppToast />
-            </NavigationContainer>
+            </ThemedNavigationContainer>
           </UserUploadsProvider>
         </GlobalFeedProvider>
       </LikesProvider>
@@ -222,9 +237,11 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
       <SafeAreaProvider>
-        <AuthProvider>
-          <AppGate />
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <AppGate />
+          </AuthProvider>
+        </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
@@ -236,7 +253,6 @@ const styles = StyleSheet.create({
   },
   loadingRoot: {
     flex: 1,
-    backgroundColor: theme.bg,
     alignItems: "center",
     justifyContent: "center",
   },

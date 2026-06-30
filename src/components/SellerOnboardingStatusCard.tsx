@@ -1,7 +1,9 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import {
   getSellerOnboardingDashboardLines,
   getSellerStatusCardContent,
@@ -14,7 +16,71 @@ type Props = {
   onPress: () => void;
 };
 
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+    card: {
+      flexDirection: "row",
+      gap: 12,
+      padding: 14,
+      borderRadius: 16,
+      marginBottom: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+    },
+    cardDefault: {
+      backgroundColor: theme.bgElevated,
+      borderColor: theme.border,
+    },
+    cardSuccess: {
+      backgroundColor: theme.accentLight,
+      borderColor: theme.accentBorderStrong,
+    },
+    cardWarning: {
+      backgroundColor: "rgba(255, 193, 7, 0.08)",
+      borderColor: "rgba(255, 193, 7, 0.35)",
+    },
+    cardDanger: {
+      backgroundColor: "rgba(255, 80, 80, 0.1)",
+      borderColor: "rgba(255, 80, 80, 0.35)",
+    },
+    iconWrap: {
+      width: 40,
+      alignItems: "center",
+      paddingTop: 2,
+    },
+    body: {
+      flex: 1,
+      minWidth: 0,
+    },
+    title: {
+      color: theme.text,
+      fontSize: 16,
+      fontWeight: "900",
+      marginBottom: 6,
+    },
+    message: {
+      color: theme.textMuted,
+      fontSize: 13,
+      lineHeight: 19,
+    },
+    statusLine: {
+      color: theme.text,
+      fontSize: 12,
+      fontWeight: "700",
+      marginTop: 6,
+      lineHeight: 17,
+    },
+    cta: {
+      color: theme.accent,
+      fontSize: 13,
+      fontWeight: "900",
+      marginTop: 10,
+    },
+  });
+}
+
 export function SellerOnboardingStatusCard({ onboarding, onPress }: Props) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const content = getSellerStatusCardContent(onboarding);
   const dashboard = resolveSellerDashboardUI(onboarding);
   const dashboardLines = getSellerOnboardingDashboardLines(onboarding);
@@ -60,63 +126,3 @@ export function SellerOnboardingStatusCard({ onboarding, onPress }: Props) {
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    flexDirection: "row",
-    gap: 12,
-    padding: 14,
-    borderRadius: 16,
-    marginBottom: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  cardDefault: {
-    backgroundColor: theme.bgElevated,
-    borderColor: theme.border,
-  },
-  cardSuccess: {
-    backgroundColor: theme.accentLight,
-    borderColor: theme.accentBorderStrong,
-  },
-  cardWarning: {
-    backgroundColor: "rgba(255, 193, 7, 0.08)",
-    borderColor: "rgba(255, 193, 7, 0.35)",
-  },
-  cardDanger: {
-    backgroundColor: "rgba(255, 80, 80, 0.1)",
-    borderColor: "rgba(255, 80, 80, 0.35)",
-  },
-  iconWrap: {
-    width: 40,
-    alignItems: "center",
-    paddingTop: 2,
-  },
-  body: {
-    flex: 1,
-    minWidth: 0,
-  },
-  title: {
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: "900",
-    marginBottom: 6,
-  },
-  message: {
-    color: theme.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  statusLine: {
-    color: theme.text,
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: 6,
-    lineHeight: 17,
-  },
-  cta: {
-    color: theme.accent,
-    fontSize: 13,
-    fontWeight: "900",
-    marginTop: 10,
-  },
-});
