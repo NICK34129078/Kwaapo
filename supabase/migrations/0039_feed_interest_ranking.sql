@@ -848,7 +848,8 @@ as $function$
   untagged_slot_limit as (
     select case
       when (select cnt from tagged_pool_count) >= (select lim from effective_limit) then 0
-      when (select cnt from tagged_pool_count) >= ceil((select lim from effective_limit) * 0.6) then 1
+      when (select cnt from tagged_pool_count) >= ((select lim from effective_limit) - 1) then 0
+      when (select cnt from tagged_pool_count) >= 6 then 1
       else least(
         2,
         greatest(0, (select lim from effective_limit) - (select cnt from tagged_pool_count))
