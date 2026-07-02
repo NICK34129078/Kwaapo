@@ -1,7 +1,11 @@
-import React from "react";
+import React, { useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  DefaultTheme,
+  NavigationContainerRef,
+} from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -31,6 +35,8 @@ import { SellerOnboardingScreen } from "./src/screens/SellerOnboardingScreen";
 import { SellerTermsScreen } from "./src/screens/SellerTermsScreen";
 import { PolicyDocumentScreen } from "./src/screens/PolicyDocumentScreen";
 import { AccountDeletionScreen } from "./src/screens/AccountDeletionScreen";
+import { ResetPasswordScreen } from "./src/screens/ResetPasswordScreen";
+import { PasswordRecoveryNavigator } from "./src/navigation/PasswordRecoveryNavigator";
 import { SellerFulfillmentProvider } from "./src/context/SellerFulfillmentContext";
 import { BottomNavbar } from "./src/components/BottomNavbar";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
@@ -55,6 +61,7 @@ const linking = {
         },
       },
       SharedPost: "post/:postId",
+      ResetPassword: "auth/reset-password",
     },
   },
 };
@@ -94,6 +101,8 @@ function MainTabs() {
 
 function AppGate() {
   const { loading } = useAuth();
+  const navigationRef = useRef<NavigationContainerRef<any>>(null);
+  const [navigationReady, setNavigationReady] = useState(false);
 
   if (loading) {
     return (
@@ -110,9 +119,15 @@ function AppGate() {
         <GlobalFeedProvider>
           <UserUploadsProvider>
             <NavigationContainer
+              ref={navigationRef}
               theme={navTheme}
               linking={linking as any}
+              onReady={() => setNavigationReady(true)}
             >
+              <PasswordRecoveryNavigator
+                navigationRef={navigationRef}
+                navigationReady={navigationReady}
+              />
               <RootStack.Navigator
                 screenOptions={{
                   headerShown: false,
@@ -211,6 +226,14 @@ function AppGate() {
                   name="AccountDeletion"
                   component={AccountDeletionScreen}
                   options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="ResetPassword"
+                  component={ResetPasswordScreen}
+                  options={{
+                    animation: "slide_from_bottom",
+                    presentation: "modal",
+                  }}
                 />
               </RootStack.Navigator>
             </NavigationContainer>

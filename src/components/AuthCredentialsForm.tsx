@@ -9,7 +9,7 @@ import {
 } from "react-native";
 
 import { useAuth } from "../context/AuthContext";
-import { PASSWORD_RESET_REDIRECT_URL } from "../constants/authLinks";
+import { PASSWORD_RESET_REDIRECT_URL, logPasswordResetRedirectUrl } from "../constants/authLinks";
 import { supabase } from "../lib/supabase";
 import { theme, spacing } from "../constants/theme";
 
@@ -51,6 +51,7 @@ export function AuthCredentialsForm() {
     }
     setPending("reset");
     try {
+      logPasswordResetRedirectUrl("Auth reset request");
       const { error } = await supabase.auth.resetPasswordForEmail(em, {
         redirectTo: PASSWORD_RESET_REDIRECT_URL,
       });

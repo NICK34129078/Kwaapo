@@ -12,7 +12,9 @@ import * as Linking from "expo-linking";
 import { isSupabaseClientConfigured } from "../config/env";
 import { supabase } from "../lib/supabase";
 import { formatAuthError } from "../utils/authErrorMessages";
-import { parseSupabaseAuthParamsFromUrl } from "../utils/authDeepLink";
+import { parseSupabaseAuthParamsFromUrl, isPasswordRecoveryDeepLink } from "../utils/authDeepLink";
+import { isPasswordRecoveryAuthEvent } from "../utils/authRecoveryState";
+import { logPasswordResetRedirectUrl } from "../constants/authLinks";
 import { clearSavedStatusCache } from "../services/savedPostsService";
 
 function safeAuthLog(scope: string, message: string): void {
@@ -31,6 +33,9 @@ type AuthContextValue = {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  passwordRecoveryPending: boolean;
+  clearPasswordRecoveryPending: () => void;
+  completePasswordReset: (password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string) => Promise<SignUpResult>;
   signIn: (
     email: string,
@@ -44,6 +49,11 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(false);
+
+  useEffect(() => {
+    logPasswordResetRedirectUrl("Auth startup");
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,11 +116,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (cancelled) {
         return;
       }
       try {
+        if (isPasswordRecoveryAuthEvent(event)) {
+          setPasswordRecoveryPending(true);
+        }
         if (nextSession == null) {
           // Bij uitloggen/accountwissel: bookmark-cache leegmaken.
           clearSavedStatusCache();
@@ -134,6 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const applyAuthTokensFromUrl = async (url: string) => {
+      const recoveryLink = isPasswordRecoveryDeepLink(url);
       const { accessToken, refreshToken } = parseSupabaseAuthParamsFromUrl(url);
       if (!accessToken || !refreshToken) {
         return;
@@ -142,8 +156,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         access_token: accessToken,
         refresh_token: refreshToken,
       });
-      if (error && __DEV__) {
-        console.warn("[Auth] setSession from deep link failed:", error.message);
+      if (error) {
+        if (__DEV__) {
+          console.warn("[Auth] setSession from deep link failed:", error.message);
+        }
+        return;
+      }
+      if (recoveryLink) {
+        setPasswordRecoveryPending(true);
       }
     };
 
@@ -160,6 +180,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       subscription.remove();
     };
+  }, []);
+
+  const clearPasswordRecoveryPending = useCallback(() => {
+    setPasswordRecoveryPending(false);
+  }, []);
+
+  const completePasswordReset = useCallback(async (password: string) => {
+    const { error: updateError } = await supabase.auth.updateUser({ password });
+    if (updateError) {
+      return { error: new Error(formatAuthError(updateError, "signIn")) };
+    }
+    const { error: signOutError } = await supabase.auth.signOut();
+    if (signOutError) {
+      return { error: new Error(signOutError.message) };
+    }
+    setPasswordRecoveryPending(false);
+    return { error: null };
   }, []);
 
   const signUp = useCallback(async (email: string, password: string) => {
@@ -246,11 +283,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       session,
       loading,
+      passwordRecoveryPending,
+      clearPasswordRecoveryPending,
+      completePasswordReset,
       signUp,
       signIn,
       signOut,
     }),
-    [user, session, loading, signUp, signIn, signOut]
+    [
+      user,
+      session,
+      loading,
+      passwordRecoveryPending,
+      clearPasswordRecoveryPending,
+      completePasswordReset,
+      signUp,
+      signIn,
+      signOut,
+    ]
   );
 
   return (
