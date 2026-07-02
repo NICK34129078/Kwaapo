@@ -1,7 +1,7 @@
 import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { theme } from "../constants/theme";
@@ -9,11 +9,13 @@ import { ProfileScreen } from "./ProfileScreen";
 
 export function PublicProfileScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
   const insets = useSafeAreaInsets();
+  const profileId: string | undefined = route.params?.profileId;
 
   return (
     <View style={styles.root}>
-      <ProfileScreen />
+      <ProfileScreen profileId={profileId} />
 
       <Pressable
         onPress={() => navigation.goBack()}

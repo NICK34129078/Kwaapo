@@ -166,6 +166,7 @@ function ProfileAuthenticatedScreen({
 }) {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { openAuthPrompt } = useAuthPrompt();
   const { width, height: windowHeight } = useWindowDimensions();
   const cellSize = (width - GAP * 2) / 3;
   const { uploadedVideoPosts, deleteUserVideoPost } = useUserUploads();
@@ -180,6 +181,7 @@ function ProfileAuthenticatedScreen({
   const { isUploading: isCarouselUploading, uploadCarouselAssets } =
     useCloudImageCarouselUpload();
   const [uploadFlowBusy, setUploadFlowBusy] = useState(false);
+  const placingPostRef = useRef(false);
   const isUploadBusy = isUploading || isCarouselUploading || uploadFlowBusy;
   const { signOut, user } = useAuth();
   const { actionCount: sellerOrdersToShipCount } = useSellerFulfillment();
@@ -216,13 +218,12 @@ function ProfileAuthenticatedScreen({
   const [profileContentTab, setProfileContentTab] =
     useState<ProfileContentTab>("posts");
   const isBusinessProfile = profileAccountType === "business";
-  const profileTabs = useMemo<ProfileContentTab[]>(
-    () =>
-      isBusinessProfile
-        ? ["posts", "shop", "saved"]
-        : ["posts", "saved"],
-    [isBusinessProfile]
-  );
+  const profileTabs = useMemo<ProfileContentTab[]>(() => {
+    if (isBusinessProfile) {
+      return isOwnProfile ? ["posts", "shop", "saved"] : ["posts", "shop"];
+    }
+    return isOwnProfile ? ["posts", "saved"] : ["posts"];
+  }, [isBusinessProfile, isOwnProfile]);
   const plusPulse = useRef(new Animated.Value(1)).current;
 
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
@@ -517,53 +518,55 @@ function ProfileAuthenticatedScreen({
   }, []);
 
   const handlePlacePost = useCallback(() => {
-    if (!uploadDraftMedia) {
+    if (!uploadDraftMedia || placingPostRef.current || uploadFlowBusy) {
       return;
     }
+    placingPostRef.current = true;
+    setUploadFlowBusy(true);
     const opts = buildUploadOptions();
     Keyboard.dismiss();
-    setUploadModalVisible(false);
 
-    const delayMs = Platform.OS === "ios" ? 700 : 500;
-    setTimeout(() => {
-      void (async () => {
-        try {
-          setUploadFlowBusy(true);
-          const audioOption = selectedSpotifyTrack?.trackId
-            ? {
-                spotifyAudio: {
-                  trackId: selectedSpotifyTrack.trackId,
-                  title: selectedSpotifyTrack.title,
-                  artist: selectedSpotifyTrack.artist,
-                  volume: selectedAudioVolume,
-                },
-              }
-            : selectedAudioUri
-            ? {
-                audio: {
-                  localUri: selectedAudioUri,
-                  displayName: selectedAudioName ?? "Eigen audio",
-                  volume: selectedAudioVolume,
-                },
-              }
-            : {};
-          if (uploadDraftMedia.kind === "video") {
-            await uploadVideoAsset(uploadDraftMedia.asset, {
-              ...opts,
-              ...audioOption,
-            });
-          } else {
-            await uploadCarouselAssets(uploadDraftMedia.assets, {
-              ...opts,
-              ...audioOption,
-            });
-          }
-        } finally {
-          setUploadFlowBusy(false);
-          resetUploadDrafts();
+    void (async () => {
+      try {
+        const audioOption = selectedSpotifyTrack?.trackId
+          ? {
+              spotifyAudio: {
+                trackId: selectedSpotifyTrack.trackId,
+                title: selectedSpotifyTrack.title,
+                artist: selectedSpotifyTrack.artist,
+                volume: selectedAudioVolume,
+              },
+            }
+          : selectedAudioUri
+          ? {
+              audio: {
+                localUri: selectedAudioUri,
+                displayName: selectedAudioName ?? "Eigen audio",
+                volume: selectedAudioVolume,
+              },
+            }
+          : {};
+        if (uploadDraftMedia.kind === "video") {
+          await uploadVideoAsset(uploadDraftMedia.asset, {
+            ...opts,
+            ...audioOption,
+          });
+        } else {
+          await uploadCarouselAssets(uploadDraftMedia.assets, {
+            ...opts,
+            ...audioOption,
+          });
         }
-      })();
-    }, delayMs);
+        setUploadModalVisible(false);
+        resetUploadDrafts();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Plaatsen mislukt.";
+        Alert.alert("Upload mislukt", msg);
+      } finally {
+        placingPostRef.current = false;
+        setUploadFlowBusy(false);
+      }
+    })();
   }, [
     buildUploadOptions,
     resetUploadDrafts,
@@ -573,6 +576,7 @@ function ProfileAuthenticatedScreen({
     selectedAudioVolume,
     selectedSpotifyTrack,
     uploadDraftMedia,
+    uploadFlowBusy,
     uploadVideoAsset,
   ]);
 
@@ -791,7 +795,11 @@ function ProfileAuthenticatedScreen({
   );
 
   const onToggleFollow = useCallback(async () => {
-    if (!user?.id || !targetProfileId || isOwnProfile) {
+    if (!targetProfileId || isOwnProfile) {
+      return;
+    }
+    if (!user?.id) {
+      openAuthPrompt({ message: "Log in om dit profiel te volgen." });
       return;
     }
     setFollowBusy(true);
@@ -828,7 +836,7 @@ function ProfileAuthenticatedScreen({
     } finally {
       setFollowBusy(false);
     }
-  }, [isFollowing, isOwnProfile, targetProfileId, user?.id]);
+  }, [isFollowing, isOwnProfile, openAuthPrompt, targetProfileId, user?.id]);
 
   const loadFollowList = useCallback(
     async (mode: FollowListMode) => {
@@ -1682,15 +1690,24 @@ function ProfileAuthenticatedScreen({
                 ) : null}
                 <View style={styles.uploadSheetStack}>
                   <Pressable
-                    style={[styles.uploadSheetBtnPrimary, styles.uploadSheetFullWidth]}
+                    style={[
+                      styles.uploadSheetBtnPrimary,
+                      styles.uploadSheetFullWidth,
+                      uploadFlowBusy && styles.uploadSheetBtnDisabled,
+                    ]}
                     onPress={(e) => {
                       e?.stopPropagation?.();
                       handlePlacePost();
                     }}
+                    disabled={uploadFlowBusy}
                     accessibilityRole="button"
                     accessibilityLabel="Plaatsen"
                   >
-                    <Text style={styles.uploadSheetBtnPrimaryText}>Plaatsen</Text>
+                    {uploadFlowBusy ? (
+                      <ActivityIndicator color={theme.bg} />
+                    ) : (
+                      <Text style={styles.uploadSheetBtnPrimaryText}>Plaatsen</Text>
+                    )}
                   </Pressable>
                 </View>
                   </>
@@ -1807,11 +1824,14 @@ function ProfileAuthenticatedScreen({
   );
 }
 
-export function ProfileScreen() {
+export function ProfileScreen({ profileId: profileIdProp }: { profileId?: string } = {}) {
   const { user } = useAuth();
   const route = useRoute<any>();
-  const routeProfileId: string | undefined = route?.params?.profileId;
+  const routeProfileId: string | undefined = profileIdProp ?? route?.params?.profileId;
   if (user == null) {
+    if (routeProfileId) {
+      return <ProfileAuthenticatedScreen profileId={routeProfileId} />;
+    }
     return <GuestProfileScreen />;
   }
   return <ProfileAuthenticatedScreen profileId={routeProfileId} />;
@@ -2708,6 +2728,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 12,
+  },
+  uploadSheetBtnDisabled: {
+    opacity: 0.6,
   },
   uploadSheetBtnPrimaryText: {
     color: "#0B0B0B",
