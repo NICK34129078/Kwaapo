@@ -10,6 +10,12 @@ import {
   isRetriableRefundApplyError,
   shouldSendRefundNotifications,
 } from "./order-refund-logic.js";
+import {
+  reconcileOutcome,
+  shouldAttemptStockReconcile,
+  shouldInitiateAutoRefund,
+  shouldNotifySellerOnPaid,
+} from "./order-reconciliation-logic.js";
 
 /**
  * Stripe Checkout — server-side only.
@@ -282,6 +288,16 @@ async function callOrderStockRpc(env, functionName, orderId) {
   return result === true;
 }
 
+async function callOrderStockRpcJson(env, functionName, orderId) {
+  return supabaseRequest(
+    env,
+    "POST",
+    `/rpc/${functionName}`,
+    JSON.stringify({ p_order_id: orderId }),
+    { preferRepresentation: false }
+  );
+}
+
 async function reserveProductStockForOrder(env, orderId) {
   return callOrderStockRpc(env, "reserve_product_stock_for_order", orderId);
 }
@@ -292,6 +308,28 @@ async function commitProductStockForOrder(env, orderId) {
 
 async function releaseProductStockForOrder(env, orderId) {
   return callOrderStockRpc(env, "release_product_stock_for_order", orderId);
+}
+
+async function reconcileProductStockForPaidOrder(env, orderId) {
+  return callOrderStockRpcJson(
+    env,
+    "reconcile_product_stock_for_paid_order",
+    orderId
+  );
+}
+
+async function patchOrderFields(env, orderId, patch) {
+  const updated = await supabaseRequest(
+    env,
+    "PATCH",
+    `/orders?id=eq.${encodeURIComponent(orderId)}`,
+    JSON.stringify(patch),
+    { preferRepresentation: true }
+  );
+  if (!updated || (Array.isArray(updated) && updated.length === 0)) {
+    throw new Error(`PostgREST: order ${orderId} not updated (0 rows)`);
+  }
+  return updated;
 }
 
 async function resolveStripeChargeIdFromPaymentIntent(env, paymentIntentId) {
@@ -407,13 +445,16 @@ function assertStripeSecret(env) {
   return key;
 }
 
-async function stripeRequest(env, method, path, params) {
+async function stripeRequest(env, method, path, params, options = {}) {
   assertStripeSecret(env);
   const key = env.STRIPE_SECRET_KEY;
   const headers = {
     Authorization: `Bearer ${key}`,
     "Content-Type": "application/x-www-form-urlencoded",
   };
+  if (options.idempotencyKey) {
+    headers["Idempotency-Key"] = String(options.idempotencyKey);
+  }
   const body = params != null ? stripeFormBody(params) : undefined;
   const res = await fetch(`${STRIPE_API}${path}`, { method, headers, body });
   const data = await res.json();
@@ -469,18 +510,145 @@ function amountToCents(amount) {
   return Math.round(n * 100);
 }
 
+async function initiateAutoRefundForUnavailableStock(
+  env,
+  orderId,
+  order,
+  paymentIntentId
+) {
+  if (
+    !shouldInitiateAutoRefund({
+      paymentStatus: order?.payment_status,
+      refundRequestedAt: order?.refund_requested_at,
+      fulfillmentStatus: order?.fulfillment_status,
+    })
+  ) {
+    return { skipped: true, reason: "not_eligible" };
+  }
+
+  let stripeChargeId = order?.stripe_charge_id || null;
+  if (!stripeChargeId && paymentIntentId) {
+    stripeChargeId = await resolveStripeChargeIdFromPaymentIntent(
+      env,
+      paymentIntentId
+    );
+  }
+
+  if (!stripeChargeId) {
+    await patchOrderFields(env, orderId, {
+      fulfillment_status: "manual_review",
+      fulfillment_exception_at:
+        order?.fulfillment_exception_at || new Date().toISOString(),
+    });
+    console.warn(
+      "[initiateAutoRefundForUnavailableStock] no charge id — manual_review",
+      orderId
+    );
+    return { ok: false, reason: "no_charge" };
+  }
+
+  try {
+    const refund = await stripeRequest(
+      env,
+      "POST",
+      "/refunds",
+      {
+        charge: stripeChargeId,
+        reverse_transfer: "true",
+        refund_application_fee: "true",
+        metadata: {
+          order_id: orderId,
+          reason: "stock_unavailable",
+        },
+      },
+      { idempotencyKey: `auto-refund-unavailable-${orderId}` }
+    );
+
+    await patchOrderFields(env, orderId, {
+      refund_requested_at: new Date().toISOString(),
+      fulfillment_status: "refund_pending",
+      stripe_refund_id: refund?.id || null,
+      stripe_charge_id: stripeChargeId,
+    });
+    console.log(
+      "[initiateAutoRefundForUnavailableStock] ok",
+      orderId,
+      refund?.id ?? null
+    );
+    return { ok: true, refundId: refund?.id ?? null };
+  } catch (e) {
+    console.error(
+      "[initiateAutoRefundForUnavailableStock] failed",
+      orderId,
+      e instanceof Error ? e.message : String(e)
+    );
+    await patchOrderFields(env, orderId, {
+      fulfillment_status: "manual_review",
+      fulfillment_exception_at:
+        order?.fulfillment_exception_at || new Date().toISOString(),
+    });
+    return {
+      ok: false,
+      reason: "refund_failed",
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
 async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
   const order = await fetchOrderById(env, orderId);
   if (order?.payment_status === "paid") {
+    if (
+      shouldInitiateAutoRefund({
+        paymentStatus: order.payment_status,
+        refundRequestedAt: order.refund_requested_at,
+        fulfillmentStatus: order.fulfillment_status,
+      })
+    ) {
+      await initiateAutoRefundForUnavailableStock(
+        env,
+        orderId,
+        order,
+        paymentIntentId
+      );
+    }
     console.log("[markOrderPaid] already paid", orderId);
     return;
   }
 
+  let fulfillmentStatus = "committed";
+  let paymentReconciledAt = null;
+
   const committed = await commitProductStockForOrder(env, orderId);
   if (!committed) {
-    throw new Error(
-      `[markOrderPaid] stock commit failed for order ${orderId} — refusing to mark paid without active reservation`
-    );
+    if (
+      shouldAttemptStockReconcile({
+        stockCommittedAt: order?.stock_committed_at,
+        stockReleasedAt: order?.stock_released_at,
+      })
+    ) {
+      const reconcileResult = await reconcileProductStockForPaidOrder(
+        env,
+        orderId
+      );
+      const outcome = reconcileOutcome(reconcileResult);
+      if (outcome === "reconciled") {
+        fulfillmentStatus = "reconciled";
+        paymentReconciledAt = new Date().toISOString();
+      } else if (outcome === "already_committed") {
+        fulfillmentStatus = "committed";
+      } else if (outcome === "stock_unavailable") {
+        fulfillmentStatus = "stock_unavailable";
+      } else {
+        throw new Error(
+          `[markOrderPaid] reconcile failed for order ${orderId}: ${JSON.stringify(reconcileResult)}`
+        );
+      }
+    } else {
+      throw new Error(
+        `[markOrderPaid] stock commit failed for order ${orderId} — refusing to mark paid without active reservation`
+      );
+    }
   }
 
   let stripeChargeId = order?.stripe_charge_id || null;
@@ -495,6 +663,7 @@ async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
     status: "paid",
     payment_status: "paid",
     paid_at: new Date().toISOString(),
+    fulfillment_status: fulfillmentStatus,
   };
   if (sessionId) {
     patch.stripe_checkout_session_id = sessionId;
@@ -505,18 +674,35 @@ async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
   if (stripeChargeId) {
     patch.stripe_charge_id = stripeChargeId;
   }
-  const updated = await supabaseRequest(
-    env,
-    "PATCH",
-    `/orders?id=eq.${encodeURIComponent(orderId)}`,
-    JSON.stringify(patch),
-    { preferRepresentation: true }
-  );
-  if (!updated || (Array.isArray(updated) && updated.length === 0)) {
-    throw new Error(`PostgREST: order ${orderId} not updated (0 rows)`);
+  if (paymentReconciledAt) {
+    patch.payment_reconciled_at = paymentReconciledAt;
   }
-  console.log("[markOrderPaid] ok", orderId, stripeChargeId ? "charge stored" : "no charge id");
-  await notifySellerNewPaidOrder(env, orderId);
+  if (fulfillmentStatus === "stock_unavailable") {
+    patch.fulfillment_exception_at = new Date().toISOString();
+  }
+
+  await patchOrderFields(env, orderId, patch);
+  console.log(
+    "[markOrderPaid] ok",
+    orderId,
+    fulfillmentStatus,
+    stripeChargeId ? "charge stored" : "no charge id"
+  );
+
+  if (fulfillmentStatus === "stock_unavailable") {
+    const refreshed = await fetchOrderById(env, orderId);
+    await initiateAutoRefundForUnavailableStock(
+      env,
+      orderId,
+      refreshed,
+      paymentIntentId
+    );
+    return;
+  }
+
+  if (shouldNotifySellerOnPaid(fulfillmentStatus)) {
+    await notifySellerNewPaidOrder(env, orderId);
+  }
 }
 
 async function fetchProductNameById(env, productId) {
@@ -739,12 +925,41 @@ async function handleChargeRefunded(env, event) {
   });
 
   if (!shouldSendRefundNotifications(rpcResult)) {
+    if (rpcResult?.applied === true) {
+      try {
+        await patchOrderFields(env, orderId, {
+          fulfillment_status: "refunded",
+          refund_completed_at: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.warn(
+          logPrefix,
+          "fulfillment patch after refund failed",
+          orderId,
+          e instanceof Error ? e.message : String(e)
+        );
+      }
+    }
     return {
       handled: true,
       orderId,
       duplicate: rpcResult?.duplicate === true,
       applied: rpcResult?.applied === true,
     };
+  }
+
+  try {
+    await patchOrderFields(env, orderId, {
+      fulfillment_status: "refunded",
+      refund_completed_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.warn(
+      logPrefix,
+      "fulfillment patch after refund failed",
+      orderId,
+      e instanceof Error ? e.message : String(e)
+    );
   }
 
   const order = await fetchOrderById(env, orderId);
@@ -1334,11 +1549,34 @@ export async function handleStripeWebhook(request, env) {
     } else if (event.type === "refund.updated") {
       const refund = event.data.object;
       if (isRefundUpdatedFailed(refund)) {
-        console.log(logPrefix, "refund.updated failed (order unchanged)", {
+        console.log(logPrefix, "refund.updated failed (manual review)", {
           refundId: refund?.id ?? null,
           chargeId: refund?.charge ?? null,
           paymentIntent: refund?.payment_intent ?? null,
         });
+        const piForLookup =
+          typeof refund?.payment_intent === "string"
+            ? refund.payment_intent
+            : refund?.payment_intent?.id ?? null;
+        const orderId = await resolveOrderIdFromPaymentIntent(
+          env,
+          piForLookup
+        );
+        if (isStandardUuid(orderId)) {
+          try {
+            await patchOrderFields(env, orderId, {
+              fulfillment_status: "manual_review",
+              fulfillment_exception_at: new Date().toISOString(),
+            });
+          } catch (e) {
+            console.warn(
+              logPrefix,
+              "manual_review patch failed",
+              orderId,
+              e instanceof Error ? e.message : String(e)
+            );
+          }
+        }
       }
     }
 
