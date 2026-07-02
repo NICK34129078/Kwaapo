@@ -293,6 +293,35 @@ function shopFieldsFromRow(row: MaybePostRow): Pick<
   return base;
 }
 
+function rankingFieldsFromRow(row: MaybePostRow): Pick<
+  UserVideoPost,
+  "rankingScore" | "rankingBreakdown"
+> {
+  const scoreRaw =
+    (row as { ranking_score?: unknown }).ranking_score ??
+    (row as { rankingScore?: unknown }).rankingScore;
+  const breakdownRaw =
+    (row as { ranking_breakdown?: unknown }).ranking_breakdown ??
+    (row as { rankingBreakdown?: unknown }).rankingBreakdown;
+  const out: Pick<UserVideoPost, "rankingScore" | "rankingBreakdown"> = {};
+  if (typeof scoreRaw === "number" && Number.isFinite(scoreRaw)) {
+    out.rankingScore = scoreRaw;
+  } else if (typeof scoreRaw === "string" && scoreRaw.length > 0) {
+    const n = Number(scoreRaw);
+    if (Number.isFinite(n)) {
+      out.rankingScore = n;
+    }
+  }
+  if (
+    breakdownRaw != null &&
+    typeof breakdownRaw === "object" &&
+    !Array.isArray(breakdownRaw)
+  ) {
+    out.rankingBreakdown = breakdownRaw as Record<string, unknown>;
+  }
+  return out;
+}
+
 function normalizePostRow(row: MaybePostRow): PostRow {
   const rawVideo = row.video_url ?? row.videoUrl;
   const videoNorm =
@@ -603,20 +632,23 @@ async function attachLinkedProductsToPosts(
 async function mapWorkerPostsToUserVideoPosts(
   rows: PostRow[],
   scope: UserVideoPostMappingScope,
-  ownerProfilesById: Map<string, ProfileOwnerRow>
+  ownerProfilesById: Map<string, ProfileOwnerRow>,
+  options?: { preserveOrder?: boolean }
 ): Promise<UserVideoPost[]> {
   const normalized = rows
     .map((p) => normalizePostRow(p as MaybePostRow))
-    .filter((p) => !p.is_deleted)
-    .sort(
-      (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
+    .filter((p) => !p.is_deleted);
+  const ordered = options?.preserveOrder
+    ? normalized
+    : [...normalized].sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
   const carouselIds = normalized
     .filter((p) => p.type === "image_carousel")
     .map((p) => p.id);
   const mediaByPostId = await fetchPostMediaByPostIds(carouselIds);
-  const mapped = normalized.map((row) =>
+  const mapped = ordered.map((row) =>
     mapRowToUserVideoPost(row, scope, ownerProfilesById.get(row.user_id), mediaByPostId)
   );
   return attachMusicThumbsToPosts(await attachLinkedProductsToPosts(mapped));
@@ -688,20 +720,30 @@ async function mapSupabasePostRowsToUserVideoPosts(
     return [];
   }
   const asRows = raw as MaybePostRow[];
-  const normalized = asRows
+  const ownerProfilesById = await fetchOwnerProfilesByIds(
+    asRows.map((p) => normalizePostRow(p)).filter((p) => !p.is_deleted)
+  );
+  const carouselIds = asRows
     .map((p) => normalizePostRow(p))
-    .filter((p) => !p.is_deleted);
-  if (normalized.length === 0) {
-    return [];
-  }
-  const ownerProfilesById = await fetchOwnerProfilesByIds(normalized);
-  const carouselIds = normalized
-    .filter((p) => p.type === "image_carousel")
+    .filter((p) => !p.is_deleted && p.type === "image_carousel")
     .map((p) => p.id);
   const mediaByPostId = await fetchPostMediaByPostIds(carouselIds);
-  const mapped = normalized.map((row) =>
-    mapRowToUserVideoPost(row, scope, ownerProfilesById.get(row.user_id), mediaByPostId)
-  );
+  const mapped: UserVideoPost[] = [];
+  for (const rawRow of asRows) {
+    const row = normalizePostRow(rawRow);
+    if (row.is_deleted) {
+      continue;
+    }
+    mapped.push({
+      ...mapRowToUserVideoPost(
+        row,
+        scope,
+        ownerProfilesById.get(row.user_id),
+        mediaByPostId
+      ),
+      ...rankingFieldsFromRow(rawRow),
+    });
+  }
   return attachMusicThumbsToPosts(await attachLinkedProductsToPosts(mapped));
 }
 
@@ -763,7 +805,7 @@ export async function enrichPostWithLinkedProduct(
 
 /**
  * Zelfde mapping als de globale Worker-feed, voor RPC-rows (bijv. `get_personalized_feed`).
- * Extra velden op de row (zoals `ranking_score`) vallen buiten `UserVideoPost` en worden niet in de UI gezet.
+ * Behoudt RPC-volgorde; `ranking_score` / `ranking_breakdown` worden op het post-object gezet.
  */
 export async function mapSupabasePostRowsToGlobalUserVideoPosts(
   raw: unknown[]

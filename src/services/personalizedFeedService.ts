@@ -13,7 +13,7 @@ function clampLimit(limit?: number): number {
 
 /**
  * Gepersonaliseerde Reels-candidates via Supabase RPC.
- * Bij geen user, fout of lege response: lege array (caller valt terug op globale feed).
+ * Bij geen user: lege array. Bij RPC-fout: throw (caller doet retry/explore).
  *
  * `excludePostIds`: posts die niet opnieuw in de batch mogen (voor infinite scroll).
  * Oude DB zonder `p_exclude_post_ids`: alleen fallback als er niets te excluden is.
@@ -45,14 +45,12 @@ export async function fetchPersonalizedFeed(
     });
     data = retry.data;
     error = retry.error;
-  } else if (error && validExclude.length > 0) {
-    console.warn("[PersonalizedFeed] fetch failed:", error.message);
-    return [];
+  } else if (error) {
+    throw new Error(error.message);
   }
 
   if (error) {
-    console.warn("[PersonalizedFeed] fetch failed:", error.message);
-    return [];
+    throw new Error(error.message);
   }
 
   if (data == null || !Array.isArray(data) || data.length === 0) {

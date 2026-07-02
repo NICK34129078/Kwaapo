@@ -60,6 +60,12 @@ export type FeedPost = {
   avatarUrl?: string;
   /** Genormaliseerde hashtags (zonder #), uit `public.posts.tags`. */
   tags?: string[];
+  /** Server-side ranking score (alleen gerankte feed-RPC). */
+  rankingScore?: number;
+  /** Development: uitsplitsing rankingfactoren uit Supabase RPC. */
+  rankingBreakdown?: Record<string, unknown>;
+  /** Bron van Reels-feed item (RPC-laag, geen Worker). */
+  feedSource?: "personalized" | "explore" | "empty";
   /**
    * UI-state: of de huidige gebruiker deze post heeft opgeslagen.
    * Waarheid blijft `public.saved_posts`; dit veld is alleen een hint voor de UI.

@@ -34,6 +34,12 @@ import { SellerActionRequiredCard } from "../components/SellerActionRequiredCard
 import { isPersistablePostId } from "../services/postLikesService";
 import { fetchSavedPostIdsForCurrentUser } from "../services/savedPostsService";
 import { capWatchedMs, recordVideoView } from "../services/videoViewsService";
+import {
+  flushContentInteractionsNow,
+  milestoneEventsForWatch,
+  queueContentInteraction,
+} from "../services/contentInteractionsService";
+import { FeedRankingDebugPanel } from "../components/FeedRankingDebugPanel";
 import { addToBoundedSet } from "../utils/boundedSeenIds";
 import { REELS_WINDOW } from "../utils/feedRollingWindow";
 
@@ -210,6 +216,8 @@ export function ReelsScreen() {
   const playbackMetricsRef = useRef<Map<string, AggregatedPlaybackMetrics>>(
     new Map()
   );
+  const impressionSentRef = useRef<Set<string>>(new Set());
+  const milestoneSentRef = useRef<Set<string>>(new Set());
 
   const finalFeedData = globalFeedPosts;
 
@@ -235,6 +243,20 @@ export function ReelsScreen() {
         maxPositionMs,
         completed,
       });
+
+      if (durationMs > 0 && metrics.positionMs != null && metrics.positionMs >= 0) {
+        const pct = Math.min(
+          100,
+          Math.max(0, (metrics.positionMs / durationMs) * 100)
+        );
+        for (const evt of milestoneEventsForWatch(
+          postId,
+          pct,
+          milestoneSentRef.current
+        )) {
+          queueContentInteraction(evt);
+        }
+      }
     },
     []
   );
@@ -288,6 +310,20 @@ export function ReelsScreen() {
       metrics.completed === true ||
       (typeof watchedPercent === "number" && watchedPercent >= 95);
 
+    const isQuickSkip =
+      cappedWatchedMs < 2000 &&
+      (typeof watchedPercent !== "number" || watchedPercent < 20);
+
+    if (isQuickSkip) {
+      queueContentInteraction({
+        postId,
+        eventType: "quick_skip",
+        watchDurationMs: cappedWatchedMs,
+        contentDurationMs: durationMs > 0 ? durationMs : undefined,
+        watchPercentage: watchedPercent,
+      });
+    }
+
     void recordVideoView({
       postId,
       watchedMs: cappedWatchedMs,
@@ -329,6 +365,17 @@ export function ReelsScreen() {
       finalizeActiveView();
       return;
     }
+    if (isPersistablePostId(activeReelId) && !impressionSentRef.current.has(activeReelId)) {
+      impressionSentRef.current.add(activeReelId);
+      queueContentInteraction({
+        postId: activeReelId,
+        eventType: "impression",
+      });
+      queueContentInteraction({
+        postId: activeReelId,
+        eventType: "view_started",
+      });
+    }
     const cur = viewTimingRef.current;
     if (cur?.postId === activeReelId) {
       return;
@@ -343,10 +390,22 @@ export function ReelsScreen() {
   }, [activeReelId, isFocused, finalizeActiveView]);
 
   useEffect(() => {
+    if (!isFocused) {
+      void flushContentInteractionsNow();
+    }
+  }, [isFocused]);
+
+  useEffect(() => {
     return () => {
       finalizeActiveView();
+      void flushContentInteractionsNow();
     };
   }, [finalizeActiveView]);
+
+  const activeFeedItem = useMemo(
+    () => finalFeedData.find((p) => p.id === activeReelId) ?? null,
+    [finalFeedData, activeReelId]
+  );
 
   useEffect(() => {
     if (user == null || finalFeedData.length === 0) {
@@ -521,6 +580,7 @@ export function ReelsScreen() {
         </View>
       ) : null}
       <ReelNextPreloader videoUrl={nextVideoForPreload} />
+      <FeedRankingDebugPanel item={activeFeedItem} />
       {showInitialLoading ? (
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={theme.accent} />

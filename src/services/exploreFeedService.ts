@@ -28,10 +28,7 @@ export async function fetchExploreFeed(
   });
 
   if (error) {
-    if (__DEV__) {
-      console.warn("[ExploreFeed] fetch failed:", error.message);
-    }
-    return [];
+    throw new Error(error.message);
   }
 
   if (data == null || !Array.isArray(data) || data.length === 0) {

@@ -1548,6 +1548,12 @@ function ProfileAuthenticatedScreen({
                 <Text style={styles.uploadSheetHashtagHelp}>
                   Maximaal 10 hashtags. Gebruik bijvoorbeeld #summer #sport.
                 </Text>
+                {parsedHashtagsPreview.length === 0 ? (
+                  <Text style={styles.uploadSheetHashtagWarn}>
+                    Voeg minstens één hashtag toe voor een groter bereik. Zonder
+                    hashtags kan je post minder vaak worden aanbevolen.
+                  </Text>
+                ) : null}
                 <TextInput
                   style={[styles.uploadSheetInput, styles.uploadSheetHashtagInput]}
                   placeholder="#oldmoney #zomervibe #classy"

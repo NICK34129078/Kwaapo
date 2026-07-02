@@ -1,7 +1,7 @@
 import {
   appendUniqueFeedPosts,
+  buildRankedFeedBatch,
   dedupeFeedPosts,
-  mergePersonalizedAndGlobalFeed,
 } from "./feedRanking";
 import type { UserVideoPost } from "../types/userVideoPost";
 
@@ -33,13 +33,14 @@ export function runFeedRankingHelperTests(): void {
   assert(appended.length === 2, "append should add only new ids");
   assert(appended[0]!.id === "a" && appended[1]!.id === "b", "append preserves order");
 
-  const merged = mergePersonalizedAndGlobalFeed(
-    [post("p1", ["tag"])],
-    [post("g1", ["tag"]), post("p1", ["tag"])]
+  const merged = buildRankedFeedBatch(
+    [post("p1", ["tag"])]
   );
-  assert(merged.some((p) => p.id === "p1"), "merge keeps personalized");
-  assert(merged.some((p) => p.id === "g1"), "merge adds global");
-  assert(merged.length >= 2, "merge produces feed items");
+  assert(merged.some((p) => p.id === "p1"), "ranked batch keeps rpc order");
+  assert(merged.length >= 1, "ranked batch produces feed items");
+
+  const empty = buildRankedFeedBatch([]);
+  assert(empty.length === 0, "empty rpc returns empty feed");
 }
 
 if (require.main === module) {

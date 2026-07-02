@@ -36,26 +36,15 @@ export function splitTaggedAndUntagged(posts: UserVideoPost[]): {
 }
 
 export type ControlledForYouMixOptions = {
-  /** Gemiddeld aantal tagged posts tussen no-tag inserts (default 9 → interval 8–12). */
+  /** Gemiddeld aantal tagged posts tussen no-tag inserts (default 12). */
   noTagInterval?: number;
-  /** Maximaal aandeel no-tag t.o.v. tagged (default 0.1 = ~10%). */
-  maxNoTagRatio?: number;
-  /** Eerste N items moeten tagged blijven als genoeg tagged posts (default 10). */
+  /** Override: max no-tag inserts (default afgeleid van tagged pool). */
+  maxNoTagInserts?: number;
+  /** Eerste N items moeten tagged blijven (default = batchgrootte). */
   minTaggedHead?: number;
-  /** Max no-tag posts als er geen tagged posts zijn (default 10). */
+  /** Max no-tag posts als er geen tagged posts zijn (default 1). */
   noTaggedFallbackCap?: number;
 };
-
-function shuffleArray<T>(items: T[]): T[] {
-  const arr = [...items];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = arr[i]!;
-    arr[i] = arr[j]!;
-    arr[j] = tmp;
-  }
-  return arr;
-}
 
 function randomNoTagInterval(base: number): number {
   const jitter = Math.floor(Math.random() * 5) - 2; // -2 .. +2
@@ -63,36 +52,33 @@ function randomNoTagInterval(base: number): number {
 }
 
 /**
- * Controlled For You mix: tagged hoofdfeed, no-tag zeldzaam en verspreid.
- * - Behoud tagged-volgorde (algoritme/RPC)
- * - Shuffle no-tag pool
- * - Max ~10% no-tag, interval ~9 tagged tussen inserts
- * - No-tag nooit op index 0 als tagged bestaan
- * - Eerste 10 items tagged wanneer tagged.length >= 10
+ * Controlled For You mix: tagged hoofdfeed, no-tag zeldzaam.
+ * Normaal 0 untagged; max 1; max 2 alleen bij dunne tagged pool.
  */
 export function buildControlledForYouMix(
   posts: UserVideoPost[],
   options: ControlledForYouMixOptions = {}
 ): UserVideoPost[] {
-  const noTagInterval = options.noTagInterval ?? 9;
-  const maxNoTagRatio = options.maxNoTagRatio ?? 0.1;
-  const minTaggedHead = options.minTaggedHead ?? 10;
-  const noTaggedFallbackCap = options.noTaggedFallbackCap ?? 10;
+  const noTagInterval = options.noTagInterval ?? 12;
+  const noTaggedFallbackCap = options.noTaggedFallbackCap ?? 1;
 
   const { tagged, untagged } = splitTaggedAndUntagged(posts);
 
   if (tagged.length === 0) {
-    return shuffleArray(untagged).slice(0, noTaggedFallbackCap);
+    return untagged.slice(0, noTaggedFallbackCap);
   }
 
-  const maxNoTags = Math.min(
-    untagged.length,
-    Math.max(0, Math.ceil(tagged.length * maxNoTagRatio))
-  );
-  const noTagQueue = shuffleArray(untagged).slice(0, maxNoTags);
+  const maxNoTags =
+    options.maxNoTagInserts ??
+    (tagged.length >= 14 ? 0 : tagged.length >= 9 ? 1 : Math.min(2, untagged.length));
 
-  const protectedHead =
-    tagged.length >= minTaggedHead ? minTaggedHead : 1;
+  if (maxNoTags <= 0) {
+    return tagged;
+  }
+
+  const noTagQueue = untagged.slice(0, maxNoTags);
+  const minTaggedHead = options.minTaggedHead ?? Math.max(tagged.length, 12);
+  const protectedHead = tagged.length >= minTaggedHead ? minTaggedHead : tagged.length;
 
   const out: UserVideoPost[] = [];
   let taggedIdx = 0;
@@ -170,25 +156,21 @@ export function appendUniqueFeedPosts(
 }
 
 /**
- * Merge personalized/explore RPC + global Worker-pagina, één controlled mix (alleen bij refresh).
+ * Ranked feed uit Supabase RPC — behoudt servervolgorde, geen Worker-fallback.
  */
+export function buildRankedFeedBatch(rankedRpc: UserVideoPost[]): UserVideoPost[] {
+  if (rankedRpc.length === 0) {
+    return [];
+  }
+  return buildControlledForYouMix(rankedRpc);
+}
+
+/** @deprecated Gebruik buildRankedFeedBatch zonder Worker-fallback. */
 export function mergePersonalizedAndGlobalFeed(
   personalized: UserVideoPost[],
-  global: UserVideoPost[]
+  _global: UserVideoPost[]
 ): UserVideoPost[] {
-  const seen = new Set<string>();
-  const merged: UserVideoPost[] = [];
-
-  const push = (p: UserVideoPost) => {
-    if (seen.has(p.id)) return;
-    seen.add(p.id);
-    merged.push(p);
-  };
-
-  for (const p of personalized) push(p);
-  for (const p of global) push(p);
-
-  return buildControlledForYouMix(merged);
+  return buildRankedFeedBatch(personalized);
 }
 
 export function logForYouControlledMix(posts: UserVideoPost[]): void {
