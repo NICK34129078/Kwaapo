@@ -365,3 +365,149 @@ $$;
 
 comment on function public.restore_product_stock_for_refunded_order(uuid) is
   'Restore stock once for pre-ship full refunds. never_committed succeeds when stock was never sold.';
+
+revoke all on function public.restore_product_stock_for_refunded_order(uuid) from public;
+revoke all on function public.restore_product_stock_for_refunded_order(uuid) from anon;
+revoke all on function public.restore_product_stock_for_refunded_order(uuid) from authenticated;
+grant execute on function public.restore_product_stock_for_refunded_order(uuid) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 4. Order integrity guard — block client writes to fulfillment/reconciliation
+-- ---------------------------------------------------------------------------
+create or replace function public.enforce_order_update_integrity()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  jwt_role text := coalesce(auth.jwt()->>'role', '');
+begin
+  if jwt_role = 'service_role' then
+    return new;
+  end if;
+
+  if auth.uid() is null then
+    raise exception 'orders: authentication required';
+  end if;
+
+  if auth.uid() = old.buyer_id and auth.uid() is distinct from old.seller_id then
+    raise exception 'orders: buyers cannot update orders';
+  end if;
+
+  if auth.uid() = old.seller_id then
+    if new.payment_status is distinct from old.payment_status then
+      raise exception 'orders: sellers cannot change payment_status';
+    end if;
+    if new.paid_at is distinct from old.paid_at then
+      raise exception 'orders: sellers cannot change paid_at';
+    end if;
+    if new.stripe_checkout_session_id is distinct from old.stripe_checkout_session_id then
+      raise exception 'orders: sellers cannot change stripe_checkout_session_id';
+    end if;
+    if new.stripe_payment_intent_id is distinct from old.stripe_payment_intent_id then
+      raise exception 'orders: sellers cannot change stripe_payment_intent_id';
+    end if;
+    if new.stripe_charge_id is distinct from old.stripe_charge_id then
+      raise exception 'orders: sellers cannot change stripe_charge_id';
+    end if;
+    if new.refunded_at is distinct from old.refunded_at then
+      raise exception 'orders: sellers cannot change refunded_at';
+    end if;
+    if new.refunded_amount_cents is distinct from old.refunded_amount_cents then
+      raise exception 'orders: sellers cannot change refunded_amount_cents';
+    end if;
+    if new.refund_requires_return is distinct from old.refund_requires_return then
+      raise exception 'orders: sellers cannot change refund_requires_return';
+    end if;
+    if new.return_approved_at is distinct from old.return_approved_at then
+      raise exception 'orders: sellers cannot change return_approved_at';
+    end if;
+    if new.returned_received_at is distinct from old.returned_received_at then
+      raise exception 'orders: sellers cannot change returned_received_at';
+    end if;
+    if new.stock_restored_at is distinct from old.stock_restored_at then
+      raise exception 'orders: sellers cannot change stock_restored_at';
+    end if;
+    if new.fulfillment_status is distinct from old.fulfillment_status then
+      raise exception 'orders: sellers cannot change fulfillment_status';
+    end if;
+    if new.payment_reconciled_at is distinct from old.payment_reconciled_at then
+      raise exception 'orders: sellers cannot change payment_reconciled_at';
+    end if;
+    if new.fulfillment_exception_at is distinct from old.fulfillment_exception_at then
+      raise exception 'orders: sellers cannot change fulfillment_exception_at';
+    end if;
+    if new.refund_requested_at is distinct from old.refund_requested_at then
+      raise exception 'orders: sellers cannot change refund_requested_at';
+    end if;
+    if new.refund_completed_at is distinct from old.refund_completed_at then
+      raise exception 'orders: sellers cannot change refund_completed_at';
+    end if;
+    if new.stripe_refund_id is distinct from old.stripe_refund_id then
+      raise exception 'orders: sellers cannot change stripe_refund_id';
+    end if;
+    if new.subtotal_amount is distinct from old.subtotal_amount then
+      raise exception 'orders: sellers cannot change subtotal_amount';
+    end if;
+    if new.platform_fee_amount is distinct from old.platform_fee_amount then
+      raise exception 'orders: sellers cannot change platform_fee_amount';
+    end if;
+    if new.seller_amount is distinct from old.seller_amount then
+      raise exception 'orders: sellers cannot change seller_amount';
+    end if;
+    if new.buyer_id is distinct from old.buyer_id then
+      raise exception 'orders: sellers cannot change buyer_id';
+    end if;
+    if new.seller_id is distinct from old.seller_id then
+      raise exception 'orders: sellers cannot change seller_id';
+    end if;
+    if new.id is distinct from old.id then
+      raise exception 'orders: sellers cannot change order id';
+    end if;
+    if new.stock_reserved_at is distinct from old.stock_reserved_at then
+      raise exception 'orders: sellers cannot change stock_reserved_at';
+    end if;
+    if new.stock_released_at is distinct from old.stock_released_at then
+      raise exception 'orders: sellers cannot change stock_released_at';
+    end if;
+    if new.stock_committed_at is distinct from old.stock_committed_at then
+      raise exception 'orders: sellers cannot change stock_committed_at';
+    end if;
+    if new.buyer_email is distinct from old.buyer_email then
+      raise exception 'orders: sellers cannot change buyer_email';
+    end if;
+    if new.buyer_full_name is distinct from old.buyer_full_name then
+      raise exception 'orders: sellers cannot change buyer_full_name';
+    end if;
+    if new.shipping_country is distinct from old.shipping_country then
+      raise exception 'orders: sellers cannot change shipping_country';
+    end if;
+    if new.shipping_city is distinct from old.shipping_city then
+      raise exception 'orders: sellers cannot change shipping_city';
+    end if;
+    if new.shipping_postal_code is distinct from old.shipping_postal_code then
+      raise exception 'orders: sellers cannot change shipping_postal_code';
+    end if;
+    if new.shipping_street is distinct from old.shipping_street then
+      raise exception 'orders: sellers cannot change shipping_street';
+    end if;
+    if new.shipping_house_number is distinct from old.shipping_house_number then
+      raise exception 'orders: sellers cannot change shipping_house_number';
+    end if;
+    if new.shipping_phone is distinct from old.shipping_phone then
+      raise exception 'orders: sellers cannot change shipping_phone';
+    end if;
+    if new.status is distinct from old.status
+       and new.status in ('paid', 'pending_payment', 'refunded') then
+      raise exception 'orders: sellers cannot set payment-related status';
+    end if;
+    return new;
+  end if;
+
+  raise exception 'orders: update not permitted';
+end;
+$$;
+
+comment on function public.enforce_order_update_integrity() is
+  'Blocks client mutations on payment, stock lifecycle, and fulfillment fields; Worker uses service_role.';
