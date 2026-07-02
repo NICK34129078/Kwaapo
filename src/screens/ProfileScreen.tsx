@@ -168,6 +168,7 @@ function ProfileAuthenticatedScreen({
   const insets = useSafeAreaInsets();
   const { openAuthPrompt } = useAuthPrompt();
   const { width, height: windowHeight } = useWindowDimensions();
+  const settingsSheetMaxHeight = Math.round(windowHeight * 0.88);
   const cellSize = (width - GAP * 2) / 3;
   const { uploadedVideoPosts, deleteUserVideoPost } = useUserUploads();
   const uploads = uploadedVideoPosts;
@@ -1232,7 +1233,12 @@ function ProfileAuthenticatedScreen({
           <View
             style={[styles.modalOverlay, { paddingBottom: insets.bottom + 16 }]}
           >
-            <View style={styles.modalSheet}>
+            <View
+              style={[
+                styles.modalSheet,
+                { maxHeight: settingsSheetMaxHeight },
+              ]}
+            >
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Settings</Text>
                 <Pressable
@@ -1245,6 +1251,16 @@ function ProfileAuthenticatedScreen({
                 </Pressable>
               </View>
 
+              <ScrollView
+                style={styles.modalScroll}
+                contentContainerStyle={[
+                  styles.modalScrollContent,
+                  { paddingBottom: insets.bottom + 24 },
+                ]}
+                showsVerticalScrollIndicator
+                keyboardShouldPersistTaps="handled"
+                bounces
+              >
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Account</Text>
               <Pressable
@@ -1398,6 +1414,7 @@ function ProfileAuthenticatedScreen({
                   <Text style={styles.logoutText}>Log out</Text>
                 )}
               </Pressable>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -2190,6 +2207,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 14,
     maxHeight: "88%",
+    overflow: "hidden",
+  },
+  modalScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  modalScrollContent: {
+    flexGrow: 1,
   },
   modalHeader: {
     flexDirection: "row",
