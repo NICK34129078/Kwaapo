@@ -12,7 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useNavigation, useRoute, useFocusEffect, useBeforeRemove } from "@react-navigation/native";
+import { useNavigation, useRoute, useFocusEffect, usePreventRemove } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
@@ -198,16 +198,15 @@ export function CheckoutInfoScreen() {
     }, [confirmLeaveCheckout])
   );
 
-  useBeforeRemove(
-    useCallback(
-      (event) => {
-        if (confirmLeaveCheckout()) {
-          return;
-        }
-        event.preventDefault();
-      },
-      [confirmLeaveCheckout]
-    )
+  usePreventRemove(
+    submitting,
+    useCallback(() => {
+      Alert.alert(
+        "Betaling wordt voorbereid",
+        "Wacht tot de checkout is geopend. Teruggaan kan tot dan een dubbele bestelling veroorzaken.",
+        [{ text: "Ok", style: "cancel" }]
+      );
+    }, [])
   );
 
   const onSubmit = useCallback(async () => {

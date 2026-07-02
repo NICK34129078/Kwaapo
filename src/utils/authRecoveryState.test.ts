@@ -4,7 +4,7 @@ import {
   isPasswordRecoveryAuthEvent,
   isPasswordRecoverySession,
   shouldOpenPasswordRecoveryScreen,
-} from "./authRecoveryState.ts";
+} from "./authRecoveryState";
 
 test("isPasswordRecoveryAuthEvent detects PASSWORD_RECOVERY", () => {
   assert.equal(isPasswordRecoveryAuthEvent("PASSWORD_RECOVERY"), true);

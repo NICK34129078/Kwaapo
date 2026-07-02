@@ -4,7 +4,7 @@ import {
   validateNewPassword,
   validatePasswordConfirmation,
   validatePasswordResetForm,
-} from "./passwordResetValidation.ts";
+} from "./passwordResetValidation";
 
 test("validateNewPassword rejects empty and short passwords", () => {
   assert.equal(validateNewPassword(""), "Vul een nieuw wachtwoord in.");

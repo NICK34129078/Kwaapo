@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   isPasswordRecoveryDeepLink,
   parseSupabaseAuthParamsFromUrl,
-} from "./authDeepLink.ts";
+} from "./authDeepLink";
 
 test("parseSupabaseAuthParamsFromUrl reads hash tokens", () => {
   const url =
