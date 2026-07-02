@@ -2,7 +2,19 @@ import type { Order } from "../types/order";
 import type { SellerOrder } from "../types/order";
 
 /** Eén bron van waarheid: betaald, nog niet verzonden, niet geannuleerd/terugbetaald. */
-export function orderNeedsSellerAction(order: Order): boolean {
+export function orderNeedsSellerAction(
+  order: Order,
+  options?: { fulfillmentStatus?: string | null }
+): boolean {
+  const fulfillmentStatus = options?.fulfillmentStatus ?? null;
+  if (
+    fulfillmentStatus === "stock_unavailable" ||
+    fulfillmentStatus === "refund_pending" ||
+    fulfillmentStatus === "manual_review" ||
+    fulfillmentStatus === "refunded"
+  ) {
+    return false;
+  }
   return (
     order.paymentStatus === "paid" &&
     order.shippingStatus === "not_shipped" &&
@@ -30,13 +42,16 @@ export const SELLER_ORDER_FILTERS: Array<{
 
 export function matchesSellerOrderFilter(
   order: Order,
-  filter: SellerOrderFilter
+  filter: SellerOrderFilter,
+  options?: { fulfillmentStatus?: string | null }
 ): boolean {
   switch (filter) {
     case "all":
       return true;
     case "action_required":
-      return orderNeedsSellerAction(order);
+      return orderNeedsSellerAction(order, {
+        fulfillmentStatus: options?.fulfillmentStatus ?? null,
+      });
     case "shipped":
       return order.shippingStatus === "shipped";
     case "completed":
@@ -55,13 +70,20 @@ export function matchesSellerOrderFilter(
 }
 
 export function countSellerOrdersNeedingAttention(
-  orders: SellerOrder[]
+  orders: Array<SellerOrder & { fulfillment?: { fulfillmentStatus?: string | null } }>
 ): number {
-  return orders.filter((row) => orderNeedsSellerAction(row.order)).length;
+  return orders.filter((row) =>
+    orderNeedsSellerAction(row.order, {
+      fulfillmentStatus: row.fulfillment?.fulfillmentStatus ?? null,
+    })
+  ).length;
 }
 
-function sellerOrderPriority(order: Order): number {
-  if (orderNeedsSellerAction(order)) {
+function sellerOrderPriority(
+  order: Order,
+  fulfillmentStatus?: string | null
+): number {
+  if (orderNeedsSellerAction(order, { fulfillmentStatus })) {
     return 0;
   }
   if (
@@ -77,10 +99,19 @@ function sellerOrderPriority(order: Order): number {
 }
 
 /** Actie vereist bovenaan, daarna nieuwste eerst. */
-export function sortSellerOrders(orders: SellerOrder[]): SellerOrder[] {
+export function sortSellerOrders<
+  T extends SellerOrder & { fulfillment?: { fulfillmentStatus?: string | null } },
+>(orders: T[]): T[] {
   return [...orders].sort((a, b) => {
     const priorityDiff =
-      sellerOrderPriority(a.order) - sellerOrderPriority(b.order);
+      sellerOrderPriority(
+        a.order,
+        a.fulfillment?.fulfillmentStatus ?? null
+      ) -
+      sellerOrderPriority(
+        b.order,
+        b.fulfillment?.fulfillmentStatus ?? null
+      );
     if (priorityDiff !== 0) {
       return priorityDiff;
     }
@@ -91,9 +122,21 @@ export function sortSellerOrders(orders: SellerOrder[]): SellerOrder[] {
   });
 }
 
-export function sellerFulfillmentLabel(order: Order): string {
-  if (orderNeedsSellerAction(order)) {
+export function sellerFulfillmentLabel(
+  order: Order,
+  fulfillmentStatus?: string | null
+): string {
+  if (orderNeedsSellerAction(order, { fulfillmentStatus })) {
     return "Actie vereist";
+  }
+  if (
+    fulfillmentStatus === "stock_unavailable" ||
+    fulfillmentStatus === "refund_pending"
+  ) {
+    return "Terugbetaling bezig";
+  }
+  if (fulfillmentStatus === "manual_review") {
+    return "Handmatige controle";
   }
   if (order.paymentStatus === "unpaid") {
     return "Wacht op betaling";

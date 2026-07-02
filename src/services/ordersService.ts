@@ -436,11 +436,15 @@ export async function fetchSellerOrderActivities(
   });
 }
 
-export async function fetchSellerOrders(): Promise<SellerOrder[]> {
+export type SellerOrderListRow = SellerOrder & {
+  fulfillment: OrderFulfillmentInfo;
+};
+
+export async function fetchSellerOrders(): Promise<SellerOrderListRow[]> {
   const sellerId = await getCurrentUserId();
   const { data, error } = await supabase
     .from("orders")
-    .select(ORDER_COLUMNS)
+    .select(ORDER_SELECT)
     .eq("seller_id", sellerId)
     .order("created_at", { ascending: false });
 
@@ -448,7 +452,19 @@ export async function fetchSellerOrders(): Promise<SellerOrder[]> {
     throw error;
   }
 
-  const orders = ((data ?? []) as OrderRow[]).map(mapOrderRow);
+  const rows = (data ?? []) as Array<
+    OrderRow & {
+      fulfillment_status?: string | null;
+      payment_reconciled_at?: string | null;
+      fulfillment_exception_at?: string | null;
+      refund_requested_at?: string | null;
+      refund_completed_at?: string | null;
+    }
+  >;
+  const orders = rows.map(mapOrderRow);
+  const fulfillmentByOrderId = new Map(
+    rows.map((row) => [row.id, mapOrderFulfillmentRow(row)])
+  );
   const [itemsByOrderId, buyersById] = await Promise.all([
     fetchItemsForOrders(orders.map((order) => order.id)),
     fetchProfilesByIds(orders.map((order) => order.buyerId)),
@@ -456,6 +472,7 @@ export async function fetchSellerOrders(): Promise<SellerOrder[]> {
 
   return orders.map((order) => ({
     order,
+    fulfillment: fulfillmentByOrderId.get(order.id) ?? mapOrderFulfillmentRow({}),
     items: itemsByOrderId.get(order.id) ?? [],
     buyer: buyersById.get(order.buyerId) ?? null,
   }));

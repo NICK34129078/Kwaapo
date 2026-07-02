@@ -69,6 +69,15 @@ export function runSellerFulfillmentTests(): void {
     makeOrder({ id: "e", paymentStatus: "refunded", status: "refunded" })
   );
   assert(!orderNeedsSellerAction(refunded.order), "refunded excluded");
+  const stockUnavailable = makeSellerOrder(
+    makeOrder({ id: "f", paymentStatus: "paid", shippingStatus: "not_shipped" })
+  );
+  assert(
+    !orderNeedsSellerAction(stockUnavailable.order, {
+      fulfillmentStatus: "stock_unavailable",
+    }),
+    "stock_unavailable excluded"
+  );
   assert(countSellerOrdersNeedingAttention([toShip, unpaid, cancelled]) === 1, "count");
   assert(matchesSellerOrderFilter(toShip.order, "action_required"), "filter");
   assert(!matchesSellerOrderFilter(unpaid.order, "action_required"), "unpaid filter");

@@ -311,7 +311,9 @@ async function fetchSellerOrderActivityParts(
           orderId: row.order.id,
           orderProductName: first?.product?.name ?? "Product",
           postThumbnailUrl: first?.product?.images[0],
-          orderNeedsAction: orderNeedsSellerAction(row.order),
+          orderNeedsAction: orderNeedsSellerAction(row.order, {
+            fulfillmentStatus: row.fulfillment.fulfillmentStatus,
+          }),
         };
       });
   } catch (e) {

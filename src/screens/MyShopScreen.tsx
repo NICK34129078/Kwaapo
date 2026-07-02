@@ -29,7 +29,7 @@ import {
   removeProductFromList,
   subscribeProductCatalog,
 } from "../services/productCatalogRefresh";
-import { fetchSellerOrders } from "../services/ordersService";
+import { fetchSellerOrders, type SellerOrderListRow } from "../services/ordersService";
 import {
   markSellerNotificationRead,
   type SellerNotification,
@@ -45,7 +45,6 @@ import { startStripePayoutManagement } from "../services/stripeConnectService";
 import { SellerOnboardingStatusCard } from "../components/SellerOnboardingStatusCard";
 import type { SellerOnboarding } from "../types/sellerOnboarding";
 import type { Product } from "../types/product";
-import type { SellerOrder } from "../types/order";
 import { formatPriceEur } from "../utils/formatPrice";
 import { getProductStockStatus } from "../utils/productStock";
 import { SellerActionRequiredCard } from "../components/SellerActionRequiredCard";
@@ -172,15 +171,20 @@ function SellerOrderCard({
   sellerOrder,
   onPress,
 }: {
-  sellerOrder: SellerOrder;
+  sellerOrder: SellerOrderListRow;
   onPress: () => void;
 }) {
   const firstItem = sellerOrder.items[0];
   const product = firstItem?.product;
   const order = sellerOrder.order;
   const buyerName = buyerDisplayName(sellerOrder);
-  const fulfillmentLabel = sellerFulfillmentLabel(order);
-  const needsShip = orderNeedsSellerAction(order);
+  const fulfillmentLabel = sellerFulfillmentLabel(
+    order,
+    sellerOrder.fulfillment.fulfillmentStatus
+  );
+  const needsShip = orderNeedsSellerAction(order, {
+    fulfillmentStatus: sellerOrder.fulfillment.fulfillmentStatus,
+  });
   const sizeLine = formatOrderItemSizeLine(firstItem);
 
   return (
@@ -251,7 +255,7 @@ export function MyShopScreen() {
   const [activeTab, setActiveTab] = useState<MyShopTab>("products");
   const [orderFilter, setOrderFilter] = useState<SellerOrderFilter>("action_required");
   const [products, setProducts] = useState<Product[]>([]);
-  const [orders, setOrders] = useState<SellerOrder[]>([]);
+  const [orders, setOrders] = useState<SellerOrderListRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [toggleBusyId, setToggleBusyId] = useState<string | null>(null);
@@ -412,7 +416,7 @@ export function MyShopScreen() {
   );
 
   const renderOrderItem = useCallback(
-    ({ item }: { item: SellerOrder }) => (
+    ({ item }: { item: SellerOrderListRow }) => (
       <SellerOrderCard
         sellerOrder={item}
         onPress={() =>
@@ -432,7 +436,9 @@ export function MyShopScreen() {
   const filteredOrders = useMemo(
     () =>
       sortedOrders.filter((row) =>
-        matchesSellerOrderFilter(row.order, orderFilter)
+        matchesSellerOrderFilter(row.order, orderFilter, {
+          fulfillmentStatus: row.fulfillment.fulfillmentStatus,
+        })
       ),
     [orderFilter, sortedOrders]
   );
@@ -451,7 +457,7 @@ export function MyShopScreen() {
     setOrderFilter("action_required");
   }, []);
 
-  const activeData = useMemo<Array<Product | SellerOrder>>(
+  const activeData = useMemo<Array<Product | SellerOrderListRow>>(
     () => (activeTab === "products" ? products : filteredOrders),
     [activeTab, filteredOrders, products]
   );
@@ -524,12 +530,12 @@ export function MyShopScreen() {
           keyExtractor={(item) =>
             activeTab === "products"
               ? (item as Product).id
-              : (item as SellerOrder).order.id
+              : (item as SellerOrderListRow).order.id
           }
           renderItem={({ item }) =>
             activeTab === "products"
               ? renderItem({ item: item as Product })
-              : renderOrderItem({ item: item as SellerOrder })
+              : renderOrderItem({ item: item as SellerOrderListRow })
           }
           contentContainerStyle={[
             styles.listContent,

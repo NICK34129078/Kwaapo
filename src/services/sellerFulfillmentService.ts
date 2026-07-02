@@ -1,6 +1,6 @@
 import { supabase } from "../lib/supabase";
 import { fetchProfileById } from "./profileService";
-import { fetchSellerOrders } from "./ordersService";
+import { fetchSellerOrders, type SellerOrderListRow } from "./ordersService";
 import type { SellerOrder } from "../types/order";
 import {
   countSellerOrdersNeedingAttention,
@@ -38,7 +38,10 @@ export async function countSellerOrdersNeedingActionForCurrentUser(): Promise<nu
     .eq("payment_status", "paid")
     .eq("shipping_status", "not_shipped")
     .neq("status", "cancelled")
-    .neq("status", "refunded");
+    .neq("status", "refunded")
+    .or(
+      "fulfillment_status.is.null,fulfillment_status.eq.committed,fulfillment_status.eq.reconciled"
+    );
 
   if (error) {
     console.warn("[sellerFulfillmentService] count failed", error.message);
@@ -48,14 +51,20 @@ export async function countSellerOrdersNeedingActionForCurrentUser(): Promise<nu
   return count ?? 0;
 }
 
-export async function fetchSellerOrdersNeedingAction(): Promise<SellerOrder[]> {
+export async function fetchSellerOrdersNeedingAction(): Promise<SellerOrderListRow[]> {
   const rows = await fetchSellerOrders();
-  return sortSellerOrders(rows.filter((row) => orderNeedsSellerAction(row.order)));
+  return sortSellerOrders(
+    rows.filter((row) =>
+      orderNeedsSellerAction(row.order, {
+        fulfillmentStatus: row.fulfillment.fulfillmentStatus,
+      })
+    )
+  );
 }
 
 export type SellerFulfillmentSnapshot = {
   actionCount: number;
-  ordersNeedingAction: SellerOrder[];
+  ordersNeedingAction: SellerOrderListRow[];
   isBusinessSeller: boolean;
 };
 
@@ -72,7 +81,11 @@ export async function fetchSellerFulfillmentSnapshot(): Promise<SellerFulfillmen
 
   const allOrders = await fetchSellerOrders();
   const ordersNeedingAction = sortSellerOrders(
-    allOrders.filter((row) => orderNeedsSellerAction(row.order))
+    allOrders.filter((row) =>
+      orderNeedsSellerAction(row.order, {
+        fulfillmentStatus: row.fulfillment.fulfillmentStatus,
+      })
+    )
   );
 
   return {
