@@ -742,14 +742,14 @@ as $function$
         )
         from unnest(coalesce(p.tags, '{}'::text[])) as post_tag(tag)
         join public.user_tag_preferences pref
-          on pref.user_id = cu.user_id
+          on pref.user_id = (select user_id from current_user_id)
          and pref.tag = post_tag.tag
       ), '[]'::jsonb) as tag_affinities,
       coalesce((
         select sum(pref.negative_views_count)::integer
         from unnest(coalesce(p.tags, '{}'::text[])) as post_tag(tag)
         join public.user_tag_preferences pref
-          on pref.user_id = cu.user_id
+          on pref.user_id = (select user_id from current_user_id)
          and pref.tag = post_tag.tag
       ), 0) as negative_skip_count
     from public.posts p
