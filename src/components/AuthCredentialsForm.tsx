@@ -9,10 +9,11 @@ import {
 } from "react-native";
 
 import { useAuth } from "../context/AuthContext";
+import { PASSWORD_RESET_REDIRECT_URL } from "../constants/authLinks";
 import { supabase } from "../lib/supabase";
 import { theme, spacing } from "../constants/theme";
 
-type PendingAction = "none" | "login" | "register";
+type PendingAction = "none" | "login" | "register" | "reset";
 const USERNAME_MAX_LENGTH = 30;
 
 function isValidEmailFormat(email: string): boolean {
@@ -35,6 +36,35 @@ export function AuthCredentialsForm() {
   const busy = pending !== "none";
 
   const cleanUsername = username.trim().replace(/^@+/, "").toLowerCase();
+
+  const onForgotPassword = useCallback(async () => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    const em = email.trim();
+    if (!em) {
+      setErrorMessage("Vul je e-mailadres in om je wachtwoord te resetten.");
+      return;
+    }
+    if (!isValidEmailFormat(em)) {
+      setErrorMessage("Voer een geldig e-mailadres in.");
+      return;
+    }
+    setPending("reset");
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(em, {
+        redirectTo: PASSWORD_RESET_REDIRECT_URL,
+      });
+      if (error) {
+        setErrorMessage(error.message);
+        return;
+      }
+      setSuccessMessage(
+        "Als dit e-mailadres bij ons bekend is, ontvang je binnen enkele minuten een resetlink."
+      );
+    } finally {
+      setPending("none");
+    }
+  }, [email]);
 
   const onLogin = useCallback(async () => {
     setErrorMessage(null);
@@ -201,6 +231,20 @@ export function AuthCredentialsForm() {
       {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
 
       <Pressable
+        style={({ pressed }) => [styles.forgotLink, pressed && styles.pressed]}
+        onPress={() => void onForgotPassword()}
+        disabled={busy}
+        accessibilityRole="button"
+        accessibilityLabel="Wachtwoord vergeten"
+      >
+        {pending === "reset" ? (
+          <ActivityIndicator size="small" color={theme.accent} />
+        ) : (
+          <Text style={styles.forgotLinkText}>Wachtwoord vergeten?</Text>
+        )}
+      </Pressable>
+
+      <Pressable
         style={({ pressed }) => [
           styles.buttonPrimary,
           pressed && styles.pressed,
@@ -259,6 +303,17 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     fontSize: 14,
     lineHeight: 20,
+  },
+  forgotLink: {
+    alignSelf: "flex-start",
+    marginBottom: spacing.md,
+    minHeight: 32,
+    justifyContent: "center",
+  },
+  forgotLinkText: {
+    color: theme.accent,
+    fontSize: 14,
+    fontWeight: "600",
   },
   buttonPrimary: {
     backgroundColor: theme.accent,

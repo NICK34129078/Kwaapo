@@ -7,10 +7,12 @@ import React, {
   useState,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
+import * as Linking from "expo-linking";
 
 import { isSupabaseClientConfigured } from "../config/env";
 import { supabase } from "../lib/supabase";
 import { formatAuthError } from "../utils/authErrorMessages";
+import { parseSupabaseAuthParamsFromUrl } from "../utils/authDeepLink";
 import { clearSavedStatusCache } from "../services/savedPostsService";
 
 function safeAuthLog(scope: string, message: string): void {
@@ -123,6 +125,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
       subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseClientConfigured()) {
+      return;
+    }
+
+    const applyAuthTokensFromUrl = async (url: string) => {
+      const { accessToken, refreshToken } = parseSupabaseAuthParamsFromUrl(url);
+      if (!accessToken || !refreshToken) {
+        return;
+      }
+      const { error } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+      if (error && __DEV__) {
+        console.warn("[Auth] setSession from deep link failed:", error.message);
+      }
+    };
+
+    void Linking.getInitialURL().then((url) => {
+      if (url) {
+        void applyAuthTokensFromUrl(url);
+      }
+    });
+
+    const subscription = Linking.addEventListener("url", ({ url }) => {
+      void applyAuthTokensFromUrl(url);
+    });
+
+    return () => {
+      subscription.remove();
     };
   }, []);
 
