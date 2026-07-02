@@ -20,7 +20,8 @@ import {
   fetchBuyerOrderById,
   fetchSellerOrderById,
   markSellerOrderAsShipped,
-  type SellerOrder,
+  type BuyerOrderDetail,
+  type SellerOrderDetail,
 } from "../services/ordersService";
 import { payOrderWithStripe } from "../services/checkoutFlowService";
 import { markSellerNotificationsHandledForOrder, markSellerNotificationsReadForOrder } from "../services/sellerNotificationService";
@@ -43,6 +44,12 @@ import {
   sellerDisplayName,
   shippingStatusLabel,
 } from "../utils/orderDashboard";
+import {
+  buyerPaymentHeadline,
+  fulfillmentBlocksSellerShip,
+  getOrderFulfillmentDisplay,
+  type OrderFulfillmentInfo,
+} from "../utils/orderFulfillmentDisplay";
 
 type OrderDetailMode = "buyer" | "seller" | null;
 
@@ -65,8 +72,8 @@ export function OrderDetailScreen() {
   const insets = useSafeAreaInsets();
   const orderId: string | undefined = route.params?.orderId;
   const [mode, setMode] = useState<OrderDetailMode>(null);
-  const [sellerOrder, setSellerOrder] = useState<SellerOrder | null>(null);
-  const [buyerOrder, setBuyerOrder] = useState<BuyerOrder | null>(null);
+  const [sellerOrder, setSellerOrder] = useState<SellerOrderDetail | null>(null);
+  const [buyerOrder, setBuyerOrder] = useState<BuyerOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [shipBusy, setShipBusy] = useState(false);
   const [payBusy, setPayBusy] = useState(false);
@@ -131,11 +138,29 @@ export function OrderDetailScreen() {
     return null;
   }, [buyerOrder, mode, sellerOrder]);
 
+  const fulfillment: OrderFulfillmentInfo | null = useMemo(() => {
+    if (mode === "buyer") {
+      return buyerOrder?.fulfillment ?? null;
+    }
+    if (mode === "seller") {
+      return sellerOrder?.fulfillment ?? null;
+    }
+    return null;
+  }, [buyerOrder, mode, sellerOrder]);
+
+  const fulfillmentDisplay = useMemo(() => {
+    if (!order || !mode) {
+      return null;
+    }
+    return getOrderFulfillmentDisplay(order.paymentStatus, fulfillment, mode);
+  }, [fulfillment, mode, order]);
+
   const needsPayment = order?.paymentStatus === "unpaid";
   const readyToShip =
     mode === "seller" &&
     order != null &&
-    orderNeedsSellerAction(order);
+    orderNeedsSellerAction(order) &&
+    !fulfillmentBlocksSellerShip(fulfillment);
   const checklistComplete = isSellerShipChecklistComplete(shipChecklist);
   const isShipped =
     order?.shippingStatus === "shipped" || order?.shippingStatus === "delivered";
@@ -271,7 +296,8 @@ export function OrderDetailScreen() {
                       : styles.paymentUnpaidText,
                   ]}
                 >
-                  {paymentStatusLabel(order.paymentStatus)}
+                  {buyerPaymentHeadline(order.paymentStatus, fulfillment) ??
+                    paymentStatusLabel(order.paymentStatus)}
                 </Text>
               </View>
               <View style={styles.statusBadge}>
@@ -280,6 +306,32 @@ export function OrderDetailScreen() {
                 </Text>
               </View>
             </View>
+            {fulfillmentDisplay ? (
+              <View
+                style={[
+                  styles.fulfillmentBanner,
+                  fulfillmentDisplay.tone === "warning"
+                    ? styles.fulfillmentBannerWarning
+                    : fulfillmentDisplay.tone === "success"
+                      ? styles.fulfillmentBannerSuccess
+                      : fulfillmentDisplay.tone === "error"
+                        ? styles.fulfillmentBannerError
+                        : styles.fulfillmentBannerInfo,
+                ]}
+              >
+                <Text style={styles.fulfillmentHeadline}>
+                  {fulfillmentDisplay.headline}
+                </Text>
+                <Text style={styles.fulfillmentDetail}>
+                  {fulfillmentDisplay.detail}
+                </Text>
+                {fulfillmentDisplay.showSupportHint ? (
+                  <Text style={styles.fulfillmentSupport}>
+                    Neem contact op via support als je vragen hebt over deze bestelling.
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.section}>
@@ -342,11 +394,17 @@ export function OrderDetailScreen() {
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Betaling</Text>
                 <Text style={styles.productMeta}>
-                  {paymentStatusLabel(order.paymentStatus)}
+                  {buyerPaymentHeadline(order.paymentStatus, fulfillment) ??
+                    paymentStatusLabel(order.paymentStatus)}
                   {order.paidAt
                     ? ` — betaald op ${formatDate(order.paidAt)}`
                     : ""}
                 </Text>
+                {fulfillmentDisplay ? (
+                  <Text style={[styles.productMeta, styles.fulfillmentSectionNote]}>
+                    {fulfillmentDisplay.detail}
+                  </Text>
+                ) : null}
                 {needsPayment ? (
                   <Pressable
                     style={[styles.primaryBtn, styles.buyerPayBtn]}
@@ -433,13 +491,19 @@ export function OrderDetailScreen() {
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Betaling</Text>
                 <Text style={styles.productMeta}>
-                  {paymentStatusLabel(order.paymentStatus)}
+                  {buyerPaymentHeadline(order.paymentStatus, fulfillment) ??
+                    paymentStatusLabel(order.paymentStatus)}
                   {needsPayment
                     ? " — wacht op betaling van de koper."
                     : order.paidAt
                       ? ` — betaald op ${formatDate(order.paidAt)}`
                       : ""}
                 </Text>
+                {fulfillmentDisplay ? (
+                  <Text style={[styles.productMeta, styles.fulfillmentSectionNote]}>
+                    {fulfillmentDisplay.detail}
+                  </Text>
+                ) : null}
               </View>
 
               <View style={styles.section}>
@@ -661,6 +725,50 @@ const styles = StyleSheet.create({
   },
   paymentUnpaidText: {
     color: theme.textMuted,
+  },
+  fulfillmentBanner: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  fulfillmentBannerWarning: {
+    backgroundColor: "rgba(255, 193, 7, 0.12)",
+    borderColor: "rgba(255, 193, 7, 0.35)",
+  },
+  fulfillmentBannerSuccess: {
+    backgroundColor: theme.accentSoft,
+    borderColor: theme.accentBorder,
+  },
+  fulfillmentBannerInfo: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: theme.border,
+  },
+  fulfillmentBannerError: {
+    backgroundColor: "rgba(255, 80, 80, 0.12)",
+    borderColor: "rgba(255, 80, 80, 0.35)",
+  },
+  fulfillmentHeadline: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: "900",
+    marginBottom: 6,
+  },
+  fulfillmentDetail: {
+    color: theme.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  fulfillmentSupport: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 8,
+    fontWeight: "700",
+  },
+  fulfillmentSectionNote: {
+    marginTop: 8,
+    lineHeight: 19,
   },
   dateText: {
     color: theme.textMuted,

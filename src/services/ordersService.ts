@@ -24,9 +24,26 @@ import {
   validateCheckoutAddressForPayment,
   validateCheckoutAddressSync,
 } from "../utils/checkoutAddressValidation";
+import {
+  mapOrderFulfillmentRow,
+  type OrderFulfillmentInfo,
+} from "../utils/orderFulfillmentDisplay";
 
 const ORDER_COLUMNS =
   "id, buyer_id, seller_id, status, subtotal_amount, platform_fee_amount, seller_amount, payment_status, buyer_email, buyer_full_name, shipping_country, shipping_city, shipping_postal_code, shipping_street, shipping_house_number, shipping_phone, seller_note, shipping_status, tracking_code, shipped_at, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, created_at";
+const ORDER_FULFILLMENT_COLUMNS =
+  "fulfillment_status, payment_reconciled_at, fulfillment_exception_at, refund_requested_at, refund_completed_at";
+const ORDER_SELECT = `${ORDER_COLUMNS}, ${ORDER_FULFILLMENT_COLUMNS}`;
+
+export type { OrderFulfillmentInfo };
+
+export type BuyerOrderDetail = BuyerOrder & {
+  fulfillment: OrderFulfillmentInfo;
+};
+
+export type SellerOrderDetail = SellerOrder & {
+  fulfillment: OrderFulfillmentInfo;
+};
 const ORDER_ITEM_COLUMNS =
   "id, order_id, product_id, product_variant_id, selected_variant_type, selected_variant_value, quantity, unit_price, size, created_at";
 
@@ -471,14 +488,20 @@ export async function fetchBuyerOrders(): Promise<BuyerOrder[]> {
 
 export async function fetchBuyerOrderById(
   orderId: string
-): Promise<BuyerOrder | null> {
+): Promise<BuyerOrderDetail | null> {
   const buyerId = await getCurrentUserId();
   const { data, error } = await supabase
     .from("orders")
-    .select(ORDER_COLUMNS)
+    .select(ORDER_SELECT)
     .eq("id", orderId)
     .eq("buyer_id", buyerId)
-    .maybeSingle<OrderRow>();
+    .maybeSingle<OrderRow & {
+      fulfillment_status?: string | null;
+      payment_reconciled_at?: string | null;
+      fulfillment_exception_at?: string | null;
+      refund_requested_at?: string | null;
+      refund_completed_at?: string | null;
+    }>();
 
   if (error) {
     throw error;
@@ -488,6 +511,7 @@ export async function fetchBuyerOrderById(
   }
 
   const order = mapOrderRow(data);
+  const fulfillment = mapOrderFulfillmentRow(data);
   const [itemsByOrderId, sellersById] = await Promise.all([
     fetchItemsForOrders([order.id]),
     fetchProfilesByIds([order.sellerId]),
@@ -495,6 +519,7 @@ export async function fetchBuyerOrderById(
 
   return {
     order,
+    fulfillment,
     items: itemsByOrderId.get(order.id) ?? [],
     seller: sellersById.get(order.sellerId) ?? null,
   };
@@ -502,14 +527,20 @@ export async function fetchBuyerOrderById(
 
 export async function fetchSellerOrderById(
   orderId: string
-): Promise<SellerOrder | null> {
+): Promise<SellerOrderDetail | null> {
   const sellerId = await getCurrentUserId();
   const { data, error } = await supabase
     .from("orders")
-    .select(ORDER_COLUMNS)
+    .select(ORDER_SELECT)
     .eq("id", orderId)
     .eq("seller_id", sellerId)
-    .maybeSingle<OrderRow>();
+    .maybeSingle<OrderRow & {
+      fulfillment_status?: string | null;
+      payment_reconciled_at?: string | null;
+      fulfillment_exception_at?: string | null;
+      refund_requested_at?: string | null;
+      refund_completed_at?: string | null;
+    }>();
 
   if (error) {
     throw error;
@@ -519,6 +550,7 @@ export async function fetchSellerOrderById(
   }
 
   const order = mapOrderRow(data);
+  const fulfillment = mapOrderFulfillmentRow(data);
   const [itemsByOrderId, buyersById] = await Promise.all([
     fetchItemsForOrders([order.id]),
     fetchProfilesByIds([order.buyerId]),
@@ -526,6 +558,7 @@ export async function fetchSellerOrderById(
 
   return {
     order,
+    fulfillment,
     items: itemsByOrderId.get(order.id) ?? [],
     buyer: buyersById.get(order.buyerId) ?? null,
   };
