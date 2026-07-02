@@ -800,8 +800,8 @@ async function expireStripeCheckoutSessionIfOpen(env, sessionId) {
   }
 }
 
-/** Geef gereserveerde voorraad terug wanneer checkout wordt afgebroken (niet betaald). */
-async function abandonCheckoutAndReleaseStock(env, orderId) {
+/** Geef gereserveerde voorraad terug wanneer checkout definitief is mislukt/verlopen. */
+async function safeReleaseCheckoutStock(env, orderId) {
   const order = await fetchOrderById(env, orderId);
   if (!order) {
     return { ok: false, released: false, reason: "not_found" };
@@ -812,12 +812,52 @@ async function abandonCheckoutAndReleaseStock(env, orderId) {
 
   const sessionId = String(order.stripe_checkout_session_id || "").trim();
   if (sessionId.startsWith("cs_")) {
-    await expireStripeCheckoutSessionIfOpen(env, sessionId);
+    try {
+      const session = await stripeRequest(
+        env,
+        "GET",
+        `/checkout/sessions/${encodeURIComponent(sessionId)}`,
+        null
+      );
+      if (checkoutSessionIsPaid(session)) {
+        return { ok: true, released: false, reason: "payment_pending" };
+      }
+      if (session.status === "open") {
+        await expireStripeCheckoutSessionIfOpen(env, sessionId);
+        return { ok: true, released: false, reason: "session_expiring" };
+      }
+      if (
+        session.status === "expired" ||
+        (session.status === "complete" && session.payment_status === "unpaid")
+      ) {
+        const released = await releaseProductStockForOrder(env, orderId);
+        console.log("[checkout] safe stock release", { orderId, released });
+        return { ok: true, released: released !== false, reason: "released" };
+      }
+      return { ok: true, released: false, reason: "session_active" };
+    } catch (e) {
+      console.warn(
+        "[checkout] safe release session lookup failed",
+        orderId,
+        e instanceof Error ? e.message : String(e)
+      );
+    }
   }
 
-  const released = await releaseProductStockForOrder(env, orderId);
-  console.log("[checkout] abandoned — stock release", { orderId, released });
-  return { ok: true, released: released !== false, reason: "released" };
+  if (
+    order.stock_reserved_at &&
+    !order.stock_released_at &&
+    !order.stock_committed_at
+  ) {
+    const released = await releaseProductStockForOrder(env, orderId);
+    return { ok: true, released: released !== false, reason: "released_no_session" };
+  }
+  return { ok: true, released: false, reason: "nothing_to_release" };
+}
+
+/** @deprecated Prefer safeReleaseCheckoutStock — behouden voor interne compat. */
+async function abandonCheckoutAndReleaseStock(env, orderId) {
+  return safeReleaseCheckoutStock(env, orderId);
 }
 
 function webhookSecretBytes(secret) {
@@ -900,12 +940,12 @@ async function resolveOrderIdFromSession(env, session) {
   return null;
 }
 
-async function syncOrderFromStripeSession(env, session) {
+async function syncOrderFromStripeSession(env, session, { allowMarkPaid = false } = {}) {
   const orderId = await resolveOrderIdFromSession(env, session);
   if (!isStandardUuid(orderId)) {
     throw new Error("Session missing order_id metadata");
   }
-  if (checkoutSessionIsPaid(session)) {
+  if (allowMarkPaid && checkoutSessionIsPaid(session)) {
     await markOrderPaid(
       env,
       orderId,
@@ -914,10 +954,11 @@ async function syncOrderFromStripeSession(env, session) {
         ? session.payment_intent
         : session.payment_intent?.id
     );
-    console.log("[stripe sync] order marked paid", orderId, session.id);
+    console.log("[stripe sync] order marked paid (webhook)", orderId, session.id);
     return { orderId, paid: true, paymentStatus: "paid", status: "paid" };
   }
   if (
+    allowMarkPaid &&
     session.payment_status === "unpaid" &&
     session.status === "expired"
   ) {
@@ -930,11 +971,14 @@ async function syncOrderFromStripeSession(env, session) {
     };
   }
   const order = await fetchOrderById(env, orderId);
+  const stripePaidPending =
+    !allowMarkPaid && checkoutSessionIsPaid(session) && order?.payment_status !== "paid";
   return {
     orderId,
     paid: order?.payment_status === "paid",
     paymentStatus: order?.payment_status || "unpaid",
     status: order?.status || "pending_payment",
+    stripePaidPending: stripePaidPending || undefined,
   };
 }
 
@@ -1042,8 +1086,24 @@ export async function handleStripeCheckout(request, env, cors = {}) {
           await releaseStockForExpiredCheckout(env, orderId);
         }
         if (checkoutSessionIsPaid(existing)) {
-          await syncOrderFromStripeSession(env, existing);
-          return jsonStripe({ error: "Order already paid" }, 400, cors);
+          const orderNow = await fetchOrderById(env, orderId);
+          if (orderNow?.payment_status === "paid") {
+            return jsonStripe({ error: "Order already paid" }, 400, cors);
+          }
+          console.log(
+            logPrefix,
+            "Stripe session paid but order unpaid — waiting for webhook",
+            existingSessionId
+          );
+          return jsonStripe(
+            {
+              error: "Payment is being processed",
+              step: "payment_pending",
+              message: "Je betaling wordt verwerkt. Even geduld.",
+            },
+            409,
+            cors
+          );
         }
       } catch (reuseErr) {
         console.warn(logPrefix, "could not reuse session", (reuseErr && reuseErr.message) || String(reuseErr));
@@ -1238,11 +1298,15 @@ export async function handleStripeWebhook(request, env) {
         payment_status: session.payment_status,
         order_id: session.metadata?.order_id,
       });
-      const result = await syncOrderFromStripeSession(env, session);
+      const result = await syncOrderFromStripeSession(env, session, {
+        allowMarkPaid: true,
+      });
       console.log(logPrefix, "sync result", result);
     } else if (event.type === "checkout.session.async_payment_succeeded") {
       const session = event.data.object;
-      const result = await syncOrderFromStripeSession(env, session);
+      const result = await syncOrderFromStripeSession(env, session, {
+        allowMarkPaid: true,
+      });
       console.log(logPrefix, "async payment sync", result);
     } else if (event.type === "checkout.session.expired") {
       const session = event.data.object;
@@ -1310,9 +1374,11 @@ export async function handleCheckoutReturn(request, url, env, cors = {}) {
         `/checkout/sessions/${encodeURIComponent(sessionId)}`,
         null
       );
-      const result = await syncOrderFromStripeSession(env, session);
+      const result = await syncOrderFromStripeSession(env, session, {
+        allowMarkPaid: false,
+      });
       paid = !!result.paid;
-      console.log(logPrefix, "sync", { sessionId, paid, result });
+      console.log(logPrefix, "read-only sync", { sessionId, paid, result });
     } catch (e) {
       console.error(logPrefix, "sync failed", (e && e.message) || String(e));
     }
@@ -1344,7 +1410,15 @@ export async function handleCheckoutCancel(request, url, env, cors = {}) {
   const orderId = (url.searchParams.get("order_id") || "").trim();
   console.log("[checkoutCancel]", { orderId });
   if (isStandardUuid(orderId)) {
-    await abandonCheckoutAndReleaseStock(env, orderId);
+    const order = await fetchOrderById(env, orderId);
+    const sessionId = String(order?.stripe_checkout_session_id || "").trim();
+    if (sessionId.startsWith("cs_")) {
+      await expireStripeCheckoutSessionIfOpen(env, sessionId);
+      console.log("[checkoutCancel] expired open session — stock via webhook", {
+        orderId,
+        sessionId,
+      });
+    }
   }
   const appDeepLink = (
     env.CHECKOUT_CANCEL_URL || "lumen-fashion://checkout/cancel"
@@ -1390,7 +1464,7 @@ export async function handleCheckoutReleaseStock(request, env, cors = {}) {
       return jsonStripe({ error: "Forbidden" }, 403, cors);
     }
 
-    const result = await abandonCheckoutAndReleaseStock(env, orderId);
+    const result = await safeReleaseCheckoutStock(env, orderId);
     return jsonStripe(
       {
         orderId,
@@ -1433,7 +1507,9 @@ export async function handleStripeConfirm(request, url, env, cors = {}) {
       return jsonStripe({ error: "Not your checkout session" }, 403, cors);
     }
 
-    const result = await syncOrderFromStripeSession(env, session);
+    const result = await syncOrderFromStripeSession(env, session, {
+      allowMarkPaid: false,
+    });
     return jsonStripe(result, 200, cors);
   } catch (e) {
     return jsonStripe({ error: (e && e.message) || String(e) }, 500, cors);

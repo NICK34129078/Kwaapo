@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,7 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute, useFocusEffect, useBeforeRemove } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
@@ -174,6 +175,41 @@ export function CheckoutInfoScreen() {
     return (product?.price ?? 0) * count;
   }, [product?.price, quantity]);
 
+  const confirmLeaveCheckout = useCallback(() => {
+    if (!submittingRef.current) {
+      return true;
+    }
+    Alert.alert(
+      "Betaling wordt voorbereid",
+      "Wacht tot de checkout is geopend. Teruggaan kan tot dan een dubbele bestelling veroorzaken.",
+      [{ text: "Ok", style: "cancel" }]
+    );
+    return false;
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const onHardwareBack = () => !confirmLeaveCheckout();
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        onHardwareBack
+      );
+      return () => subscription.remove();
+    }, [confirmLeaveCheckout])
+  );
+
+  useBeforeRemove(
+    useCallback(
+      (event) => {
+        if (confirmLeaveCheckout()) {
+          return;
+        }
+        event.preventDefault();
+      },
+      [confirmLeaveCheckout]
+    )
+  );
+
   const onSubmit = useCallback(async () => {
     if (!product || submittingRef.current) {
       return;
@@ -254,6 +290,16 @@ export function CheckoutInfoScreen() {
         return;
       }
 
+      if (payment.reason === "pending") {
+        navigation.replace("CheckoutFailed", {
+          reason: "pending",
+          orderId: payment.orderId,
+          productId: product.id,
+          message: payment.message,
+        });
+        return;
+      }
+
       navigation.replace("CheckoutFailed", {
         reason: payment.reason,
         orderId: payment.orderId,
@@ -285,8 +331,13 @@ export function CheckoutInfoScreen() {
     >
       <View style={styles.topBar}>
         <Pressable
-          onPress={() => navigation.goBack()}
-          style={styles.backBtn}
+          onPress={() => {
+            if (confirmLeaveCheckout()) {
+              navigation.goBack();
+            }
+          }}
+          disabled={submitting}
+          style={[styles.backBtn, submitting && styles.backBtnDisabled]}
           hitSlop={10}
           accessibilityRole="button"
           accessibilityLabel="Terug"
@@ -535,6 +586,9 @@ const styles = StyleSheet.create({
     height: 42,
     alignItems: "center",
     justifyContent: "center",
+  },
+  backBtnDisabled: {
+    opacity: 0.4,
   },
   topBarSide: {
     width: 42,

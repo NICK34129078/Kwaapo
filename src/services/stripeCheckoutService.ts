@@ -28,6 +28,7 @@ export type StripeCheckoutConfirmResponse = {
   paymentStatus: string;
   status: string;
   paid: boolean;
+  stripePaidPending?: boolean;
 };
 
 export type CheckoutReturnUrls = {
@@ -201,11 +202,11 @@ async function fetchOrderById(orderId: string): Promise<Order | null> {
   return mapOrderRow(data);
 }
 
-/** Wacht kort op webhook/sync na terugkeer uit Stripe Checkout. */
+/** Wacht op webhook na terugkeer uit Stripe Checkout (geen client-side mark paid). */
 export async function waitForOrderPaid(
   orderId: string,
-  attempts = 10,
-  delayMs = 1200
+  attempts = 25,
+  delayMs = 2000
 ): Promise<Order | null> {
   for (let i = 0; i < attempts; i++) {
     const order = await fetchOrderById(orderId);
@@ -252,42 +253,58 @@ function isAppCancelReturnUrl(returnUrl: string): boolean {
 export type OpenStripeCheckoutResult =
   | { ok: true; order: Order }
   | { ok: false; reason: "cancelled" }
-  | { ok: false; reason: "failed"; message: string };
+  | { ok: false; reason: "failed"; message: string }
+  | { ok: false; reason: "pending"; message: string };
 
 /**
- * Bevestigt betaling via stripeConfirm + order-refetch (webhook is leidend).
+ * Bepaalt uitkomst via orderstatus in DB (webhook is enige bron voor paid).
  */
 async function resolveOrderAfterCheckout(
   orderId: string,
-  sessionId: string | null
+  sessionId: string | null,
+  options?: { fromCancelUrl?: boolean }
 ): Promise<OpenStripeCheckoutResult> {
-  console.log("[Stripe] resolveOrderAfterCheckout", { orderId, sessionId });
+  console.log("[Stripe] resolveOrderAfterCheckout", {
+    orderId,
+    sessionId,
+    fromCancelUrl: options?.fromCancelUrl ?? false,
+  });
 
   if (sessionId) {
     try {
       const confirm = await confirmStripeCheckoutSession(sessionId);
-      console.log("[Stripe] confirm result", {
+      console.log("[Stripe] confirm read-only", {
         orderId,
         sessionId,
         paid: confirm.paid,
         paymentStatus: confirm.paymentStatus,
+        stripePaidPending: confirm.stripePaidPending,
       });
       if (confirm.paid) {
         const order = await fetchOrderById(confirm.orderId || orderId);
         if (order?.paymentStatus === "paid") {
-          console.log("[Stripe] order paid after confirm", {
-            orderId: order.id,
-            payment_status: order.paymentStatus,
-          });
           return { ok: true, order };
         }
+      }
+      if (confirm.stripePaidPending) {
+        const polled = await waitForOrderPaid(orderId, 30, 2000);
+        if (polled?.paymentStatus === "paid") {
+          return { ok: true, order: polled };
+        }
+        return {
+          ok: false,
+          reason: "pending",
+          message:
+            "Stripe heeft je betaling ontvangen. We wachten op bevestiging — controleer je bestelling over een moment.",
+        };
       }
     } catch (e) {
       console.warn("[Stripe] confirm failed, falling back to poll:", e);
     }
   }
 
-  const polled = await waitForOrderPaid(orderId);
+  const pollAttempts = options?.fromCancelUrl ? 8 : 25;
+  const polled = await waitForOrderPaid(orderId, pollAttempts, 2000);
   console.log("[Stripe] final order status", {
     orderId,
     payment_status: polled?.paymentStatus ?? null,
@@ -305,7 +322,16 @@ async function resolveOrderAfterCheckout(
     };
   }
 
-  return { ok: false, reason: "cancelled" };
+  if (options?.fromCancelUrl) {
+    return { ok: false, reason: "cancelled" };
+  }
+
+  return {
+    ok: false,
+    reason: "pending",
+    message:
+      "De betaling is nog niet bevestigd. Open je bestelling om opnieuw te proberen of de status te volgen.",
+  };
 }
 
 /**
@@ -341,19 +367,19 @@ export async function openStripeCheckoutAndConfirm(
       ? parseSessionIdFromUrl(result.url)
       : null;
   const sessionIdToUse = sessionFromUrl ?? sessionId;
+  const fromCancelUrl =
+    result.type === "success" &&
+    "url" in result &&
+    !!result.url &&
+    isAppCancelReturnUrl(result.url);
 
   if (sessionFromUrl) {
     console.log("[Stripe] session_id from return URL", sessionFromUrl);
   }
 
-  if (
-    result.type === "success" &&
-    "url" in result &&
-    result.url &&
-    isAppCancelReturnUrl(result.url)
-  ) {
-    console.log("[Stripe] explicit cancel return URL, still checking order status");
-    return resolveOrderAfterCheckout(orderId, sessionIdToUse);
+  if (fromCancelUrl) {
+    console.log("[Stripe] explicit cancel return URL, checking order status");
+    return resolveOrderAfterCheckout(orderId, sessionIdToUse, { fromCancelUrl: true });
   }
 
   // Altijd orderstatus controleren — ook bij dismiss/cancel (Expo Go / Safari scheme-fouten).

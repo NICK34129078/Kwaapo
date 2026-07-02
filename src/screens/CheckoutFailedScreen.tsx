@@ -1,38 +1,40 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
-import { emitProductCatalogEvent } from "../services/productCatalogRefresh";
-import { releaseCheckoutStockReservation } from "../services/stripeCheckoutService";
 
-type FailureReason = "cancelled" | "failed";
+type FailureReason = "cancelled" | "failed" | "pending";
 
 export function CheckoutFailedScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
-  const reason: FailureReason = route.params?.reason === "failed" ? "failed" : "cancelled";
+  const reasonParam = route.params?.reason;
+  const reason: FailureReason =
+    reasonParam === "failed"
+      ? "failed"
+      : reasonParam === "pending"
+        ? "pending"
+        : "cancelled";
   const orderId: string | undefined = route.params?.orderId;
   const productId: string | undefined = route.params?.productId;
-  const releasedRef = useRef(false);
+  const pendingMessage: string | undefined = route.params?.message;
 
-  useEffect(() => {
-    if (!orderId || releasedRef.current) {
-      return;
-    }
-    releasedRef.current = true;
-    void releaseCheckoutStockReservation(orderId).then(() => {
-      emitProductCatalogEvent({ kind: "refresh" });
-    });
-  }, [orderId]);
-
-  const title = reason === "cancelled" ? "Betaling niet afgerond" : "Betaling mislukt";
+  const title =
+    reason === "pending"
+      ? "Betaling wordt verwerkt"
+      : reason === "cancelled"
+        ? "Betaling niet afgerond"
+        : "Betaling mislukt";
   const message =
-    reason === "cancelled"
-      ? "De betaling is niet afgerond. Er is nog niets in rekening gebracht en de voorraad is weer vrijgegeven."
-      : "De betaling kon niet worden voltooid. Er is nog niets in rekening gebracht en de voorraad is weer vrijgegeven.";
+    reason === "pending"
+      ? (pendingMessage ??
+        "Je betaling kan nog worden verwerkt. Voorraad blijft tijdelijk gereserveerd tot Stripe de sessie afsluit.")
+      : reason === "cancelled"
+        ? "De betaling is niet afgerond. Er is nog niets in rekening gebracht. Voorraad wordt vrijgegeven zodra de betaalsessie verloopt."
+        : "De betaling kon niet worden voltooid. Er is nog niets in rekening gebracht.";
 
   const onRetry = useCallback(() => {
     if (orderId) {
@@ -66,7 +68,13 @@ export function CheckoutFailedScreen() {
         <View style={styles.iconWrap}>
           <View style={styles.iconCircle}>
             <Ionicons
-              name={reason === "cancelled" ? "close" : "alert-circle-outline"}
+              name={
+                reason === "pending"
+                  ? "time-outline"
+                  : reason === "cancelled"
+                    ? "close"
+                    : "alert-circle-outline"
+              }
               size={44}
               color={theme.textMuted}
             />
@@ -81,7 +89,9 @@ export function CheckoutFailedScreen() {
           accessibilityRole="button"
           accessibilityLabel="Opnieuw proberen"
         >
-          <Text style={styles.primaryBtnText}>Opnieuw proberen</Text>
+          <Text style={styles.primaryBtnText}>
+            {reason === "pending" ? "Bekijk bestelling" : "Opnieuw proberen"}
+          </Text>
         </Pressable>
         <Pressable
           style={styles.secondaryBtn}

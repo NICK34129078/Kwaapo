@@ -186,6 +186,15 @@ export function OrderDetailScreen() {
         });
         return;
       }
+      if (payment.reason === "pending") {
+        Alert.alert(
+          "Betaling wordt verwerkt",
+          payment.message ??
+            "Je betaling kan nog worden bevestigd. Controleer deze bestelling over een moment."
+        );
+        void load();
+        return;
+      }
       navigation.navigate("CheckoutFailed", {
         reason: payment.reason,
         orderId: payment.orderId,
@@ -197,7 +206,7 @@ export function OrderDetailScreen() {
     } finally {
       setPayBusy(false);
     }
-  }, [firstItem?.productId, mode, navigation, order]);
+  }, [firstItem?.productId, load, mode, navigation, order]);
 
   const screenTitle =
     mode === "buyer" ? "Mijn bestelling" : mode === "seller" ? "Bestelling" : "Bestelling";
