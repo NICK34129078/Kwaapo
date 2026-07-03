@@ -612,6 +612,7 @@ async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
         paymentIntentId
       );
     }
+    await ensureSellerNewPaidOrderNotification(env, orderId);
     console.log("[markOrderPaid] already paid", orderId);
     return;
   }
@@ -700,9 +701,7 @@ async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
     return;
   }
 
-  if (shouldNotifySellerOnPaid(fulfillmentStatus)) {
-    await notifySellerNewPaidOrder(env, orderId);
-  }
+  await ensureSellerNewPaidOrderNotification(env, orderId, fulfillmentStatus);
 }
 
 async function fetchProductNameById(env, productId) {
@@ -720,10 +719,29 @@ async function fetchProductNameById(env, productId) {
   return "Product";
 }
 
-async function notifySellerNewPaidOrder(env, orderId) {
+/**
+ * Idempotent seller alert after payment. Never throws — checkout must not fail on notify errors.
+ * @param {Record<string, unknown>} env
+ * @param {string} orderId
+ * @param {string | null | undefined} [fulfillmentStatusOverride]
+ */
+export async function ensureSellerNewPaidOrderNotification(
+  env,
+  orderId,
+  fulfillmentStatusOverride
+) {
   try {
     const order = await fetchOrderById(env, orderId);
+    const fulfillmentStatus =
+      fulfillmentStatusOverride ?? order?.fulfillment_status;
+    if (!shouldNotifySellerOnPaid(fulfillmentStatus)) {
+      return;
+    }
     if (!order?.seller_id) {
+      console.warn(
+        "[ensureSellerNewPaidOrderNotification] missing seller_id",
+        orderId
+      );
       return;
     }
 
@@ -753,10 +771,10 @@ async function notifySellerNewPaidOrder(env, orderId) {
       }),
       { preferRepresentation: false, preferIgnoreDuplicates: true }
     );
-    console.log("[notifySellerNewPaidOrder] ok", orderId);
+    console.log("[ensureSellerNewPaidOrderNotification] ok", orderId);
   } catch (e) {
     console.warn(
-      "[notifySellerNewPaidOrder]",
+      "[ensureSellerNewPaidOrderNotification] failed",
       orderId,
       e instanceof Error ? e.message : String(e)
     );
