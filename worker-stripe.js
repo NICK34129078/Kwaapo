@@ -773,10 +773,21 @@ export async function ensureSellerNewPaidOrderNotification(
     );
     console.log("[ensureSellerNewPaidOrderNotification] ok", orderId);
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (
+      message.includes("409") &&
+      message.includes("seller_notifications_order_dedup")
+    ) {
+      console.log(
+        "[ensureSellerNewPaidOrderNotification] ok (already exists)",
+        orderId
+      );
+      return;
+    }
     console.warn(
       "[ensureSellerNewPaidOrderNotification] failed",
       orderId,
-      e instanceof Error ? e.message : String(e)
+      message
     );
   }
 }
