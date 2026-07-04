@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -50,6 +50,7 @@ import {
   getOrderFulfillmentDisplay,
   type OrderFulfillmentInfo,
 } from "../utils/orderFulfillmentDisplay";
+import { formatSellerShipUpdateError } from "../utils/orderShipError";
 
 type OrderDetailMode = "buyer" | "seller" | null;
 
@@ -71,6 +72,8 @@ export function OrderDetailScreen() {
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
   const orderId: string | undefined = route.params?.orderId;
+  const focusTracking = route.params?.focusTracking === true;
+  const trackingInputRef = useRef<TextInput>(null);
   const [mode, setMode] = useState<OrderDetailMode>(null);
   const [sellerOrder, setSellerOrder] = useState<SellerOrderDetail | null>(null);
   const [buyerOrder, setBuyerOrder] = useState<BuyerOrderDetail | null>(null);
@@ -116,6 +119,18 @@ export function OrderDetailScreen() {
       setLoading(true);
       void load().finally(() => setLoading(false));
     }, [load])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusTracking || mode !== "seller") {
+        return;
+      }
+      const timer = setTimeout(() => {
+        trackingInputRef.current?.focus();
+      }, 350);
+      return () => clearTimeout(timer);
+    }, [focusTracking, mode])
   );
 
   const order = useMemo(() => {
@@ -172,20 +187,37 @@ export function OrderDetailScreen() {
     setShipBusy(true);
     try {
       const updated = await markSellerOrderAsShipped(order.id, trackingCode);
+      if (
+        updated.shippingStatus !== "shipped" &&
+        updated.shippingStatus !== "delivered"
+      ) {
+        throw new Error("Verzending kon niet worden bevestigd in de database.");
+      }
       setSellerOrder((prev) => (prev ? { ...prev, order: updated } : prev));
       void markSellerNotificationsHandledForOrder(order.id);
       void refreshSellerFulfillment();
       setShipConfirmVisible(false);
       setShipChecklist(EMPTY_SELLER_SHIP_CHECKLIST);
-      Alert.alert("Verzonden", "Bestelling gemarkeerd als verzonden.");
+      navigation.reset({
+        index: 1,
+        routes: [
+          { name: "MainTabs", params: { screen: "Home" } },
+          { name: "OrderShippedSuccess", params: { orderId: order.id } },
+        ],
+      });
     } catch (e) {
-      const msg =
-        e instanceof Error ? e.message : "Verzending bijwerken mislukt.";
-      Alert.alert("Fout", msg);
+      const msg = formatSellerShipUpdateError(e);
+      Alert.alert("Verzending mislukt", msg);
     } finally {
       setShipBusy(false);
     }
-  }, [mode, order, refreshSellerFulfillment, trackingCode]);
+  }, [
+    mode,
+    navigation,
+    order,
+    refreshSellerFulfillment,
+    trackingCode,
+  ]);
 
   const onConfirmShipPress = useCallback(() => {
     if (!order || mode !== "seller" || !readyToShip) {
@@ -524,6 +556,7 @@ export function OrderDetailScreen() {
                       </Text>
                     ) : null}
                     <TextInput
+                      ref={trackingInputRef}
                       value={trackingCode}
                       onChangeText={setTrackingCode}
                       placeholder="Trackingcode (optioneel)"
@@ -621,7 +654,7 @@ export function OrderDetailScreen() {
                 {shipBusy ? (
                   <ActivityIndicator size="small" color={theme.bg} />
                 ) : (
-                  <Text style={styles.modalPrimaryBtnText}>Ja, pakket is verzonden</Text>
+                  <Text style={styles.modalPrimaryBtnText}>Ja, ik heb het verzonden</Text>
                 )}
               </Pressable>
             </View>

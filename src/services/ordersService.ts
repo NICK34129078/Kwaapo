@@ -24,6 +24,7 @@ import {
   validateCheckoutAddressForPayment,
   validateCheckoutAddressSync,
 } from "../utils/checkoutAddressValidation";
+import { logSellerShipUpdateErrorDev } from "../utils/orderShipError";
 import {
   mapOrderFulfillmentRow,
   type OrderFulfillmentInfo,
@@ -344,6 +345,7 @@ export async function markSellerOrderAsShipped(
     .maybeSingle<{ shipping_status: string; payment_status: string }>();
 
   if (readError) {
+    logSellerShipUpdateErrorDev(orderId, readError);
     throw readError;
   }
   if (!existing) {
@@ -383,10 +385,19 @@ export async function markSellerOrderAsShipped(
     .single<OrderRow>();
 
   if (error) {
+    logSellerShipUpdateErrorDev(orderId, error);
     throw error;
   }
 
-  return mapOrderRow(data);
+  const updated = mapOrderRow(data);
+  if (
+    updated.shippingStatus !== "shipped" &&
+    updated.shippingStatus !== "delivered"
+  ) {
+    throw new Error("Verzending kon niet worden bevestigd in de database.");
+  }
+
+  return updated;
 }
 
 export type SellerOrderActivity = {
