@@ -17,6 +17,7 @@ import {
   shouldInitiateAutoRefund,
   shouldNotifySellerOnPaid,
 } from "./order-reconciliation-logic.js";
+import { maybeSendOrderPushNotification } from "./worker-push-notifications.js";
 
 /**
  * Stripe Checkout — server-side only.
@@ -147,6 +148,11 @@ function roundMoney(amount) {
     return 0;
   }
   return Math.round(n * 100) / 100;
+}
+
+function formatEurAmount(amount) {
+  const value = roundMoney(amount);
+  return `€${value.toFixed(2).replace(".", ",")}`;
 }
 
 function computePlatformFeeAmount(subtotal) {
@@ -752,8 +758,9 @@ export async function ensureSellerNewPaidOrderNotification(
       : "Product";
     const sizeLabel =
       item?.selected_variant_value?.trim() || item?.size?.trim() || null;
+    const subtotalLabel = formatEurAmount(order.subtotal_amount);
 
-    let body = `Je hebt een betaalde bestelling voor ${productName}. Maak het pakket klaar voor verzending.`;
+    let body = `Je hebt ${productName} verkocht voor ${subtotalLabel}.`;
     if (sizeLabel) {
       body += ` Maat: ${sizeLabel}.`;
     }
@@ -766,13 +773,27 @@ export async function ensureSellerNewPaidOrderNotification(
         seller_id: order.seller_id,
         order_id: orderId,
         notification_type: "new_paid_order",
-        title: "Nieuwe bestelling ontvangen",
+        title: "Nieuwe bestelling! 🎉",
         body,
         product_name: productName,
       }),
       { preferRepresentation: false, preferIgnoreDuplicates: true }
     );
     console.log("[ensureSellerNewPaidOrderNotification] ok", orderId);
+    void maybeSendOrderPushNotification(env, supabaseRequest, {
+      userId: order.seller_id,
+      orderId,
+      audience: "seller",
+      notificationType: "new_paid_order",
+      title: "Nieuwe bestelling! 🎉",
+      body,
+    }).catch((pushError) => {
+      console.warn(
+        "[ensureSellerNewPaidOrderNotification] push skipped",
+        orderId,
+        pushError instanceof Error ? pushError.message : String(pushError)
+      );
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     if (
