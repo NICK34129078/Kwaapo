@@ -8,10 +8,27 @@
  * @param {{ stockCommittedAt?: string|null, stockReleasedAt?: string|null, stockReservedAt?: string|null }} order
  */
 export function shouldAttemptStockReconcile(order) {
-  if (order.stockCommittedAt) {
+  return shouldAttemptStockRecoveryForPaidOrder(order);
+}
+
+/**
+ * Safe stock recovery after Stripe confirms payment:
+ * - reservation was released (late webhook), or
+ * - reservation was never recorded (checkout/webhook env mismatch recovery).
+ * Skips when stock is already committed.
+ * @param {{ stockCommittedAt?: string|null, stockReleasedAt?: string|null, stockReservedAt?: string|null } | null | undefined} order
+ */
+export function shouldAttemptStockRecoveryForPaidOrder(order) {
+  if (!order || order.stockCommittedAt) {
     return false;
   }
-  return order.stockReleasedAt != null;
+  if (order.stockReleasedAt != null) {
+    return true;
+  }
+  if (!order.stockReservedAt) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -26,6 +43,9 @@ export function reconcileOutcome(reconcileResult) {
     return "reconciled";
   }
   if (reason === "stock_unavailable" || reconcileResult?.ok === false) {
+    if (reason === "active_reservation") {
+      return "active_reservation";
+    }
     return "stock_unavailable";
   }
   return "unknown";

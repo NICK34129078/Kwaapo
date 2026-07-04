@@ -6,6 +6,7 @@ import {
   createLatePaymentReconciliationSimulator,
   reconcileOutcome,
   shouldAttemptStockReconcile,
+  shouldAttemptStockRecoveryForPaidOrder,
   shouldInitiateAutoRefund,
   shouldNotifySellerOnPaid,
 } from "./order-reconciliation-logic.js";
@@ -142,6 +143,19 @@ function run() {
   assert(
     reconcileOutcome({ ok: true, reason: "reconciled" }) === "reconciled",
     "helper: reconcile outcome"
+  );
+  assert(
+    shouldAttemptStockRecoveryForPaidOrder({
+      stockCommittedAt: null,
+      stockReleasedAt: null,
+      stockReservedAt: null,
+    }),
+    "helper: recover when never reserved"
+  );
+  assert(
+    reconcileOutcome({ ok: false, reason: "active_reservation" }) ===
+      "active_reservation",
+    "helper: active_reservation outcome"
   );
   assert(shouldNotifySellerOnPaid("reconciled"), "helper: notify seller reconciled");
   assert(

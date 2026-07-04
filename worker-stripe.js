@@ -14,10 +14,16 @@ import {
 import {
   reconcileOutcome,
   shouldAttemptStockReconcile,
+  shouldAttemptStockRecoveryForPaidOrder,
   shouldInitiateAutoRefund,
   shouldNotifySellerOnPaid,
 } from "./order-reconciliation-logic.js";
 import { maybeSendOrderPushNotification } from "./worker-push-notifications.js";
+import { logStripeOrderPaid } from "./worker-stripe-order-paid-log.js";
+import {
+  getSupabaseProjectRef,
+  logStockReservation,
+} from "./worker-stripe-stock-reservation-log.js";
 
 /**
  * Stripe Checkout — server-side only.
@@ -306,11 +312,44 @@ async function callOrderStockRpcJson(env, functionName, orderId) {
 }
 
 async function reserveProductStockForOrder(env, orderId) {
-  return callOrderStockRpc(env, "reserve_product_stock_for_order", orderId);
+  logStockReservation(env, "checkout reservation create attempted", { orderId });
+  const ok = await callOrderStockRpc(env, "reserve_product_stock_for_order", orderId);
+  if (ok) {
+    logStockReservation(env, "reservation created", { orderId });
+  } else {
+    logStockReservation(env, "reservation failed", { orderId });
+  }
+  return ok;
 }
 
 async function commitProductStockForOrder(env, orderId) {
-  return callOrderStockRpc(env, "commit_product_stock_for_order", orderId);
+  const ok = await callOrderStockRpc(env, "commit_product_stock_for_order", orderId);
+  if (ok) {
+    logStockReservation(env, "reservation committed", { orderId });
+  }
+  return ok;
+}
+
+function logOrderStockState(env, orderId, order, context) {
+  logStockReservation(env, "reservation lookup during markOrderPaid", {
+    orderId,
+    context,
+    paymentStatus: order?.payment_status ?? null,
+    stockReservedAt: order?.stock_reserved_at ?? null,
+    stockReleasedAt: order?.stock_released_at ?? null,
+    stockCommittedAt: order?.stock_committed_at ?? null,
+  });
+  if (!order?.stock_reserved_at) {
+    logStockReservation(env, "reason inactive reservation", {
+      orderId,
+      reason: "stock_reserved_at missing",
+    });
+  } else if (order?.stock_released_at) {
+    logStockReservation(env, "reason inactive reservation", {
+      orderId,
+      reason: "stock_released_at set",
+    });
+  }
 }
 
 async function releaseProductStockForOrder(env, orderId) {
@@ -602,8 +641,24 @@ async function initiateAutoRefundForUnavailableStock(
   }
 }
 
-async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
+async function markOrderPaid(env, orderId, sessionId, paymentIntentId, source = "webhook") {
+  logStripeOrderPaid(env, "order found", { orderId, source, sessionId: sessionId ?? null });
+
   const order = await fetchOrderById(env, orderId);
+  logOrderStockState(env, orderId, order, source);
+
+  if (!order) {
+    const supabaseRef = getSupabaseProjectRef(env);
+    logStockReservation(env, "error", {
+      orderId,
+      reason: "order_not_found_in_worker_database",
+      supabaseRef,
+    });
+    throw new Error(
+      `[markOrderPaid] order ${orderId} not found in Supabase project ${supabaseRef} — checkout and webhook must use the same Worker/database`
+    );
+  }
+
   if (order?.payment_status === "paid") {
     if (
       shouldInitiateAutoRefund({
@@ -619,6 +674,7 @@ async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
         paymentIntentId
       );
     }
+    logStripeOrderPaid(env, "seller notification attempted", { orderId, source: "already_paid" });
     await ensureSellerNewPaidOrderNotification(env, orderId);
     console.log("[markOrderPaid] already paid", orderId);
     return;
@@ -627,32 +683,72 @@ async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
   let fulfillmentStatus = "committed";
   let paymentReconciledAt = null;
 
-  const committed = await commitProductStockForOrder(env, orderId);
+  let committed = await commitProductStockForOrder(env, orderId);
+  if (
+    !committed &&
+    order.stock_reserved_at &&
+    !order.stock_released_at &&
+    !order.stock_committed_at
+  ) {
+    logStockReservation(env, "stock commit retry", { orderId, reason: "active_reservation" });
+    committed = await commitProductStockForOrder(env, orderId);
+  }
+
   if (!committed) {
-    if (
-      shouldAttemptStockReconcile({
-        stockCommittedAt: order?.stock_committed_at,
-        stockReleasedAt: order?.stock_released_at,
-      })
-    ) {
+    const stockSnapshot = {
+      stockCommittedAt: order.stock_committed_at,
+      stockReleasedAt: order.stock_released_at,
+      stockReservedAt: order.stock_reserved_at,
+    };
+
+    if (shouldAttemptStockRecoveryForPaidOrder(stockSnapshot)) {
+      logStockReservation(env, "stock recovery attempted", {
+        orderId,
+        stockReservedAt: order.stock_reserved_at,
+        stockReleasedAt: order.stock_released_at,
+      });
       const reconcileResult = await reconcileProductStockForPaidOrder(
         env,
         orderId
       );
-      const outcome = reconcileOutcome(reconcileResult);
-      if (outcome === "reconciled") {
-        fulfillmentStatus = "reconciled";
-        paymentReconciledAt = new Date().toISOString();
-      } else if (outcome === "already_committed") {
-        fulfillmentStatus = "committed";
-      } else if (outcome === "stock_unavailable") {
-        fulfillmentStatus = "stock_unavailable";
-      } else {
-        throw new Error(
-          `[markOrderPaid] reconcile failed for order ${orderId}: ${JSON.stringify(reconcileResult)}`
-        );
+      let outcome = reconcileOutcome(reconcileResult);
+      if (outcome === "active_reservation") {
+        logStockReservation(env, "stock commit retry after reconcile hint", {
+          orderId,
+        });
+        committed = await commitProductStockForOrder(env, orderId);
+        if (committed) {
+          outcome = "already_committed";
+        }
+      }
+      if (!committed) {
+        if (outcome === "reconciled") {
+          fulfillmentStatus = "reconciled";
+          paymentReconciledAt = new Date().toISOString();
+          committed = true;
+        } else if (outcome === "already_committed") {
+          fulfillmentStatus = "committed";
+          committed = true;
+        } else if (outcome === "stock_unavailable") {
+          fulfillmentStatus = "stock_unavailable";
+          committed = true;
+        } else {
+          logStockReservation(env, "stock commit failure", {
+            orderId,
+            reconcileResult,
+          });
+          throw new Error(
+            `[markOrderPaid] reconcile failed for order ${orderId}: ${JSON.stringify(reconcileResult)}`
+          );
+        }
       }
     } else {
+      logStockReservation(env, "stock commit failure", {
+        orderId,
+        stockReservedAt: order.stock_reserved_at,
+        stockReleasedAt: order.stock_released_at,
+        supabaseRef: getSupabaseProjectRef(env),
+      });
       throw new Error(
         `[markOrderPaid] stock commit failed for order ${orderId} — refusing to mark paid without active reservation`
       );
@@ -690,6 +786,12 @@ async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
   }
 
   await patchOrderFields(env, orderId, patch);
+  logStripeOrderPaid(env, "order marked paid", {
+    orderId,
+    source,
+    fulfillmentStatus,
+    paidAt: patch.paid_at,
+  });
   console.log(
     "[markOrderPaid] ok",
     orderId,
@@ -708,6 +810,7 @@ async function markOrderPaid(env, orderId, sessionId, paymentIntentId) {
     return;
   }
 
+  logStripeOrderPaid(env, "seller notification attempted", { orderId, source });
   await ensureSellerNewPaidOrderNotification(env, orderId, fulfillmentStatus);
 }
 
@@ -742,15 +845,25 @@ export async function ensureSellerNewPaidOrderNotification(
     const fulfillmentStatus =
       fulfillmentStatusOverride ?? order?.fulfillment_status;
     if (!shouldNotifySellerOnPaid(fulfillmentStatus)) {
+      logStripeOrderPaid(env, "seller notification skipped", {
+        orderId,
+        fulfillmentStatus: fulfillmentStatus ?? null,
+      });
       return;
     }
     if (!order?.seller_id) {
+      logStripeOrderPaid(env, "error", "missing seller_id", orderId);
       console.warn(
         "[ensureSellerNewPaidOrderNotification] missing seller_id",
         orderId
       );
       return;
     }
+
+    logStripeOrderPaid(env, "seller notification attempted", {
+      orderId,
+      sellerId: order.seller_id,
+    });
 
     const item = await fetchFirstOrderItem(env, orderId);
     const productName = item?.product_id
@@ -779,6 +892,7 @@ export async function ensureSellerNewPaidOrderNotification(
       }),
       { preferRepresentation: false, preferIgnoreDuplicates: true }
     );
+    logStripeOrderPaid(env, "seller notification created", { orderId });
     console.log("[ensureSellerNewPaidOrderNotification] ok", orderId);
     void maybeSendOrderPushNotification(env, supabaseRequest, {
       userId: order.seller_id,
@@ -800,12 +914,23 @@ export async function ensureSellerNewPaidOrderNotification(
       message.includes("409") &&
       message.includes("seller_notifications_order_dedup")
     ) {
+      logStripeOrderPaid(env, "seller notification created", {
+        orderId,
+        deduped: true,
+      });
       console.log(
         "[ensureSellerNewPaidOrderNotification] ok (already exists)",
         orderId
       );
       return;
     }
+    logStripeOrderPaid(
+      env,
+      "error",
+      "seller notification failed",
+      orderId,
+      message
+    );
     console.warn(
       "[ensureSellerNewPaidOrderNotification] failed",
       orderId,
@@ -1193,6 +1318,10 @@ async function resolveOrderIdFromSession(env, session) {
   if (isStandardUuid(metaId)) {
     return metaId;
   }
+  const clientRef = session.client_reference_id;
+  if (isStandardUuid(clientRef)) {
+    return clientRef;
+  }
   if (session.id) {
     const rows = await supabaseRequest(
       env,
@@ -1206,11 +1335,28 @@ async function resolveOrderIdFromSession(env, session) {
   return null;
 }
 
-async function syncOrderFromStripeSession(env, session, { allowMarkPaid = false } = {}) {
+async function syncOrderFromStripeSession(
+  env,
+  session,
+  { allowMarkPaid = false, source = "webhook" } = {}
+) {
+  const sessionId = session?.id ?? null;
+  logStripeOrderPaid(env, "checkout session id", {
+    sessionId,
+    paymentStatus: session?.payment_status ?? null,
+    status: session?.status ?? null,
+    source,
+    allowMarkPaid,
+  });
+
   const orderId = await resolveOrderIdFromSession(env, session);
   if (!isStandardUuid(orderId)) {
+    logStripeOrderPaid(env, "error", "order not found for session", sessionId);
     throw new Error("Session missing order_id metadata");
   }
+
+  logStripeOrderPaid(env, "order found", { orderId, sessionId, source });
+
   if (allowMarkPaid && checkoutSessionIsPaid(session)) {
     await markOrderPaid(
       env,
@@ -1218,9 +1364,10 @@ async function syncOrderFromStripeSession(env, session, { allowMarkPaid = false 
       session.id,
       typeof session.payment_intent === "string"
         ? session.payment_intent
-        : session.payment_intent?.id
+        : session.payment_intent?.id,
+      source
     );
-    console.log("[stripe sync] order marked paid (webhook)", orderId, session.id);
+    console.log("[stripe sync] order marked paid", source, orderId, session.id);
     return { orderId, paid: true, paymentStatus: "paid", status: "paid" };
   }
   if (
@@ -1356,9 +1503,29 @@ export async function handleStripeCheckout(request, env, cors = {}) {
           if (orderNow?.payment_status === "paid") {
             return jsonStripe({ error: "Order already paid" }, 400, cors);
           }
+          logStripeOrderPaid(env, "reconcile existing paid session", {
+            orderId,
+            sessionId: existingSessionId,
+          });
+          const result = await syncOrderFromStripeSession(env, existing, {
+            allowMarkPaid: true,
+            source: "stripeCheckout_reconcile",
+          });
+          if (result.paid) {
+            return jsonStripe(
+              {
+                checkoutUrl: existing.url ?? null,
+                sessionId: existing.id,
+                orderId,
+                reconciled: true,
+              },
+              200,
+              cors
+            );
+          }
           console.log(
             logPrefix,
-            "Stripe session paid but order unpaid — waiting for webhook",
+            "Stripe session paid but order still unpaid after reconcile",
             existingSessionId
           );
           return jsonStripe(
@@ -1439,6 +1606,7 @@ export async function handleStripeCheckout(request, env, cors = {}) {
       expires_at: String(checkoutExpiresAt),
       success_url: urls.success,
       cancel_url: `${urls.cancel}${urls.cancel.includes("?") ? "&" : "?"}order_id=${encodeURIComponent(orderId)}`,
+      client_reference_id: orderId,
       customer_email: order.buyer_email || undefined,
       "metadata[order_id]": orderId,
       "metadata[buyer_id]": userId,
@@ -1541,6 +1709,7 @@ export async function handleStripeWebhook(request, env) {
   try {
     const secret = env.STRIPE_WEBHOOK_SECRET;
     if (!secret || typeof secret !== "string") {
+      logStripeOrderPaid(env, "error", "Missing STRIPE_WEBHOOK_SECRET");
       console.error(logPrefix, "Missing STRIPE_WEBHOOK_SECRET");
       return new Response(
         JSON.stringify({
@@ -1553,13 +1722,19 @@ export async function handleStripeWebhook(request, env) {
 
     const payload = await request.text();
     const sig = request.headers.get("Stripe-Signature") || "";
+    logStripeOrderPaid(env, "webhook received", {
+      supabaseRef: getSupabaseProjectRef(env),
+    });
     await verifyStripeWebhook(payload, sig, secret);
+    logStripeOrderPaid(env, "signature verified");
     const event = JSON.parse(payload);
 
+    logStripeOrderPaid(env, "event type", event.type, event.id);
     console.log(logPrefix, "event", event.id, event.type);
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
+      logStripeOrderPaid(env, "checkout session id", session.id);
       console.log(logPrefix, "session", {
         id: session.id,
         status: session.status,
@@ -1568,12 +1743,15 @@ export async function handleStripeWebhook(request, env) {
       });
       const result = await syncOrderFromStripeSession(env, session, {
         allowMarkPaid: true,
+        source: "webhook_checkout.session.completed",
       });
       console.log(logPrefix, "sync result", result);
     } else if (event.type === "checkout.session.async_payment_succeeded") {
       const session = event.data.object;
+      logStripeOrderPaid(env, "checkout session id", session.id);
       const result = await syncOrderFromStripeSession(env, session, {
         allowMarkPaid: true,
+        source: "webhook_async_payment_succeeded",
       });
       console.log(logPrefix, "async payment sync", result);
     } else if (event.type === "checkout.session.expired") {
@@ -1639,8 +1817,14 @@ export async function handleStripeWebhook(request, env) {
     });
   } catch (e) {
     const message = (e && e.message) || String(e);
+    logStripeOrderPaid(env, "error", message);
     console.error(logPrefix, "failed", message);
-    const status = isRetriableRefundApplyError(message) ? 500 : 400;
+    const checkoutPaidFailure =
+      message.includes("markOrderPaid") ||
+      message.includes("Session missing order_id") ||
+      message.includes("stock commit failed");
+    const status =
+      isRetriableRefundApplyError(message) || checkoutPaidFailure ? 500 : 400;
     return new Response(JSON.stringify({ error: message, retriable: status === 500 }), {
       status,
       headers: { "Content-Type": "application/json" },
@@ -1666,11 +1850,13 @@ export async function handleCheckoutReturn(request, url, env, cors = {}) {
         null
       );
       const result = await syncOrderFromStripeSession(env, session, {
-        allowMarkPaid: false,
+        allowMarkPaid: true,
+        source: "checkoutReturn",
       });
       paid = !!result.paid;
-      console.log(logPrefix, "read-only sync", { sessionId, paid, result });
+      console.log(logPrefix, "sync", { sessionId, paid, result });
     } catch (e) {
+      logStripeOrderPaid(env, "error", "checkoutReturn", (e && e.message) || String(e));
       console.error(logPrefix, "sync failed", (e && e.message) || String(e));
     }
   } else {
@@ -1794,15 +1980,20 @@ export async function handleStripeConfirm(request, url, env, cors = {}) {
       null
     );
 
-    if (session.metadata?.buyer_id !== userId) {
+    if (
+      String(session.metadata?.buyer_id || "").toLowerCase() !==
+      String(userId).toLowerCase()
+    ) {
       return jsonStripe({ error: "Not your checkout session" }, 403, cors);
     }
 
     const result = await syncOrderFromStripeSession(env, session, {
-      allowMarkPaid: false,
+      allowMarkPaid: true,
+      source: "stripeConfirm",
     });
     return jsonStripe(result, 200, cors);
   } catch (e) {
+    logStripeOrderPaid(env, "error", "stripeConfirm", (e && e.message) || String(e));
     return jsonStripe({ error: (e && e.message) || String(e) }, 500, cors);
   }
 }
