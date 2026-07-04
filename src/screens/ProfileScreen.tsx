@@ -71,6 +71,10 @@ import {
 import { ProfileShopGrid } from "../components/ProfileShopGrid";
 import { SavedPostsGrid } from "../components/SavedPostsGrid";
 import { AvatarImage } from "../components/AvatarImage";
+import { SellerOrderCountBadge } from "../components/SellerOrderCountBadge";
+import { logSellerOpenOrders } from "../constants/sellerOpenOrdersDebug";
+import { logSellerOrderBadge } from "../constants/sellerOrderBadgeDebug";
+import { logSellerSettingsNavigation } from "../constants/sellerSettingsNavigationDebug";
 import { FullScreenImageModal } from "../components/FullScreenImageModal";
 import { hasProfileAvatar } from "../utils/resolveAvatarSource";
 import {
@@ -185,7 +189,7 @@ function ProfileAuthenticatedScreen({
   const placingPostRef = useRef(false);
   const isUploadBusy = isUploading || isCarouselUploading || uploadFlowBusy;
   const { signOut, user } = useAuth();
-  const { unreadNotificationCount } = useSellerFulfillment();
+  const { actionCount: openSellerOrderCount } = useSellerFulfillment();
   const { syncFeedLikeState } = useLikes();
   const targetProfileId = profileId ?? user?.id ?? null;
   const isOwnProfile = !!user?.id && user.id === targetProfileId;
@@ -196,7 +200,7 @@ function ProfileAuthenticatedScreen({
       syncFeedLikeState(visibleUploads);
     }
   }, [visibleUploads, syncFeedLikeState]);
-  const uploadsCount = visibleUploads.length;
+
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -219,6 +223,28 @@ function ProfileAuthenticatedScreen({
   const [profileContentTab, setProfileContentTab] =
     useState<ProfileContentTab>("posts");
   const isBusinessProfile = profileAccountType === "business";
+  const sellerOrderBadgeCount =
+    isOwnProfile && isBusinessProfile ? openSellerOrderCount : 0;
+
+  useEffect(() => {
+    if (!isOwnProfile || !isBusinessProfile) {
+      return;
+    }
+    logSellerOpenOrders(`badge rendered ${openSellerOrderCount}`);
+  }, [isBusinessProfile, isOwnProfile, openSellerOrderCount]);
+
+  const openSellerOrdersFromSettings = useCallback(() => {
+    logSellerOrderBadge(`settings orders row pressed ${openSellerOrderCount}`);
+    setSettingsVisible(false);
+    navigation.navigate("SellerOrders");
+  }, [navigation, openSellerOrderCount]);
+
+  useEffect(() => {
+    if (!settingsVisible || !isOwnProfile || !isBusinessProfile) {
+      return;
+    }
+    logSellerSettingsNavigation(`verkopen section rendered ${openSellerOrderCount}`);
+  }, [isBusinessProfile, isOwnProfile, openSellerOrderCount, settingsVisible]);
   const profileTabs = useMemo<ProfileContentTab[]>(() => {
     if (isBusinessProfile) {
       return isOwnProfile ? ["posts", "shop", "saved"] : ["posts", "shop"];
@@ -765,6 +791,17 @@ function ProfileAuthenticatedScreen({
     }
   }, [signOut]);
 
+  const confirmLogout = useCallback(() => {
+    Alert.alert("Uitloggen?", "Weet je zeker dat je wilt uitloggen?", [
+      { text: "Annuleren", style: "cancel" },
+      {
+        text: "Uitloggen",
+        style: "destructive",
+        onPress: () => void handleLogout(),
+      },
+    ]);
+  }, [handleLogout]);
+
   const confirmDeleteCloudVideo = useCallback(
     (p: UserVideoPost) => {
       if (!isOwnProfile) {
@@ -961,16 +998,12 @@ function ProfileAuthenticatedScreen({
         </View>
       ) : null}
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[
-          styles.content,
-          { paddingTop: insets.top + 12, paddingBottom: 120 },
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
+      <View style={styles.screenRoot}>
         {isOwnProfile ? (
-          <View style={styles.topActions}>
+          <View
+            style={[styles.profileTopBar, { paddingTop: insets.top + 8 }]}
+            pointerEvents="box-none"
+          >
             <Pressable
               style={styles.iconButton}
               onPress={() => setSettingsVisible(true)}
@@ -978,30 +1011,28 @@ function ProfileAuthenticatedScreen({
               accessibilityLabel="Open settings"
             >
               <Ionicons name="settings-outline" size={22} color={theme.text} />
-              {isBusinessProfile && unreadNotificationCount > 0 ? (
-                <View style={styles.settingsIconBadge}>
-                  <Text style={styles.settingsIconBadgeText}>
-                    {unreadNotificationCount > 99 ? "9+" : unreadNotificationCount}
-                  </Text>
-                </View>
+              {sellerOrderBadgeCount > 0 ? (
+                <SellerOrderCountBadge
+                  count={sellerOrderBadgeCount}
+                  style={styles.settingsIconBadge}
+                  borderColor={theme.bgElevated}
+                />
               ) : null}
-            </Pressable>
-            <Pressable
-              style={styles.iconButton}
-              onPress={() => void handleLogout()}
-              disabled={logoutBusy}
-              accessibilityRole="button"
-              accessibilityLabel="Uitloggen"
-            >
-              {logoutBusy ? (
-                <ActivityIndicator size="small" color={theme.text} />
-              ) : (
-                <Ionicons name="log-out-outline" size={22} color={theme.text} />
-              )}
             </Pressable>
           </View>
         ) : null}
 
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[
+            styles.content,
+            {
+              paddingTop: isOwnProfile ? 12 : insets.top + 12,
+              paddingBottom: 120,
+            },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
         <View style={styles.header}>
           <Pressable
             onPress={handleAvatarPress}
@@ -1051,55 +1082,77 @@ function ProfileAuthenticatedScreen({
                   ? "Voeg een bio toe via profiel bewerken"
                   : "Deze gebruiker heeft nog geen bio toegevoegd."}
           </Text>
-          <View style={styles.stats}>
-            <View style={styles.stat}>
-              <Text style={styles.statNum}>{uploadsCount}</Text>
-              <Text style={styles.statLabel}>uploads</Text>
+          {isOwnProfile ? (
+            <View style={styles.statsRow}>
+              <View style={styles.statsRowSide} />
+              <View style={styles.statsGroup}>
+                <Pressable
+                  style={styles.stat}
+                  onPress={() => openFollowList("followers")}
+                  accessibilityRole="button"
+                  accessibilityLabel="Bekijk volgers"
+                >
+                  <Text style={styles.statNum}>{followersCount}</Text>
+                  <Text style={styles.statLabel}>volgers</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.stat}
+                  onPress={() => openFollowList("following")}
+                  accessibilityRole="button"
+                  accessibilityLabel="Bekijk volgend"
+                >
+                  <Text style={styles.statNum}>{followingCount}</Text>
+                  <Text style={styles.statLabel}>volgend</Text>
+                </Pressable>
+              </View>
+              <View style={styles.statsRowSide}>
+                {profileContentTab === "posts" ? (
+                  <Pressable
+                    style={styles.statsUploadButton}
+                    onPress={() => {
+                      if (isUploadBusy) return;
+                      resetUploadDrafts();
+                      setUploadModalVisible(true);
+                    }}
+                    disabled={isUploadBusy}
+                    accessibilityRole="button"
+                    accessibilityLabel="Video uploaden"
+                  >
+                    {isUploadBusy ? (
+                      <ActivityIndicator size="small" color={theme.accent} />
+                    ) : (
+                      <Ionicons name="add" size={26} color={theme.accent} />
+                    )}
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
-            <Pressable
-              style={styles.stat}
-              onPress={() => openFollowList("followers")}
-              accessibilityRole="button"
-              accessibilityLabel="Bekijk volgers"
-            >
-              <Text style={styles.statNum}>{followersCount}</Text>
-              <Text style={styles.statLabel}>volgers</Text>
-            </Pressable>
-            <Pressable
-              style={styles.stat}
-              onPress={() => openFollowList("following")}
-              accessibilityRole="button"
-              accessibilityLabel="Bekijk volgend"
-            >
-              <Text style={styles.statNum}>{followingCount}</Text>
-              <Text style={styles.statLabel}>volgend</Text>
-            </Pressable>
-
-            {isOwnProfile && profileContentTab === "posts" ? (
+          ) : (
+            <View style={styles.stats}>
+              <View style={styles.stat}>
+                <Text style={styles.statNum}>{visibleUploads.length}</Text>
+                <Text style={styles.statLabel}>uploads</Text>
+              </View>
               <Pressable
-                style={styles.statsAddButton}
-                onPress={() => {
-                  if (isUploadBusy) return;
-                  resetUploadDrafts();
-                  setUploadModalVisible(true);
-                }}
-                disabled={isUploadBusy}
+                style={styles.stat}
+                onPress={() => openFollowList("followers")}
                 accessibilityRole="button"
-                accessibilityLabel="Uploaden"
+                accessibilityLabel="Bekijk volgers"
               >
-                <View style={styles.statsAddCircle}>
-                  {isUploadBusy ? (
-                    <ActivityIndicator size="small" color={theme.text} />
-                  ) : (
-                    <Ionicons name="add" size={24} color={theme.text} />
-                  )}
-                </View>
-                <Text style={styles.statsAddText}>
-                  {isUploadBusy ? "Uploaden..." : "Uploaden"}
-                </Text>
+                <Text style={styles.statNum}>{followersCount}</Text>
+                <Text style={styles.statLabel}>volgers</Text>
               </Pressable>
-            ) : null}
-          </View>
+              <Pressable
+                style={styles.stat}
+                onPress={() => openFollowList("following")}
+                accessibilityRole="button"
+                accessibilityLabel="Bekijk volgend"
+              >
+                <Text style={styles.statNum}>{followingCount}</Text>
+                <Text style={styles.statLabel}>volgend</Text>
+              </Pressable>
+            </View>
+          )}
           {!isOwnProfile ? (
             <Pressable
               style={[styles.followProfileBtn, followBusy && styles.followProfileBtnDisabled]}
@@ -1229,6 +1282,7 @@ function ProfileAuthenticatedScreen({
         </View>
         )}
       </ScrollView>
+      </View>
 
       {isOwnProfile ? (
         <Modal
@@ -1302,64 +1356,48 @@ function ProfileAuthenticatedScreen({
             </View>
 
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Juridisch & privacy</Text>
-              {SETTINGS_LEGAL_LINKS.filter((l) => l.policyId !== "account_deletion").map(
-                (link) => (
-                  <Pressable
-                    key={link.policyId}
-                    style={styles.rowButton}
-                    onPress={() => openPolicy(link.policyId)}
-                  >
-                    <Text style={styles.rowLabel}>{link.label}</Text>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={18}
-                      color={theme.textMuted}
-                    />
-                  </Pressable>
-                )
-              )}
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Mijn Winkel</Text>
+              <Text style={styles.sectionTitle}>Verkopen</Text>
               {isBusinessProfile ? (
                 <>
-                  <Pressable
-                    style={styles.rowButton}
-                    onPress={() => {
-                      setSettingsVisible(false);
-                      navigation.navigate("SellerOrders");
-                    }}
-                  >
-                    <View style={styles.rowButtonMain}>
-                      <Text style={styles.rowLabel}>Mijn bestellingen</Text>
-                      {unreadNotificationCount > 0 ? (
-                        <Text style={styles.rowSubLabel}>
-                          Je hebt {unreadNotificationCount}{" "}
-                          {unreadNotificationCount === 1
-                            ? "nieuwe bestelling"
-                            : "nieuwe bestellingen"}
+                  {sellerOrderBadgeCount > 0 ? (
+                    <Pressable
+                      style={styles.rowButton}
+                      onPress={openSellerOrdersFromSettings}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        sellerOrderBadgeCount === 1
+                          ? "Nieuwe bestelling afhandelen"
+                          : "Nieuwe bestellingen afhandelen"
+                      }
+                    >
+                      <View style={styles.rowButtonMain}>
+                        <Text style={styles.rowLabel}>
+                          {sellerOrderBadgeCount === 1
+                            ? "Nieuwe bestelling"
+                            : "Nieuwe bestellingen"}
                         </Text>
-                      ) : null}
-                    </View>
-                    <View style={styles.rowButtonTrailing}>
-                      {unreadNotificationCount > 0 ? (
-                        <View style={styles.settingsCountBadge}>
-                          <Text style={styles.settingsCountBadgeText}>
-                            {unreadNotificationCount > 99
-                              ? "9+"
-                              : unreadNotificationCount}
-                          </Text>
-                        </View>
-                      ) : null}
-                      <Ionicons
-                        name="chevron-forward"
-                        size={18}
-                        color={theme.textMuted}
-                      />
-                    </View>
-                  </Pressable>
+                        <Text style={styles.rowSubLabel}>
+                          Je hebt {sellerOrderBadgeCount}{" "}
+                          {sellerOrderBadgeCount === 1
+                            ? "bestelling klaar om af te handelen."
+                            : "bestellingen klaar om af te handelen."}
+                        </Text>
+                      </View>
+                      <View style={styles.rowButtonTrailing}>
+                        <SellerOrderCountBadge
+                          count={sellerOrderBadgeCount}
+                          style={styles.settingsCountBadge}
+                          textStyle={styles.settingsCountBadgeText}
+                          borderColor={theme.bgElevated}
+                        />
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color={theme.textMuted}
+                        />
+                      </View>
+                    </Pressable>
+                  ) : null}
                   <Pressable
                     style={styles.rowButton}
                     onPress={() => {
@@ -1403,6 +1441,26 @@ function ProfileAuthenticatedScreen({
             </View>
 
             <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Juridisch & privacy</Text>
+              {SETTINGS_LEGAL_LINKS.filter((l) => l.policyId !== "account_deletion").map(
+                (link) => (
+                  <Pressable
+                    key={link.policyId}
+                    style={styles.rowButton}
+                    onPress={() => openPolicy(link.policyId)}
+                  >
+                    <Text style={styles.rowLabel}>{link.label}</Text>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={18}
+                      color={theme.textMuted}
+                    />
+                  </Pressable>
+                )
+              )}
+            </View>
+
+            <View style={styles.section}>
               <Text style={styles.sectionTitle}>Support</Text>
               <Pressable style={styles.rowButton} onPress={openSupportEmail}>
                 <Text style={styles.rowLabel}>Contact & support</Text>
@@ -1417,17 +1475,31 @@ function ProfileAuthenticatedScreen({
               </Pressable>
             </View>
 
+            <View style={styles.logoutSection}>
               <Pressable
-                style={styles.logoutButton}
-                onPress={() => void handleLogout()}
+                style={styles.rowButton}
+                onPress={confirmLogout}
                 disabled={logoutBusy}
+                accessibilityRole="button"
+                accessibilityLabel="Uitloggen"
               >
-                {logoutBusy ? (
-                  <ActivityIndicator size="small" color="#ff8a84" />
-                ) : (
-                  <Text style={styles.logoutText}>Log out</Text>
-                )}
+                <View style={styles.rowButtonMain}>
+                  <Text style={[styles.rowLabel, styles.dangerLabel]}>Uitloggen</Text>
+                  <Text style={styles.logoutSubLabel}>Meld je af bij je account</Text>
+                </View>
+                <View style={styles.rowButtonTrailing}>
+                  {logoutBusy ? (
+                    <ActivityIndicator size="small" color="#ff8a84" />
+                  ) : (
+                    <Ionicons
+                      name="chevron-forward"
+                      size={18}
+                      color={theme.textMuted}
+                    />
+                  )}
+                </View>
               </Pressable>
+            </View>
               </ScrollView>
             </View>
           </View>
@@ -1926,13 +1998,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
   },
-  topActions: {
+  screenRoot: {
+    flex: 1,
+    backgroundColor: theme.bg,
+  },
+  profileTopBar: {
     flexDirection: "row",
     justifyContent: "flex-end",
     alignItems: "center",
     paddingHorizontal: 12,
-    marginBottom: 8,
-    gap: 8,
+    paddingBottom: 4,
+    backgroundColor: theme.bg,
+    zIndex: 10,
   },
   iconButton: {
     position: "relative",
@@ -2020,6 +2097,35 @@ const styles = StyleSheet.create({
     gap: 28,
     alignItems: "center",
   },
+  statsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 22,
+    width: "100%",
+    paddingHorizontal: 4,
+  },
+  statsRowSide: {
+    width: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statsGroup: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 36,
+  },
+  statsUploadButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: theme.accentBorderMuted,
+    backgroundColor: theme.accentFaint,
+  },
   stat: {
     alignItems: "center",
   },
@@ -2033,32 +2139,6 @@ const styles = StyleSheet.create({
     color: theme.textMuted,
     fontSize: 12,
     fontWeight: "600",
-  },
-  statsAddButton: {
-    height: 42,
-    minWidth: 132,
-    paddingLeft: 4,
-    paddingRight: 14,
-    borderRadius: 21,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.45)",
-    backgroundColor: "rgba(255,255,255,0.05)",
-  },
-  statsAddCircle: {
-    height: 42,
-    width: 42,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  statsAddText: {
-    marginLeft: 4,
-    color: theme.text,
-    fontSize: 14,
-    fontWeight: "700",
   },
   followProfileBtn: {
     marginTop: 12,
@@ -2298,36 +2378,17 @@ const styles = StyleSheet.create({
   },
   settingsIconBadge: {
     position: "absolute",
-    top: 2,
-    right: 2,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 4,
-    borderRadius: 9,
-    backgroundColor: theme.accent,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: theme.bg,
-  },
-  settingsIconBadgeText: {
-    color: theme.bg,
-    fontSize: 10,
-    fontWeight: "900",
+    top: -2,
+    right: -4,
   },
   settingsCountBadge: {
     minWidth: 22,
     height: 22,
     paddingHorizontal: 6,
     borderRadius: 11,
-    backgroundColor: theme.accent,
-    alignItems: "center",
-    justifyContent: "center",
   },
   settingsCountBadgeText: {
-    color: theme.bg,
     fontSize: 12,
-    fontWeight: "900",
   },
   followListContent: {
     paddingBottom: 8,
@@ -2440,21 +2501,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  logoutButton: {
-    marginTop: 16,
-    marginBottom: 4,
-    minHeight: 50,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,59,48,0.14)",
+  logoutSection: {
+    backgroundColor: theme.bgElevated,
+    borderRadius: 14,
+    paddingVertical: 4,
+    marginTop: 20,
+    marginBottom: 8,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,59,48,0.45)",
+    borderColor: "rgba(255,59,48,0.35)",
   },
-  logoutText: {
-    color: "#ff8a84",
-    fontSize: 15,
-    fontWeight: "700",
+  logoutSubLabel: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: "500",
   },
   uploadProgressBanner: {
     position: "absolute",

@@ -26,10 +26,12 @@ function logSupabaseDebug(): void {
   if (!__DEV__) {
     return;
   }
-  const base = env.supabaseUrl.replace(/\/$/, "");
-  console.log("[Supabase] URL used (no key):", base);
+  const url = env.supabaseUrl.replace(/\/$/, "");
+  const ref = url.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] ?? "unknown";
+  console.log("[Supabase] URL used (no key):", url);
+  console.log("[Supabase] project ref:", ref);
 
-  const healthUrl = `${base}/auth/v1/health`;
+  const healthUrl = `${url}/auth/v1/health`;
   void fetch(healthUrl, { method: "GET" })
     .then(async (res) => {
       const text = await res.text().catch(() => "");

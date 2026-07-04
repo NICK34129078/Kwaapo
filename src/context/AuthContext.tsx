@@ -89,6 +89,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
         if (error) {
+          if (error.message.toLowerCase().includes("invalid refresh token")) {
+            await supabase.auth.signOut({ scope: "local" });
+          }
           safeAuthLog(
             "getSession",
             `${error.message} (controleer URL, netwerk, en of Expo .env geladen is)`

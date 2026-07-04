@@ -38,7 +38,6 @@ import {
   milestoneEventsForWatch,
   queueContentInteraction,
 } from "../services/contentInteractionsService";
-import { FeedRankingDebugPanel } from "../components/FeedRankingDebugPanel";
 import { addToBoundedSet } from "../utils/boundedSeenIds";
 import { REELS_WINDOW } from "../utils/feedRollingWindow";
 
@@ -60,8 +59,13 @@ type AggregatedPlaybackMetrics = {
 function ReelsFeedTopBar() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const isFocused = useIsFocused();
   const { user } = useAuth();
   const { openAuthPrompt } = useAuthPrompt();
+
+  if (!isFocused) {
+    return null;
+  }
 
   return (
     <View
@@ -393,11 +397,6 @@ export function ReelsScreen() {
     };
   }, [finalizeActiveView]);
 
-  const activeFeedItem = useMemo(
-    () => finalFeedData.find((p) => p.id === activeReelId) ?? null,
-    [finalFeedData, activeReelId]
-  );
-
   useEffect(() => {
     if (user == null || finalFeedData.length === 0) {
       return;
@@ -562,7 +561,6 @@ export function ReelsScreen() {
     <View style={styles.root} onLayout={onRootLayout}>
       <ReelsFeedTopBar />
       <ReelNextPreloader videoUrl={nextVideoForPreload} />
-      <FeedRankingDebugPanel item={activeFeedItem} />
       {showInitialLoading ? (
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={theme.accent} />
