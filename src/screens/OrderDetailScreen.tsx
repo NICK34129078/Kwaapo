@@ -74,6 +74,8 @@ export function OrderDetailScreen() {
   const orderId: string | undefined = route.params?.orderId;
   const focusTracking = route.params?.focusTracking === true;
   const trackingInputRef = useRef<TextInput>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const buyerShippingSectionY = useRef(0);
   const [mode, setMode] = useState<OrderDetailMode>(null);
   const [sellerOrder, setSellerOrder] = useState<SellerOrderDetail | null>(null);
   const [buyerOrder, setBuyerOrder] = useState<BuyerOrderDetail | null>(null);
@@ -123,11 +125,20 @@ export function OrderDetailScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (!focusTracking || mode !== "seller") {
+      if (!focusTracking) {
         return;
       }
       const timer = setTimeout(() => {
-        trackingInputRef.current?.focus();
+        if (mode === "seller") {
+          trackingInputRef.current?.focus();
+          return;
+        }
+        if (mode === "buyer") {
+          scrollRef.current?.scrollTo({
+            y: Math.max(0, buyerShippingSectionY.current - 16),
+            animated: true,
+          });
+        }
       }, 350);
       return () => clearTimeout(timer);
     }, [focusTracking, mode])
@@ -294,6 +305,7 @@ export function OrderDetailScreen() {
         </View>
       ) : (
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
           showsVerticalScrollIndicator={false}
         >
@@ -454,7 +466,12 @@ export function OrderDetailScreen() {
                 ) : null}
               </View>
 
-              <View style={styles.section}>
+              <View
+                style={styles.section}
+                onLayout={(event) => {
+                  buyerShippingSectionY.current = event.nativeEvent.layout.y;
+                }}
+              >
                 <Text style={styles.sectionTitle}>Verzending</Text>
                 <Text style={styles.productMeta}>
                   {shippingStatusLabel(order.shippingStatus)}

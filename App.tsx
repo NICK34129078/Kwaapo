@@ -39,6 +39,7 @@ import { AccountDeletionScreen } from "./src/screens/AccountDeletionScreen";
 import { ResetPasswordScreen } from "./src/screens/ResetPasswordScreen";
 import { PasswordRecoveryNavigator } from "./src/navigation/PasswordRecoveryNavigator";
 import { SellerFulfillmentProvider } from "./src/context/SellerFulfillmentContext";
+import { InAppNotificationProvider } from "./src/context/InAppNotificationContext";
 import { BottomNavbar } from "./src/components/BottomNavbar";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { AuthPromptProvider } from "./src/context/AuthPromptContext";
@@ -47,6 +48,11 @@ import { LikesProvider } from "./src/context/LikesContext";
 import { UserUploadsProvider } from "./src/context/UserUploadsContext";
 import { theme } from "./src/constants/theme";
 import { PUBLIC_SHARE_BASE } from "./src/constants/shareLinks";
+import {
+  configurePushNotificationHandlers,
+  parsePushOrderDeepLink,
+  registerPushTokenIfEnabled,
+} from "./src/services/pushNotificationService";
 
 const Tab = createBottomTabNavigator();
 const RootStack = createNativeStackNavigator();
@@ -63,6 +69,7 @@ const linking = {
       },
       SharedPost: "post/:postId",
       ResetPassword: "auth/reset-password",
+      OrderDetail: "order/:orderId",
     },
   },
 };
@@ -101,9 +108,49 @@ function MainTabs() {
 }
 
 function AppGate() {
-  const { loading } = useAuth();
+  const { loading, user } = useAuth();
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
   const [navigationReady, setNavigationReady] = useState(false);
+
+  React.useEffect(() => {
+    void configurePushNotificationHandlers();
+  }, []);
+
+  React.useEffect(() => {
+    if (!user?.id || !navigationReady) {
+      return;
+    }
+    void registerPushTokenIfEnabled();
+  }, [navigationReady, user?.id]);
+
+  React.useEffect(() => {
+    if (!navigationReady) {
+      return;
+    }
+    let subscription: { remove: () => void } | null = null;
+    void (async () => {
+      try {
+        const Notifications = await import("expo-notifications");
+        subscription = Notifications.addNotificationResponseReceivedListener(
+          (response) => {
+            const data = response.notification.request.content
+              .data as Record<string, unknown> | undefined;
+            const deepLink = parsePushOrderDeepLink(data);
+            if (!deepLink) {
+              return;
+            }
+            navigationRef.current?.navigate("OrderDetail", {
+              orderId: deepLink.orderId,
+              focusTracking: deepLink.focusTracking === true,
+            });
+          }
+        );
+      } catch {
+        // Push module unavailable in Expo Go — in-app banners cover staging tests.
+      }
+    })();
+    return () => subscription?.remove();
+  }, [navigationReady]);
 
   if (loading) {
     return (
@@ -125,6 +172,7 @@ function AppGate() {
               linking={linking as any}
               onReady={() => setNavigationReady(true)}
             >
+              <InAppNotificationProvider navigationRef={navigationRef}>
               <PasswordRecoveryNavigator
                 navigationRef={navigationRef}
                 navigationReady={navigationReady}
@@ -242,6 +290,7 @@ function AppGate() {
                   }}
                 />
               </RootStack.Navigator>
+              </InAppNotificationProvider>
             </NavigationContainer>
           </UserUploadsProvider>
         </GlobalFeedProvider>
