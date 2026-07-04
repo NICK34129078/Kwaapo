@@ -16,11 +16,21 @@ export type InAppNotificationPayload = {
   createdAt: string;
 };
 
-export const IN_APP_NOTIFICATION_VISIBLE_MS = 2500;
+export const IN_APP_NOTIFICATION_VISIBLE_MS = 2800;
+
+export function sellerNewOrderToastTitle(): string {
+  return "Nieuwe bestelling ontvangen";
+}
+
+export function sellerNewOrderToastBody(
+  productName: string,
+  amountLabel: string
+): string {
+  const name = productName.trim() || "Product";
+  return `${name} verkocht voor ${amountLabel}.`;
+}
 
 export const NOTIFICATION_SUBTITLES: Record<string, string | undefined> = {
-  new_paid_order:
-    "Bekijk de bestelling en verstuur het pakket zodra je klaar bent.",
   order_shipped: "Volg je pakket met de trackinginformatie.",
 };
 

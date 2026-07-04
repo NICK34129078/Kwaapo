@@ -24,7 +24,10 @@ import {
   type SellerOrderDetail,
 } from "../services/ordersService";
 import { payOrderWithStripe } from "../services/checkoutFlowService";
-import { markSellerNotificationsHandledForOrder, markSellerNotificationsReadForOrder } from "../services/sellerNotificationService";
+import {
+  markSellerNotificationsHandledForOrder,
+  markSellerNotificationsReadForOrder,
+} from "../services/sellerNotificationService";
 import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
 import {
   EMPTY_SELLER_SHIP_CHECKLIST,
@@ -109,12 +112,13 @@ export function OrderDetailScreen() {
       setSellerOrder(seller);
       setBuyerOrder(null);
       void markSellerNotificationsReadForOrder(orderId);
+      void refreshSellerFulfillment();
       return;
     }
     setMode(null);
     setSellerOrder(null);
     setBuyerOrder(null);
-  }, [orderId]);
+  }, [orderId, refreshSellerFulfillment]);
 
   useFocusEffect(
     useCallback(() => {

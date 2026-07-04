@@ -57,6 +57,38 @@ export async function fetchOpenSellerNotifications(): Promise<SellerNotification
   return (data as SellerNotificationRow[]).map(mapRow);
 }
 
+export async function countUnreadSellerNotifications(): Promise<number> {
+  const { count, error } = await supabase
+    .from("seller_notifications")
+    .select("id", { count: "exact", head: true })
+    .is("read_at", null)
+    .eq("notification_type", "new_paid_order");
+
+  if (error) {
+    console.warn("[sellerNotificationService] unread count failed", error.message);
+    return 0;
+  }
+
+  return count ?? 0;
+}
+
+export async function fetchUnreadSellerNotifications(): Promise<SellerNotification[]> {
+  const { data, error } = await supabase
+    .from("seller_notifications")
+    .select("*")
+    .is("read_at", null)
+    .eq("notification_type", "new_paid_order")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    console.warn("[sellerNotificationService] fetch unread failed", error.message);
+    return [];
+  }
+
+  return (data as SellerNotificationRow[]).map(mapRow);
+}
+
 export async function countOpenSellerNotifications(): Promise<number> {
   const { count, error } = await supabase
     .from("seller_notifications")

@@ -13,12 +13,16 @@ import {
   subscribeSellerFulfillmentChanges,
   type SellerFulfillmentSnapshot,
 } from "../services/sellerFulfillmentService";
-import { fetchOpenSellerNotifications } from "../services/sellerNotificationService";
+import {
+  countUnreadSellerNotifications,
+  fetchOpenSellerNotifications,
+} from "../services/sellerNotificationService";
 import type { SellerNotification } from "../services/sellerNotificationService";
 import type { SellerOrder } from "../types/order";
 
 type SellerFulfillmentContextValue = {
   actionCount: number;
+  unreadNotificationCount: number;
   ordersNeedingAction: SellerOrder[];
   isBusinessSeller: boolean;
   openNotifications: SellerNotification[];
@@ -40,6 +44,7 @@ export function SellerFulfillmentProvider({
     ordersNeedingAction: [],
     isBusinessSeller: false,
   });
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [openNotifications, setOpenNotifications] = useState<SellerNotification[]>(
     []
   );
@@ -53,17 +58,20 @@ export function SellerFulfillmentProvider({
         isBusinessSeller: false,
       });
       setOpenNotifications([]);
+      setUnreadNotificationCount(0);
       return;
     }
 
     setLoading(true);
     try {
-      const [nextSnapshot, notifications] = await Promise.all([
+      const [nextSnapshot, notifications, unreadCount] = await Promise.all([
         fetchSellerFulfillmentSnapshot(),
         fetchOpenSellerNotifications(),
+        countUnreadSellerNotifications(),
       ]);
       setSnapshot(nextSnapshot);
       setOpenNotifications(notifications);
+      setUnreadNotificationCount(unreadCount);
     } catch {
       setSnapshot({
         actionCount: 0,
@@ -71,6 +79,7 @@ export function SellerFulfillmentProvider({
         isBusinessSeller: false,
       });
       setOpenNotifications([]);
+      setUnreadNotificationCount(0);
     } finally {
       setLoading(false);
     }
@@ -102,13 +111,14 @@ export function SellerFulfillmentProvider({
   const value = useMemo(
     () => ({
       actionCount: snapshot.actionCount,
+      unreadNotificationCount,
       ordersNeedingAction: snapshot.ordersNeedingAction,
       isBusinessSeller: snapshot.isBusinessSeller,
       openNotifications,
       loading,
       refresh,
     }),
-    [loading, openNotifications, refresh, snapshot]
+    [loading, openNotifications, refresh, snapshot, unreadNotificationCount]
   );
 
   return (

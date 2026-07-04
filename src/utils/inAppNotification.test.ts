@@ -2,6 +2,8 @@ import {
   dequeueInAppNotification,
   enqueueInAppNotification,
   notificationOrderReference,
+  sellerNewOrderToastBody,
+  sellerNewOrderToastTitle,
   shouldSuppressInAppNotification,
   type InAppNotificationPayload,
 } from "./inAppNotification";
@@ -60,6 +62,16 @@ export function runInAppNotificationTests(): void {
   assert(
     notificationOrderReference("6994982d-aaaa-bbbb-cccc-ddddeeeeffff") === "#6994982d",
     "order reference"
+  );
+
+  assert(
+    sellerNewOrderToastTitle() === "Nieuwe bestelling ontvangen",
+    "seller toast title"
+  );
+  assert(
+    sellerNewOrderToastBody("Staging Live Notification Test Tee", "€19,99") ===
+      "Staging Live Notification Test Tee verkocht voor €19,99.",
+    "seller toast body"
   );
 
   console.log("inAppNotification tests passed");

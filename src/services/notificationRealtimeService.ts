@@ -6,6 +6,8 @@ import {
 import {
   NOTIFICATION_SUBTITLES,
   notificationOrderReference,
+  sellerNewOrderToastBody,
+  sellerNewOrderToastTitle,
   type InAppNotificationAudience,
   type InAppNotificationPayload,
 } from "../utils/inAppNotification";
@@ -47,18 +49,27 @@ function buildPayloadFromSellerOrder(
   const order = sellerOrder.order;
   const variantLabel = formatOrderItemSizeLabel(firstItem);
 
+  const productName = row.product_name ?? firstItem?.product?.name ?? "Product";
+  const amountLabel = formatPriceEur(order.subtotalAmount);
+
   return {
     id: row.id,
     orderId: row.order_id,
     audience: "seller",
     notificationType: row.notification_type,
-    title: row.title,
-    body: row.body,
-    subtitle: NOTIFICATION_SUBTITLES[row.notification_type] ?? null,
+    title:
+      row.notification_type === "new_paid_order"
+        ? sellerNewOrderToastTitle()
+        : row.title,
+    body:
+      row.notification_type === "new_paid_order"
+        ? sellerNewOrderToastBody(productName, amountLabel)
+        : row.body,
+    subtitle: null,
     productImageUrl: firstProductImage(sellerOrder.items),
-    productName: row.product_name ?? firstItem?.product?.name ?? null,
+    productName,
     variantLabel,
-    amountLabel: formatPriceEur(order.subtotalAmount),
+    amountLabel,
     orderReference: notificationOrderReference(order.id),
     createdAt: row.created_at,
   };

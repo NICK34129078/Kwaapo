@@ -29,6 +29,7 @@ import { OrderDetailScreen } from "./src/screens/OrderDetailScreen";
 import { OrderSuccessScreen } from "./src/screens/OrderSuccessScreen";
 import { OrderShippedSuccessScreen } from "./src/screens/OrderShippedSuccessScreen";
 import { MyOrdersScreen } from "./src/screens/MyOrdersScreen";
+import { SellerOrdersScreen } from "./src/screens/SellerOrdersScreen";
 import { CheckoutReviewScreen } from "./src/screens/CheckoutReviewScreen";
 import { CheckoutFailedScreen } from "./src/screens/CheckoutFailedScreen";
 import { CheckoutInfoScreen } from "./src/screens/CheckoutInfoScreen";
@@ -259,6 +260,11 @@ function AppGate() {
                 <RootStack.Screen
                   name="MyOrders"
                   component={MyOrdersScreen}
+                  options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="SellerOrders"
+                  component={SellerOrdersScreen}
                   options={{ animation: "slide_from_right" }}
                 />
                 <RootStack.Screen

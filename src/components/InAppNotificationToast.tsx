@@ -127,12 +127,17 @@ export function InAppNotificationToast({
     notification.audience === "seller"
       ? "storefront-outline"
       : "cube-outline";
-  const metaParts = [
-    notification.variantLabel ? `Maat ${notification.variantLabel}` : null,
-    notification.amountLabel,
-    notification.orderReference,
-    formatNotificationTime(notification.createdAt),
-  ].filter(Boolean);
+  const isCompactSellerToast =
+    notification.audience === "seller" &&
+    notification.notificationType === "new_paid_order";
+  const metaParts = isCompactSellerToast
+    ? []
+    : [
+        notification.variantLabel ? `Maat ${notification.variantLabel}` : null,
+        notification.amountLabel,
+        notification.orderReference,
+        formatNotificationTime(notification.createdAt),
+      ].filter(Boolean);
 
   return (
     <Animated.View

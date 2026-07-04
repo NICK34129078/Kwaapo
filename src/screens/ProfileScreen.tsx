@@ -185,7 +185,7 @@ function ProfileAuthenticatedScreen({
   const placingPostRef = useRef(false);
   const isUploadBusy = isUploading || isCarouselUploading || uploadFlowBusy;
   const { signOut, user } = useAuth();
-  const { actionCount: sellerOrdersToShipCount } = useSellerFulfillment();
+  const { unreadNotificationCount } = useSellerFulfillment();
   const { syncFeedLikeState } = useLikes();
   const targetProfileId = profileId ?? user?.id ?? null;
   const isOwnProfile = !!user?.id && user.id === targetProfileId;
@@ -978,6 +978,13 @@ function ProfileAuthenticatedScreen({
               accessibilityLabel="Open settings"
             >
               <Ionicons name="settings-outline" size={22} color={theme.text} />
+              {isBusinessProfile && unreadNotificationCount > 0 ? (
+                <View style={styles.settingsIconBadge}>
+                  <Text style={styles.settingsIconBadgeText}>
+                    {unreadNotificationCount > 99 ? "9+" : unreadNotificationCount}
+                  </Text>
+                </View>
+              ) : null}
             </Pressable>
             <Pressable
               style={styles.iconButton}
@@ -1322,20 +1329,27 @@ function ProfileAuthenticatedScreen({
                     style={styles.rowButton}
                     onPress={() => {
                       setSettingsVisible(false);
-                      navigation.navigate("MyShop", {
-                        initialTab: "orders",
-                        orderFilter: "action_required",
-                      });
+                      navigation.navigate("SellerOrders");
                     }}
                   >
-                    <Text style={styles.rowLabel}>Bestellingen</Text>
+                    <View style={styles.rowButtonMain}>
+                      <Text style={styles.rowLabel}>Mijn bestellingen</Text>
+                      {unreadNotificationCount > 0 ? (
+                        <Text style={styles.rowSubLabel}>
+                          Je hebt {unreadNotificationCount}{" "}
+                          {unreadNotificationCount === 1
+                            ? "nieuwe bestelling"
+                            : "nieuwe bestellingen"}
+                        </Text>
+                      ) : null}
+                    </View>
                     <View style={styles.rowButtonTrailing}>
-                      {sellerOrdersToShipCount > 0 ? (
+                      {unreadNotificationCount > 0 ? (
                         <View style={styles.settingsCountBadge}>
                           <Text style={styles.settingsCountBadgeText}>
-                            {sellerOrdersToShipCount > 99
-                              ? "99+"
-                              : sellerOrdersToShipCount}
+                            {unreadNotificationCount > 99
+                              ? "9+"
+                              : unreadNotificationCount}
                           </Text>
                         </View>
                       ) : null}
@@ -1921,6 +1935,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   iconButton: {
+    position: "relative",
     width: 36,
     height: 36,
     borderRadius: 18,
@@ -2270,6 +2285,35 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  rowButtonMain: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  rowSubLabel: {
+    color: theme.accent,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  settingsIconBadge: {
+    position: "absolute",
+    top: 2,
+    right: 2,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: theme.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: theme.bg,
+  },
+  settingsIconBadgeText: {
+    color: theme.bg,
+    fontSize: 10,
+    fontWeight: "900",
   },
   settingsCountBadge: {
     minWidth: 22,
