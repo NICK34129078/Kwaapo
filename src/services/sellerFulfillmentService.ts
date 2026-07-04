@@ -95,9 +95,15 @@ export async function fetchSellerFulfillmentSnapshot(): Promise<SellerFulfillmen
   };
 }
 
+export type SellerFulfillmentChangeHint = {
+  orderId?: string;
+  source: "orders";
+  becameShipped?: boolean;
+};
+
 export function subscribeSellerFulfillmentChanges(
   sellerId: string,
-  onChange: () => void
+  onChange: (hint?: SellerFulfillmentChangeHint) => void
 ): () => void {
   const channel = supabase
     .channel(`seller-fulfillment-${sellerId}`)
@@ -109,17 +115,32 @@ export function subscribeSellerFulfillmentChanges(
         table: "orders",
         filter: `seller_id=eq.${sellerId}`,
       },
-      () => onChange()
-    )
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "seller_notifications",
-        filter: `seller_id=eq.${sellerId}`,
-      },
-      () => onChange()
+      (payload) => {
+        const newRow = (payload.new ?? {}) as Record<string, unknown>;
+        const oldRow = (payload.old ?? {}) as Record<string, unknown>;
+        const orderId = newRow.id ? String(newRow.id) : undefined;
+        const becamePaid =
+          newRow.payment_status === "paid" && oldRow.payment_status !== "paid";
+        const stillNeedsShip =
+          newRow.shipping_status === "not_shipped" ||
+          newRow.shipping_status == null ||
+          newRow.shipping_status === undefined;
+        const becameShipped =
+          (newRow.shipping_status === "shipped" ||
+            newRow.shipping_status === "delivered") &&
+          oldRow.shipping_status !== "shipped" &&
+          oldRow.shipping_status !== "delivered";
+
+        if (becamePaid && stillNeedsShip) {
+          return;
+        }
+
+        onChange({
+          orderId,
+          source: "orders",
+          becameShipped,
+        });
+      }
     )
     .subscribe();
 

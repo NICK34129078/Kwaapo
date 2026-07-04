@@ -26,7 +26,6 @@ import {
 import { payOrderWithStripe } from "../services/checkoutFlowService";
 import {
   markSellerNotificationsHandledForOrder,
-  markSellerNotificationsReadForOrder,
 } from "../services/sellerNotificationService";
 import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
 import {
@@ -90,7 +89,7 @@ export function OrderDetailScreen() {
     EMPTY_SELLER_SHIP_CHECKLIST
   );
   const [trackingCode, setTrackingCode] = useState("");
-  const { refresh: refreshSellerFulfillment } = useSellerFulfillment();
+  const { refresh: refreshSellerFulfillment, reportShippingStarted, reportShippingConfirmed, reportShippingFailed } = useSellerFulfillment();
 
   const load = useCallback(async () => {
     if (!orderId) {
@@ -111,7 +110,6 @@ export function OrderDetailScreen() {
       setMode("seller");
       setSellerOrder(seller);
       setBuyerOrder(null);
-      void markSellerNotificationsReadForOrder(orderId);
       void refreshSellerFulfillment();
       return;
     }
@@ -200,6 +198,7 @@ export function OrderDetailScreen() {
       return;
     }
     setShipBusy(true);
+    reportShippingStarted(order.id);
     try {
       const updated = await markSellerOrderAsShipped(order.id, trackingCode);
       if (
@@ -210,7 +209,7 @@ export function OrderDetailScreen() {
       }
       setSellerOrder((prev) => (prev ? { ...prev, order: updated } : prev));
       void markSellerNotificationsHandledForOrder(order.id);
-      void refreshSellerFulfillment();
+      reportShippingConfirmed(order.id);
       setShipConfirmVisible(false);
       setShipChecklist(EMPTY_SELLER_SHIP_CHECKLIST);
       navigation.reset({
@@ -221,6 +220,7 @@ export function OrderDetailScreen() {
         ],
       });
     } catch (e) {
+      reportShippingFailed(order.id);
       const msg = formatSellerShipUpdateError(e);
       Alert.alert("Verzending mislukt", msg);
     } finally {
@@ -230,7 +230,9 @@ export function OrderDetailScreen() {
     mode,
     navigation,
     order,
-    refreshSellerFulfillment,
+    reportShippingConfirmed,
+    reportShippingFailed,
+    reportShippingStarted,
     trackingCode,
   ]);
 

@@ -4,7 +4,7 @@ import {
   orderNeedsSellerAction,
   sortSellerOrders,
 } from "./sellerFulfillment";
-import type { Order, SellerOrder } from "../types/order";
+import { formatSellerOrderBadgeCount } from "./sellerOrderBadge";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {
@@ -79,6 +79,9 @@ export function runSellerFulfillmentTests(): void {
     "stock_unavailable excluded"
   );
   assert(countSellerOrdersNeedingAttention([toShip, unpaid, cancelled]) === 1, "count");
+  assert(formatSellerOrderBadgeCount(0) === null, "badge zero");
+  assert(formatSellerOrderBadgeCount(2) === "2", "badge two");
+  assert(formatSellerOrderBadgeCount(10) === "9+", "badge cap");
   assert(matchesSellerOrderFilter(toShip.order, "action_required"), "filter");
   assert(!matchesSellerOrderFilter(unpaid.order, "action_required"), "unpaid filter");
 
