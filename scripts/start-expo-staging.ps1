@@ -21,6 +21,10 @@ Get-Content $envFile | ForEach-Object {
   }
 }
 
+# Prevent Expo from loading production `.env` over staging shell env.
+$env:EXPO_NO_DOTENV = "1"
+$env:NODE_ENV = "development"
+
 $required = @{
   "EXPO_PUBLIC_STAGING" = "1"
   "EXPO_PUBLIC_SUPABASE_URL" = "xwezgyelwovczuqyyqwu"
@@ -51,7 +55,7 @@ if ($env:EXPO_PUBLIC_KWAAPO_WORKER_BASE -match "wild-mountain-072a") {
 
 $supabaseHost = $env:EXPO_PUBLIC_SUPABASE_URL -replace "^https?://", "" -replace "/$", ""
 
-Write-Host ""
+Write-Host "[STAGING] EXPO_NO_DOTENV=1 (production .env ignored)"
 Write-Host "[STAGING] Preflight OK"
 Write-Host ("[STAGING] EXPO_PUBLIC_STAGING=" + $env:EXPO_PUBLIC_STAGING)
 Write-Host ("[STAGING] Supabase host: " + $supabaseHost)
@@ -69,10 +73,12 @@ $lan = $candidates | Where-Object {
   $_.IPAddress -match "^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.)"
 } | Sort-Object InterfaceMetric | Select-Object -First 1
 
+$lanIp = $null
 if ($lan) {
-  $env:REACT_NATIVE_PACKAGER_HOSTNAME = $lan.IPAddress
-  $env:EXPO_PACKAGER_HOSTNAME = $lan.IPAddress
-  Write-Host ("[STAGING] Phone / Expo Go host: " + $lan.IPAddress)
+  $lanIp = $lan.IPAddress
+  $env:REACT_NATIVE_PACKAGER_HOSTNAME = $lanIp
+  $env:EXPO_PACKAGER_HOSTNAME = $lanIp
+  Write-Host ("[STAGING] Phone / Expo Go host: " + $lanIp)
 }
 
 node scripts/staging-env-preflight.mjs
@@ -96,5 +102,11 @@ try {
   # Ignore; default 8081
 }
 Write-Host ("[STAGING] Metro port: " + $port)
+if ($lanIp) {
+  Write-Host ("[STAGING] Expo Go URL: exp://" + $lanIp + ":" + $port)
+  Write-Host ("[STAGING] Mobile browser: http://" + $lanIp + ":" + $port)
+} else {
+  Write-Host "[STAGING] Expo Go URL: check terminal QR (no LAN IP detected)"
+}
 
 & node $cli start --lan --clear --port $port

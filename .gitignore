@@ -19,6 +19,10 @@ web-build/
 !.env.example
 !.env.staging.example
 .staging-db-password.local
+.staging-v2-db-password.local
+.staging-v2-seed.json
 .staging.secrets.local
+.staging-v2.secrets.local
+.staging-v2-passwords.local
 .dev.vars
 AGENTS.md
