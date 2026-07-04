@@ -16,7 +16,39 @@ export type InAppNotificationPayload = {
   createdAt: string;
 };
 
-export const IN_APP_NOTIFICATION_VISIBLE_MS = 2800;
+export const IN_APP_NOTIFICATION_VISIBLE_MS = 4000;
+
+/** Pending fetch may only replay toasts for events this recent (ms). */
+export const IN_APP_TOAST_PENDING_MAX_AGE_MS = 60_000;
+
+export const IN_APP_TOAST_PENDING_MAX_AGE_SECONDS = 60;
+
+export function inAppToastPendingCutoffIso(nowMs = Date.now()): string {
+  return new Date(nowMs - IN_APP_TOAST_PENDING_MAX_AGE_MS).toISOString();
+}
+
+/** @deprecated Use IN_APP_TOAST_PENDING_MAX_AGE_SECONDS */
+export const SELLER_TOAST_RECENCY_HOURS = IN_APP_TOAST_PENDING_MAX_AGE_SECONDS / 3600;
+
+export function sellerToastRecencyCutoffIso(nowMs = Date.now()): string {
+  return inAppToastPendingCutoffIso(nowMs);
+}
+
+export function buyerToastRecencyCutoffIso(nowMs = Date.now()): string {
+  return inAppToastPendingCutoffIso(nowMs);
+}
+
+export function notificationAgeMs(createdAt: string, nowMs = Date.now()): number {
+  const parsed = Date.parse(createdAt);
+  if (Number.isNaN(parsed)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Math.max(0, nowMs - parsed);
+}
+
+export function isPendingToastTooOld(createdAt: string, nowMs = Date.now()): boolean {
+  return notificationAgeMs(createdAt, nowMs) > IN_APP_TOAST_PENDING_MAX_AGE_MS;
+}
 
 export function sellerNewOrderToastTitle(): string {
   return "Nieuwe bestelling ontvangen";

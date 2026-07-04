@@ -96,6 +96,7 @@ function MainTabs() {
         tabBar={(props) => <BottomNavbar {...props} />}
         screenOptions={{
           headerShown: false,
+          lazy: true,
         }}
       >
         <Tab.Screen name="Home" component={ReelsScreen} />
@@ -167,13 +168,13 @@ function AppGate() {
       <LikesProvider>
         <GlobalFeedProvider>
           <UserUploadsProvider>
+            <InAppNotificationProvider navigationRef={navigationRef}>
             <NavigationContainer
               ref={navigationRef}
               theme={navTheme}
               linking={linking as any}
               onReady={() => setNavigationReady(true)}
             >
-              <InAppNotificationProvider navigationRef={navigationRef}>
               <PasswordRecoveryNavigator
                 navigationRef={navigationRef}
                 navigationReady={navigationReady}
@@ -296,8 +297,8 @@ function AppGate() {
                   }}
                 />
               </RootStack.Navigator>
-              </InAppNotificationProvider>
             </NavigationContainer>
+            </InAppNotificationProvider>
           </UserUploadsProvider>
         </GlobalFeedProvider>
       </LikesProvider>

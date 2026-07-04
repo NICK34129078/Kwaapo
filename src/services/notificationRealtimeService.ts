@@ -1,4 +1,6 @@
 import { supabase } from "../lib/supabase";
+import { logBuyerNotification } from "../constants/buyerNotificationDebug";
+import { logSellerOrderNotification } from "../constants/sellerOrderNotificationDebug";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
   formatOrderItemSizeLabel,
@@ -12,7 +14,7 @@ import {
   type InAppNotificationPayload,
 } from "../utils/inAppNotification";
 import type { BuyerOrder } from "../types/order";
-import type { SellerOrderListRow } from "./ordersService";
+import type { SellerOrderDetail, SellerOrderListRow } from "./ordersService";
 
 type SellerNotificationRow = {
   id: string;
@@ -43,7 +45,7 @@ function firstProductImage(
 
 function buildPayloadFromSellerOrder(
   row: SellerNotificationRow,
-  sellerOrder: SellerOrderListRow
+  sellerOrder: SellerOrderListRow | SellerOrderDetail
 ): InAppNotificationPayload {
   const firstItem = sellerOrder.items[0];
   const order = sellerOrder.order;
@@ -109,13 +111,19 @@ function buildFallbackPayload(
   row: SellerNotificationRow | BuyerNotificationRow,
   audience: InAppNotificationAudience
 ): InAppNotificationPayload {
+  const productName = row.product_name?.trim() || "Product";
+  const isSellerNewPaid =
+    audience === "seller" && row.notification_type === "new_paid_order";
+
   return {
     id: row.id,
     orderId: row.order_id,
     audience,
     notificationType: row.notification_type,
-    title: row.title,
-    body: row.body,
+    title: isSellerNewPaid ? sellerNewOrderToastTitle() : row.title,
+    body: isSellerNewPaid
+      ? sellerNewOrderToastBody(productName, "")
+      : row.body,
     subtitle: NOTIFICATION_SUBTITLES[row.notification_type] ?? null,
     productImageUrl: null,
     productName: row.product_name,
@@ -126,16 +134,57 @@ function buildFallbackPayload(
   };
 }
 
+export function buildSellerNotificationFallback(
+  row: SellerNotificationRow
+): InAppNotificationPayload {
+  const productName = row.product_name?.trim() || "Product";
+  const amountMatch = row.body.match(/verkocht voor ([^.,]+)/i);
+  const amountLabel = amountMatch?.[1]?.trim() ?? "";
+
+  return {
+    id: row.id,
+    orderId: row.order_id,
+    audience: "seller",
+    notificationType: row.notification_type,
+    title:
+      row.notification_type === "new_paid_order"
+        ? sellerNewOrderToastTitle()
+        : row.title,
+    body:
+      row.notification_type === "new_paid_order"
+        ? sellerNewOrderToastBody(productName, amountLabel)
+        : row.body,
+    subtitle: null,
+    productImageUrl: null,
+    productName: row.product_name,
+    variantLabel: null,
+    amountLabel: amountLabel || null,
+    orderReference: notificationOrderReference(row.order_id),
+    createdAt: row.created_at,
+  };
+}
+
 export async function enrichSellerNotification(
   row: SellerNotificationRow
 ): Promise<InAppNotificationPayload> {
   const { fetchSellerOrderById } = await import("./ordersService");
-  const sellerOrder = await fetchSellerOrderById(row.order_id);
-  if (!sellerOrder) {
-    return buildFallbackPayload(row, "seller");
-  }
+  try {
+    const sellerOrder = await fetchSellerOrderById(row.order_id);
+    if (!sellerOrder) {
+      logSellerOrderNotification("error", "enrich: order not found", row.id);
+      return buildSellerNotificationFallback(row);
+    }
 
-  return buildPayloadFromSellerOrder(row, sellerOrder);
+    return buildPayloadFromSellerOrder(row, sellerOrder);
+  } catch (error) {
+    logSellerOrderNotification(
+      "error",
+      "enrich failed",
+      row.id,
+      error instanceof Error ? error.message : String(error)
+    );
+    return buildSellerNotificationFallback(row);
+  }
 }
 
 export async function enrichBuyerNotification(
@@ -192,7 +241,12 @@ export function subscribeOrderNotificationInserts(
         filter: `seller_id=eq.${userId}`,
       },
       (payload) => {
-        handlers.onSellerInsert(mapSellerNotificationRow(payload.new as Record<string, unknown>));
+        const row = mapSellerNotificationRow(payload.new as Record<string, unknown>);
+        if (row.notification_type !== "new_paid_order") {
+          return;
+        }
+        logSellerOrderNotification("realtime payload received", row.id, row.order_id);
+        handlers.onSellerInsert(row);
       }
     )
     .on(
@@ -204,12 +258,55 @@ export function subscribeOrderNotificationInserts(
         filter: `buyer_id=eq.${userId}`,
       },
       (payload) => {
-        handlers.onBuyerInsert(mapBuyerNotificationRow(payload.new as Record<string, unknown>));
+        const row = mapBuyerNotificationRow(payload.new as Record<string, unknown>);
+        if (row.notification_type !== "order_shipped") {
+          return;
+        }
+        logBuyerNotification("realtime payload received", row.id, row.order_id);
+        handlers.onBuyerInsert(row);
       }
     )
-    .subscribe();
+    .subscribe((status, err) => {
+      logSellerOrderNotification(`subscription status ${status}`);
+      logBuyerNotification(`subscription status ${status}`);
+      if (err) {
+        logSellerOrderNotification("error", "realtime channel", err.message);
+        logBuyerNotification("error", "realtime channel", err.message);
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        logSellerOrderNotification("error", "realtime channel", status);
+        logBuyerNotification("error", "realtime channel", status);
+      }
+    });
 
   return () => {
     void supabase.removeChannel(channel);
+  };
+}
+
+export function sellerNotificationRowFromService(
+  notification: import("./sellerNotificationService").SellerNotification
+): SellerNotificationRow {
+  return {
+    id: notification.id,
+    order_id: notification.orderId,
+    notification_type: notification.notificationType,
+    title: notification.title,
+    body: notification.body,
+    product_name: notification.productName,
+    created_at: notification.createdAt,
+  };
+}
+
+export function buyerNotificationRowFromService(
+  notification: import("./buyerNotificationService").BuyerNotification
+): BuyerNotificationRow {
+  return {
+    id: notification.id,
+    order_id: notification.orderId,
+    notification_type: notification.notificationType,
+    title: notification.title,
+    body: notification.body,
+    product_name: notification.productName,
+    created_at: notification.createdAt,
   };
 }

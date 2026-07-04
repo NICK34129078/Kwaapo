@@ -1,10 +1,12 @@
-import React from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import React, { useEffect } from "react";
+import { Platform, StyleSheet, View } from "react-native";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { PressableScale } from "./PressableScale";
+import { SellerOrderCountBadge } from "./SellerOrderCountBadge";
 import { useSellerFulfillmentOptional } from "../context/SellerFulfillmentContext";
+import { logSellerOpenOrders } from "../constants/sellerOpenOrdersDebug";
 
 /** Instagram-achtig: dunne witte lijnen, geen accentkleur in de balk. */
 const IG = {
@@ -68,6 +70,12 @@ export function BottomNavbar({
       ? fulfillment.actionCount
       : 0;
 
+  useEffect(() => {
+    if (profileActionCount > 0) {
+      logSellerOpenOrders(`badge rendered ${profileActionCount}`);
+    }
+  }, [profileActionCount]);
+
   return (
     <View
       pointerEvents="box-none"
@@ -102,11 +110,11 @@ export function BottomNavbar({
                 color={color}
               />
               {route.name === "Profile" && profileActionCount > 0 ? (
-                <View style={styles.tabBadge}>
-                  <Text style={styles.tabBadgeText}>
-                    {profileActionCount > 99 ? "99+" : profileActionCount}
-                  </Text>
-                </View>
+                <SellerOrderCountBadge
+                  count={profileActionCount}
+                  style={styles.tabBadge}
+                  borderColor={IG.barBg}
+                />
               ) : null}
             </View>
           );
@@ -187,19 +195,5 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: -4,
     right: -10,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 4,
-    borderRadius: 9,
-    backgroundColor: "#FF3B30",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: IG.barBg,
-  },
-  tabBadgeText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "900",
   },
 });

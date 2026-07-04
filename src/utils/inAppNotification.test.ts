@@ -1,6 +1,9 @@
 import {
   dequeueInAppNotification,
   enqueueInAppNotification,
+  inAppToastPendingCutoffIso,
+  isPendingToastTooOld,
+  IN_APP_TOAST_PENDING_MAX_AGE_MS,
   notificationOrderReference,
   sellerNewOrderToastBody,
   sellerNewOrderToastTitle,
@@ -72,6 +75,23 @@ export function runInAppNotificationTests(): void {
     sellerNewOrderToastBody("Staging Live Notification Test Tee", "€19,99") ===
       "Staging Live Notification Test Tee verkocht voor €19,99.",
     "seller toast body"
+  );
+
+  const now = Date.parse("2026-07-04T12:00:00.000Z");
+  const cutoff = inAppToastPendingCutoffIso(now);
+  const expectedMs = now - IN_APP_TOAST_PENDING_MAX_AGE_MS;
+  assert(
+    Date.parse(cutoff) === expectedMs,
+    "in-app toast pending cutoff"
+  );
+
+  assert(
+    isPendingToastTooOld("2026-07-04T11:58:00.000Z", now),
+    "toast older than 60s is too old"
+  );
+  assert(
+    !isPendingToastTooOld("2026-07-04T11:59:30.000Z", now),
+    "toast within 60s is not too old"
   );
 
   console.log("inAppNotification tests passed");

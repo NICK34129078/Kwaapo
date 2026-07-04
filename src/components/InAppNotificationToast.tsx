@@ -253,7 +253,7 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 14,
+    borderRadius: 24,
     backgroundColor: "rgba(16, 16, 16, 0.97)",
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(185, 217, 247, 0.35)",
@@ -268,6 +268,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     gap: 10,
+    borderRadius: 26,
   },
   cardStandard: {
     alignItems: "flex-start",

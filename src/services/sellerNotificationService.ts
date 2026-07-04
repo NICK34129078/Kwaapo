@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { inAppToastPendingCutoffIso } from "../utils/inAppNotification";
 
 export type SellerNotification = {
   id: string;
@@ -10,6 +11,7 @@ export type SellerNotification = {
   productName: string | null;
   readAt: string | null;
   handledAt: string | null;
+  toastShownAt: string | null;
   createdAt: string;
 };
 
@@ -23,6 +25,7 @@ type SellerNotificationRow = {
   product_name: string | null;
   read_at: string | null;
   handled_at: string | null;
+  toast_shown_at?: string | null;
   created_at: string;
 };
 
@@ -37,6 +40,7 @@ function mapRow(row: SellerNotificationRow): SellerNotification {
     productName: row.product_name,
     readAt: row.read_at,
     handledAt: row.handled_at,
+    toastShownAt: row.toast_shown_at ?? null,
     createdAt: row.created_at,
   };
 }
@@ -87,6 +91,57 @@ export async function fetchUnreadSellerNotifications(): Promise<SellerNotificati
   }
 
   return (data as SellerNotificationRow[]).map(mapRow);
+}
+
+/** Unread seller toasts not yet shown in-app (FIFO queue on app open). */
+export async function fetchPendingSellerToastNotifications(): Promise<
+  SellerNotification[]
+> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return [];
+  }
+
+  const cutoff = inAppToastPendingCutoffIso();
+  const { data, error } = await supabase
+    .from("seller_notifications")
+    .select("*")
+    .eq("seller_id", user.id)
+    .eq("notification_type", "new_paid_order")
+    .is("toast_shown_at", null)
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: true })
+    .limit(10);
+
+  if (error) {
+    console.warn(
+      "[sellerNotificationService] fetch pending toast failed",
+      error.message
+    );
+    return [];
+  }
+
+  return (data as SellerNotificationRow[]).map(mapRow);
+}
+
+export async function markSellerNotificationToastShown(
+  notificationId: string
+): Promise<void> {
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("seller_notifications")
+    .update({ toast_shown_at: now })
+    .eq("id", notificationId)
+    .is("toast_shown_at", null);
+
+  if (error) {
+    console.warn(
+      "[sellerNotificationService] mark toast shown failed",
+      error.message
+    );
+  }
 }
 
 export async function countOpenSellerNotifications(): Promise<number> {
