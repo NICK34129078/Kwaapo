@@ -1,6 +1,7 @@
 import {
   handleStripeAccountUpdated,
   isSellerReadyForCheckout,
+  describeSellerCheckoutBlockers,
 } from "./worker-seller-readiness.js";
 import { requireAuthUser } from "./worker-auth.js";
 import {
@@ -1374,14 +1375,16 @@ export async function handleStripeCheckout(request, env, cors = {}) {
 
     const sellerProfile = await fetchSellerProfileForCheckout(env, order.seller_id);
     if (!isSellerReadyForDestinationCharge(env, sellerProfile)) {
+      const blockers = describeSellerCheckoutBlockers(env, sellerProfile);
       console.log(logPrefix, "seller not ready for destination charge", {
         sellerId: order.seller_id,
-        status: sellerProfile?.seller_onboarding_status,
-        charges: sellerProfile?.stripe_charges_enabled,
-        payouts: sellerProfile?.stripe_payouts_enabled,
-        account: sellerProfile?.stripe_connect_account_id
-          ? "present"
-          : "missing",
+        supabaseHost: getSupabaseBase(env)?.replace(/^https?:\/\//, "").split(".")[0],
+        status: blockers.sellerOnboardingStatus,
+        charges: blockers.stripeChargesEnabled,
+        payouts: blockers.stripePayoutsEnabled,
+        account: blockers.stripeConnectAccountId ? "present" : "missing",
+        failedChecks: blockers.failed,
+        isVerifiedPayoutReadySeller: blockers.isVerifiedPayoutReadySeller,
       });
       return jsonStripe(
         {

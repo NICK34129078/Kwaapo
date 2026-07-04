@@ -345,6 +345,62 @@ export function isSellerReadyForCheckout(env, profile) {
   );
 }
 
+/** Dev/staging diagnostics: which checkout guard failed (no secrets). */
+export function describeSellerCheckoutBlockers(env, profile) {
+  if (!profile) {
+    return {
+      ready: false,
+      failed: ["profile_not_found"],
+      sellerOnboardingStatus: null,
+      stripeConnectAccountId: null,
+      stripeConnectOnboardingComplete: null,
+      stripeChargesEnabled: null,
+      stripePayoutsEnabled: null,
+      isVerifiedPayoutReadySeller: false,
+    };
+  }
+  const kvk = isKvkVerificationSatisfied(env, profile);
+  const businessOk = isBusinessInfoComplete(profile);
+  const stripeReady = isStripePayoutReady(profile, null);
+  const failed = [];
+  if (profile.seller_onboarding_status !== "verified") {
+    failed.push("seller_onboarding_status_not_verified");
+  }
+  if (!businessOk) {
+    failed.push("business_info_incomplete");
+  }
+  if (!kvk.satisfied) {
+    failed.push(`kvk_${kvk.reason ?? "not_satisfied"}`);
+  }
+  if (!clean(profile.stripe_connect_account_id).startsWith("acct_")) {
+    failed.push("stripe_connect_account_missing");
+  }
+  if (profile.stripe_connect_onboarding_complete !== true) {
+    failed.push("stripe_connect_onboarding_incomplete");
+  }
+  if (profile.stripe_charges_enabled !== true) {
+    failed.push("stripe_charges_disabled");
+  }
+  if (profile.stripe_payouts_enabled !== true) {
+    failed.push("stripe_payouts_disabled");
+  }
+  const ready = failed.length === 0;
+  return {
+    ready,
+    failed,
+    sellerOnboardingStatus: profile.seller_onboarding_status ?? null,
+    stripeConnectAccountId: clean(profile.stripe_connect_account_id) || null,
+    stripeConnectOnboardingComplete: profile.stripe_connect_onboarding_complete === true,
+    stripeChargesEnabled: profile.stripe_charges_enabled === true,
+    stripePayoutsEnabled: profile.stripe_payouts_enabled === true,
+    isVerifiedPayoutReadySeller:
+      profile.seller_onboarding_status === "verified" &&
+      businessOk &&
+      kvk.satisfied &&
+      stripeReady,
+  };
+}
+
 /**
  * Verwerk Stripe account.updated webhook (geen gevoelige velden loggen).
  * @param {any} env
