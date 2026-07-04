@@ -6,6 +6,7 @@
     "start": "expo start --lan",
     "start:tunnel": "expo start --tunnel",
     "start:phone": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-expo-phone.ps1",
+    "start:staging": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-expo-staging.ps1",
     "start:lan": "expo start --lan",
     "start:localhost": "expo start --localhost",
     "android": "expo start --android",
@@ -19,7 +20,8 @@
     "deploy:worker": "wrangler deploy",
     "validate:release": "node scripts/validate-release-config.mjs check",
     "validate:release:production": "node scripts/validate-release-config.mjs production",
-    "test:release-config": "npx tsx src/config/releaseConfig.test.ts"
+    "test:release-config": "npx tsx src/config/releaseConfig.test.ts",
+    "test:buyer-orders": "npx tsx src/utils/buyerOrders.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

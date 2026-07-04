@@ -1240,7 +1240,7 @@ function ProfileAuthenticatedScreen({
               ]}
             >
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Settings</Text>
+                <Text style={styles.modalTitle}>Instellingen</Text>
                 <Pressable
                   style={styles.iconButton}
                   onPress={() => setSettingsVisible(false)}
@@ -1262,7 +1262,7 @@ function ProfileAuthenticatedScreen({
                 bounces
               >
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Account</Text>
+              <Text style={styles.sectionTitle}>Mijn account</Text>
               <Pressable
                 style={styles.rowButton}
                 onPress={() => {

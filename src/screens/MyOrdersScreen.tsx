@@ -2,7 +2,6 @@ import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -14,80 +13,17 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../constants/theme";
-import { fetchBuyerOrders } from "../services/ordersService";
+import { BuyerOrderCard } from "../components/BuyerOrderCard";
+import {
+  BUYER_ORDERS_PAGE_SIZE,
+  fetchBuyerOrdersPage,
+} from "../services/ordersService";
 import type { BuyerOrder } from "../types/order";
-import { formatPriceEur } from "../utils/formatPrice";
 import {
   BUYER_ORDER_FILTERS,
-  formatOrderItemSizeLine,
   matchesBuyerOrderFilter,
   type BuyerOrderFilter,
 } from "../utils/orderDashboard";
-import { buyerOrderStatusLabel } from "../utils/buyerOrderStatus";
-
-function formatOrderDate(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return date.toLocaleDateString("nl-NL", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function BuyerOrderCard({
-  buyerOrder,
-  onPress,
-}: {
-  buyerOrder: BuyerOrder;
-  onPress: () => void;
-}) {
-  const firstItem = buyerOrder.items[0];
-  const product = firstItem?.product;
-  const order = buyerOrder.order;
-  const sizeLine = formatOrderItemSizeLine(firstItem);
-
-  return (
-    <Pressable
-      style={styles.orderCard}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel="Open bestelling"
-    >
-      {product?.images[0] ? (
-        <Image source={{ uri: product.images[0] }} style={styles.orderCardImage} />
-      ) : (
-        <View style={[styles.orderCardImage, styles.imageFallback]}>
-          <Ionicons name="receipt-outline" size={28} color={theme.textMuted} />
-        </View>
-      )}
-      <View style={styles.orderCardBody}>
-        <View style={styles.orderCardTopRow}>
-          <Text style={styles.orderCardTitle} numberOfLines={2}>
-            {product?.name ?? "Product"}
-          </Text>
-          <Text style={styles.orderCardPrice}>
-            {formatPriceEur(order.subtotalAmount)}
-          </Text>
-        </View>
-        {sizeLine ? (
-          <Text style={styles.orderCardMeta}>{sizeLine}</Text>
-        ) : null}
-        <Text style={styles.orderCardDate}>{formatOrderDate(order.createdAt)}</Text>
-        <View style={styles.orderBadgeRow}>
-          <View style={[styles.orderBadge, styles.orderBadgePrimary]}>
-            <Text style={[styles.orderBadgeText, styles.orderBadgeTextPrimary]}>
-              {buyerOrderStatusLabel(order)}
-            </Text>
-          </View>
-        </View>
-      </View>
-      <Ionicons name="chevron-forward" size={20} color={theme.textMuted} />
-    </Pressable>
-  );
-}
 
 export function MyOrdersScreen() {
   const navigation = useNavigation<any>();
@@ -95,45 +31,106 @@ export function MyOrdersScreen() {
   const [orders, setOrders] = useState<BuyerOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<BuyerOrderFilter>("all");
 
-  const load = useCallback(async () => {
-    const rows = await fetchBuyerOrders();
-    setOrders(rows);
+  const loadPage = useCallback(async (offset: number, replace: boolean) => {
+    const page = await fetchBuyerOrdersPage({
+      offset,
+      limit: BUYER_ORDERS_PAGE_SIZE,
+    });
+    setOrders((current) => (replace ? page.orders : [...current, ...page.orders]));
+    setHasMore(page.hasMore);
+    return page.orders.length;
   }, []);
+
+  const loadInitial = useCallback(async () => {
+    setError(null);
+    await loadPage(0, true);
+  }, [loadPage]);
 
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
-      void load().finally(() => setLoading(false));
-    }, [load])
+      void loadInitial()
+        .catch(() => {
+          setOrders([]);
+          setHasMore(false);
+          setError("Bestellingen laden mislukt. Trek naar beneden om opnieuw te proberen.");
+        })
+        .finally(() => setLoading(false));
+    }, [loadInitial])
   );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    setError(null);
     try {
-      await load();
+      await loadInitial();
+    } catch {
+      setError("Bestellingen laden mislukt. Trek naar beneden om opnieuw te proberen.");
     } finally {
       setRefreshing(false);
     }
-  }, [load]);
+  }, [loadInitial]);
+
+  const onLoadMore = useCallback(async () => {
+    if (loading || refreshing || loadingMore || !hasMore) {
+      return;
+    }
+    setLoadingMore(true);
+    try {
+      await loadPage(orders.length, false);
+    } catch {
+      setError("Meer bestellingen laden mislukt.");
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, loadPage, loading, loadingMore, orders.length, refreshing]);
 
   const filteredOrders = useMemo(
     () => orders.filter((row) => matchesBuyerOrderFilter(row.order, filter)),
     [filter, orders]
   );
 
+  const showShopEmptyState =
+    !loading && !error && filter === "all" && orders.length === 0;
+  const showFilterEmptyState =
+    !loading && !error && !showShopEmptyState && filteredOrders.length === 0;
+
+  const openOrderDetail = useCallback(
+    (orderId: string) => {
+      navigation.navigate("OrderDetail", { orderId });
+    },
+    [navigation]
+  );
+
+  const openShop = useCallback(() => {
+    navigation.navigate("MainTabs", { screen: "Shop" });
+  }, [navigation]);
+
   const renderItem = useCallback(
     ({ item }: { item: BuyerOrder }) => (
       <BuyerOrderCard
         buyerOrder={item}
-        onPress={() =>
-          navigation.navigate("OrderDetail", { orderId: item.order.id })
-        }
+        onPress={() => openOrderDetail(item.order.id)}
       />
     ),
-    [navigation]
+    [openOrderDetail]
   );
+
+  const listFooter = useMemo(() => {
+    if (loadingMore) {
+      return (
+        <View style={styles.listFooter}>
+          <ActivityIndicator size="small" color={theme.accent} />
+        </View>
+      );
+    }
+    return <View style={styles.listFooterSpacer} />;
+  }, [loadingMore]);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
@@ -181,16 +178,46 @@ export function MyOrdersScreen() {
 
       {loading && !refreshing ? (
         <View style={styles.centerState}>
-          <ActivityIndicator size="small" color={theme.accent} />
+          <ActivityIndicator size="large" color={theme.accent} />
+          <Text style={styles.stateHint}>Bestellingen laden…</Text>
         </View>
-      ) : filteredOrders.length === 0 ? (
+      ) : error && orders.length === 0 ? (
+        <View style={styles.centerState}>
+          <Ionicons name="cloud-offline-outline" size={40} color={theme.textMuted} />
+          <Text style={styles.emptyTitle}>Laden mislukt</Text>
+          <Text style={styles.emptyText}>{error}</Text>
+          <Pressable
+            style={styles.primaryBtn}
+            onPress={() => void onRefresh()}
+            accessibilityRole="button"
+            accessibilityLabel="Opnieuw proberen"
+          >
+            <Text style={styles.primaryBtnText}>Opnieuw proberen</Text>
+          </Pressable>
+        </View>
+      ) : showShopEmptyState ? (
         <View style={styles.centerState}>
           <Ionicons name="bag-outline" size={40} color={theme.textMuted} />
-          <Text style={styles.emptyTitle}>Geen bestellingen</Text>
+          <Text style={styles.emptyTitle}>Nog geen bestellingen</Text>
           <Text style={styles.emptyText}>
-            {filter === "all"
-              ? "Je hebt nog niets besteld."
-              : "Geen bestellingen in dit filter."}
+            Alles wat je koopt op Kwaapo vind je hier terug.
+          </Text>
+          <Pressable
+            style={styles.primaryBtn}
+            onPress={openShop}
+            accessibilityRole="button"
+            accessibilityLabel="Ontdek de shop"
+          >
+            <Text style={styles.primaryBtnText}>Ontdek de shop</Text>
+          </Pressable>
+        </View>
+      ) : showFilterEmptyState ? (
+        <View style={styles.centerState}>
+          <Ionicons name="funnel-outline" size={40} color={theme.textMuted} />
+          <Text style={styles.emptyTitle}>Geen resultaten</Text>
+          <Text style={styles.emptyText}>
+            Geen bestellingen in dit filter. Probeer een ander filter of laad meer
+            bestellingen.
           </Text>
         </View>
       ) : (
@@ -209,6 +236,16 @@ export function MyOrdersScreen() {
               tintColor={theme.accent}
               colors={[theme.accent]}
             />
+          }
+          onEndReached={() => void onLoadMore()}
+          onEndReachedThreshold={0.35}
+          ListFooterComponent={listFooter}
+          ListHeaderComponent={
+            error ? (
+              <View style={styles.inlineError}>
+                <Text style={styles.inlineErrorText}>{error}</Text>
+              </View>
+            ) : null
           }
         />
       )}
@@ -274,7 +311,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
-    gap: 8,
+    gap: 10,
+  },
+  stateHint: {
+    color: theme.textMuted,
+    fontSize: 14,
+    marginTop: 4,
   },
   emptyTitle: {
     color: theme.text,
@@ -288,99 +330,43 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
-  listContent: {
-    paddingHorizontal: 16,
-    gap: 10,
-  },
-  orderCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 12,
-    borderRadius: 16,
-    backgroundColor: theme.bgElevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    marginBottom: 10,
-  },
-  orderCardImage: {
-    width: 72,
-    height: 72,
-    borderRadius: 12,
-    backgroundColor: theme.bg,
-  },
-  imageFallback: {
+  primaryBtn: {
+    marginTop: 8,
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: theme.accent,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
+    paddingHorizontal: 20,
   },
-  orderCardBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  orderCardTopRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-  },
-  orderCardTitle: {
-    flex: 1,
-    color: theme.text,
+  primaryBtnText: {
+    color: theme.bg,
     fontSize: 15,
-    fontWeight: "800",
-  },
-  orderCardPrice: {
-    color: theme.accent,
-    fontSize: 14,
     fontWeight: "900",
   },
-  orderCardMeta: {
-    color: theme.textMuted,
-    fontSize: 12,
-    marginTop: 4,
+  listContent: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
   },
-  orderCardDate: {
-    color: theme.textMuted,
-    fontSize: 12,
-    marginTop: 4,
+  listFooter: {
+    paddingVertical: 16,
+    alignItems: "center",
   },
-  orderBadgeRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginTop: 8,
+  listFooterSpacer: {
+    height: 8,
   },
-  orderBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: theme.accentSoft,
+  inlineError: {
+    marginBottom: 10,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(255, 120, 120, 0.1)",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.accentBorder,
+    borderColor: "rgba(255, 120, 120, 0.35)",
   },
-  orderBadgePrimary: {
-    backgroundColor: theme.accentMedium,
-  },
-  orderBadgeTextPrimary: {
-    color: theme.accent,
-  },
-  orderBadgePaid: {
-    backgroundColor: theme.accentMedium,
-  },
-  orderBadgeMuted: {
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderColor: theme.border,
-  },
-  orderBadgeText: {
-    color: theme.accent,
-    fontSize: 11,
-    fontWeight: "900",
-  },
-  orderBadgeTextPaid: {
-    color: theme.accent,
-  },
-  orderBadgeTextMuted: {
-    color: theme.textMuted,
+  inlineErrorText: {
+    color: "#FF9B9B",
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center",
   },
 });

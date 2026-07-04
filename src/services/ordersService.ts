@@ -29,6 +29,7 @@ import {
   mapOrderFulfillmentRow,
   type OrderFulfillmentInfo,
 } from "../utils/orderFulfillmentDisplay";
+import { buyerOrdersPageHasMore } from "../utils/buyerOrdersList";
 
 const ORDER_COLUMNS =
   "id, buyer_id, seller_id, status, subtotal_amount, platform_fee_amount, seller_amount, payment_status, buyer_email, buyer_full_name, shipping_country, shipping_city, shipping_postal_code, shipping_street, shipping_house_number, shipping_phone, seller_note, shipping_status, tracking_code, shipped_at, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, created_at";
@@ -41,6 +42,13 @@ export type { OrderFulfillmentInfo };
 export type BuyerOrderDetail = BuyerOrder & {
   fulfillment: OrderFulfillmentInfo;
 };
+
+export type BuyerOrdersPage = {
+  orders: BuyerOrder[];
+  hasMore: boolean;
+};
+
+export const BUYER_ORDERS_PAGE_SIZE = 20;
 
 export type SellerOrderDetail = SellerOrder & {
   fulfillment: OrderFulfillmentInfo;
@@ -489,19 +497,8 @@ export async function fetchSellerOrders(): Promise<SellerOrderListRow[]> {
   }));
 }
 
-export async function fetchBuyerOrders(): Promise<BuyerOrder[]> {
-  const buyerId = await getCurrentUserId();
-  const { data, error } = await supabase
-    .from("orders")
-    .select(ORDER_COLUMNS)
-    .eq("buyer_id", buyerId)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    throw error;
-  }
-
-  const orders = ((data ?? []) as OrderRow[]).map(mapOrderRow);
+async function mapBuyerOrderRows(rows: OrderRow[]): Promise<BuyerOrder[]> {
+  const orders = rows.map(mapOrderRow);
   const [itemsByOrderId, sellersById] = await Promise.all([
     fetchItemsForOrders(orders.map((order) => order.id)),
     fetchProfilesByIds(orders.map((order) => order.sellerId)),
@@ -512,6 +509,40 @@ export async function fetchBuyerOrders(): Promise<BuyerOrder[]> {
     items: itemsByOrderId.get(order.id) ?? [],
     seller: sellersById.get(order.sellerId) ?? null,
   }));
+}
+
+export async function fetchBuyerOrdersPage({
+  offset = 0,
+  limit = BUYER_ORDERS_PAGE_SIZE,
+}: {
+  offset?: number;
+  limit?: number;
+} = {}): Promise<BuyerOrdersPage> {
+  const buyerId = await getCurrentUserId();
+  const { data, error } = await supabase
+    .from("orders")
+    .select(ORDER_COLUMNS)
+    .eq("buyer_id", buyerId)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) {
+    throw error;
+  }
+
+  const rows = (data ?? []) as OrderRow[];
+  const orders = await mapBuyerOrderRows(rows);
+
+  return {
+    orders,
+    hasMore: buyerOrdersPageHasMore(rows.length, limit),
+  };
+}
+
+/** @deprecated Prefer fetchBuyerOrdersPage for paginated buyer lists. */
+export async function fetchBuyerOrders(): Promise<BuyerOrder[]> {
+  const page = await fetchBuyerOrdersPage();
+  return page.orders;
 }
 
 export async function fetchBuyerOrderById(

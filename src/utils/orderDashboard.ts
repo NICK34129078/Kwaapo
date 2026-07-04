@@ -24,6 +24,18 @@ export function formatOrderItemSizeLine(
   return label ? `Maat ${label}` : null;
 }
 
+export function formatOrderDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleDateString("nl-NL", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 export type { SellerOrderFilter } from "./sellerFulfillment";
 export {
   SELLER_ORDER_FILTERS,
