@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useRef } from "react";
 import {
   Animated,
+  Dimensions,
   Easing,
   Image,
+  Modal,
   PanResponder,
   Pressable,
   StyleSheet,
@@ -23,6 +25,9 @@ type InAppNotificationToastProps = {
   onDismiss: () => void;
 };
 
+const SCREEN_HEIGHT = Dimensions.get("window").height;
+const TOAST_MAX_HEIGHT = Math.min(96, Math.round(SCREEN_HEIGHT * 0.2));
+
 function formatNotificationTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) {
@@ -40,7 +45,7 @@ export function InAppNotificationToast({
   onDismiss,
 }: InAppNotificationToastProps) {
   const insets = useSafeAreaInsets();
-  const translateY = useRef(new Animated.Value(-140)).current;
+  const translateY = useRef(new Animated.Value(-120)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeId = useRef<string | null>(null);
@@ -48,7 +53,7 @@ export function InAppNotificationToast({
   const hide = useCallback(() => {
     Animated.parallel([
       Animated.timing(translateY, {
-        toValue: -140,
+        toValue: -120,
         duration: 260,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
@@ -66,18 +71,18 @@ export function InAppNotificationToast({
   }, [onDismiss, opacity, translateY]);
 
   const show = useCallback(() => {
-    translateY.setValue(-140);
+    translateY.setValue(-120);
     opacity.setValue(0);
     Animated.parallel([
       Animated.spring(translateY, {
         toValue: 0,
-        friction: 8,
-        tension: 90,
+        friction: 9,
+        tension: 110,
         useNativeDriver: true,
       }),
       Animated.timing(opacity, {
         toValue: 1,
-        duration: 220,
+        duration: 200,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
@@ -112,24 +117,24 @@ export function InAppNotificationToast({
       onMoveShouldSetPanResponder: (_, gesture) =>
         gesture.dy < -8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
       onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy < -24) {
+        if (gesture.dy < -20) {
           hide();
         }
       },
     })
   ).current;
 
+  const isCompactSellerToast =
+    notification?.audience === "seller" &&
+    notification.notificationType === "new_paid_order";
+
   if (!notification) {
     return null;
   }
 
   const iconName =
-    notification.audience === "seller"
-      ? "storefront-outline"
-      : "cube-outline";
-  const isCompactSellerToast =
-    notification.audience === "seller" &&
-    notification.notificationType === "new_paid_order";
+    notification.audience === "seller" ? "storefront-outline" : "cube-outline";
+
   const metaParts = isCompactSellerToast
     ? []
     : [
@@ -140,111 +145,178 @@ export function InAppNotificationToast({
       ].filter(Boolean);
 
   return (
-    <Animated.View
-      pointerEvents="box-none"
-      style={[
-        styles.host,
-        {
-          top: insets.top + 8,
-          opacity,
-          transform: [{ translateY }],
-        },
-      ]}
-      {...panResponder.panHandlers}
+    <Modal
+      visible
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={hide}
     >
-      <Pressable
-        style={styles.card}
-        onPress={() => onPress(notification)}
-        accessibilityRole="button"
-        accessibilityLabel={notification.title}
-      >
-        {notification.productImageUrl ? (
-          <Image
-            source={{ uri: notification.productImageUrl }}
-            style={styles.thumb}
-          />
-        ) : (
-          <View style={[styles.thumb, styles.thumbFallback]}>
-            <Ionicons name={iconName} size={24} color={theme.accent} />
-          </View>
-        )}
-        <View style={styles.body}>
-          <Text style={styles.title} numberOfLines={1}>
-            {notification.title}
-          </Text>
-          <Text style={styles.message} numberOfLines={2}>
-            {notification.body}
-          </Text>
-          {notification.subtitle ? (
-            <Text style={styles.subtitle} numberOfLines={2}>
-              {notification.subtitle}
-            </Text>
-          ) : null}
-          {metaParts.length > 0 ? (
-            <Text style={styles.meta} numberOfLines={1}>
-              {metaParts.join(" · ")}
-            </Text>
-          ) : null}
-        </View>
-        <Pressable
-          style={styles.closeBtn}
-          onPress={hide}
-          hitSlop={10}
-          accessibilityRole="button"
-          accessibilityLabel="Melding sluiten"
+      <View style={styles.modalRoot} pointerEvents="box-none">
+        <Animated.View
+          pointerEvents="box-none"
+          style={[
+            styles.host,
+            {
+              top: insets.top + 6,
+              opacity,
+              transform: [{ translateY }],
+              maxHeight: isCompactSellerToast ? TOAST_MAX_HEIGHT : undefined,
+            },
+          ]}
+          {...panResponder.panHandlers}
         >
-          <Ionicons name="close" size={18} color={theme.textMuted} />
-        </Pressable>
-      </Pressable>
-    </Animated.View>
+          <Pressable
+            style={[
+              styles.card,
+              isCompactSellerToast ? styles.cardCompact : styles.cardStandard,
+            ]}
+            onPress={() => onPress(notification)}
+            accessibilityRole="button"
+            accessibilityLabel={notification.title}
+          >
+            {notification.productImageUrl ? (
+              <Image
+                source={{ uri: notification.productImageUrl }}
+                style={isCompactSellerToast ? styles.thumbCompact : styles.thumb}
+              />
+            ) : (
+              <View
+                style={[
+                  isCompactSellerToast ? styles.thumbCompact : styles.thumb,
+                  styles.thumbFallback,
+                ]}
+              >
+                <Ionicons
+                  name={iconName}
+                  size={isCompactSellerToast ? 18 : 22}
+                  color={theme.accent}
+                />
+              </View>
+            )}
+            <View style={styles.body}>
+              <Text
+                style={isCompactSellerToast ? styles.titleCompact : styles.title}
+                numberOfLines={1}
+              >
+                {notification.title}
+              </Text>
+              <Text
+                style={
+                  isCompactSellerToast ? styles.messageCompact : styles.message
+                }
+                numberOfLines={isCompactSellerToast ? 1 : 2}
+              >
+                {notification.body}
+              </Text>
+              {!isCompactSellerToast && notification.subtitle ? (
+                <Text style={styles.subtitle} numberOfLines={2}>
+                  {notification.subtitle}
+                </Text>
+              ) : null}
+              {!isCompactSellerToast && metaParts.length > 0 ? (
+                <Text style={styles.meta} numberOfLines={1}>
+                  {metaParts.join(" · ")}
+                </Text>
+              ) : null}
+            </View>
+            {!isCompactSellerToast ? (
+              <Pressable
+                style={styles.closeBtn}
+                onPress={hide}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Melding sluiten"
+              >
+                <Ionicons name="close" size={18} color={theme.textMuted} />
+              </Pressable>
+            ) : null}
+          </Pressable>
+        </Animated.View>
+      </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  modalRoot: {
+    flex: 1,
+    backgroundColor: "transparent",
+  },
   host: {
     position: "absolute",
-    left: 14,
-    right: 14,
+    left: 16,
+    right: 16,
     zIndex: 1000,
-    elevation: 12,
+    elevation: 16,
   },
   card: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    padding: 12,
-    borderRadius: 18,
-    backgroundColor: "rgba(18, 18, 18, 0.96)",
+    alignItems: "center",
+    borderRadius: 14,
+    backgroundColor: "rgba(16, 16, 16, 0.97)",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.accentBorder,
+    borderColor: "rgba(185, 217, 247, 0.35)",
     shadowColor: "#000",
-    shadowOpacity: 0.35,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  cardCompact: {
+    minHeight: 72,
+    maxHeight: 96,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 10,
+  },
+  cardStandard: {
+    alignItems: "flex-start",
+    padding: 12,
+    gap: 12,
+    borderRadius: 18,
+  },
+  thumbCompact: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: theme.bg,
   },
   thumb: {
-    width: 52,
-    height: 52,
+    width: 48,
+    height: 48,
     borderRadius: 12,
     backgroundColor: theme.bg,
   },
   thumbFallback: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.accentSoft,
+    backgroundColor: "rgba(185, 217, 247, 0.12)",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.accentBorder,
+    borderColor: "rgba(185, 217, 247, 0.25)",
   },
   body: {
     flex: 1,
     minWidth: 0,
-    paddingRight: 4,
+    justifyContent: "center",
+    gap: 2,
+  },
+  titleCompact: {
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.1,
   },
   title: {
     color: theme.text,
     fontSize: 15,
     fontWeight: "900",
     marginBottom: 2,
+  },
+  messageCompact: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
   },
   message: {
     color: theme.text,
