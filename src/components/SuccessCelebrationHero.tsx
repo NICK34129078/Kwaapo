@@ -4,11 +4,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../constants/theme";
 import { SellerMascotDance } from "./SellerMascotDance";
 
+const MASCOT_TRANSPARENT = require("../../assets/seller-mascot-transparent.png");
+
 type SuccessCelebrationHeroProps = {
   mascotSize?: number;
 };
 
-export function SuccessCelebrationHero({ mascotSize = 72 }: SuccessCelebrationHeroProps) {
+export function SuccessCelebrationHero({ mascotSize = 80 }: SuccessCelebrationHeroProps) {
   const checkScale = useRef(new Animated.Value(0)).current;
   const checkOpacity = useRef(new Animated.Value(0)).current;
   const ringScale = useRef(new Animated.Value(0.85)).current;
@@ -60,7 +62,10 @@ export function SuccessCelebrationHero({ mascotSize = 72 }: SuccessCelebrationHe
         </View>
       </Animated.View>
       <View style={styles.mascotSlot}>
-        <SellerMascotDance size={mascotSize} />
+        <SellerMascotDance
+          size={mascotSize}
+          source={MASCOT_TRANSPARENT}
+        />
       </View>
     </View>
   );
@@ -70,8 +75,8 @@ const styles = StyleSheet.create({
   wrap: {
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 168,
-    marginBottom: 8,
+    minHeight: 176,
+    marginBottom: 10,
   },
   checkShell: {
     marginBottom: 10,
@@ -90,6 +95,9 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   mascotSlot: {
-    marginTop: 4,
+    marginTop: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
   },
 });

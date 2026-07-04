@@ -1,5 +1,12 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, Easing, Image, StyleSheet, View } from "react-native";
+import {
+  Animated,
+  Easing,
+  Image,
+  ImageSourcePropType,
+  StyleSheet,
+  View,
+} from "react-native";
 
 const MASCOT_SOURCE = require("../../assets/seller-mascot.png");
 
@@ -8,13 +15,17 @@ const LOOP_MS = 2400;
 
 type SellerMascotDanceProps = {
   size?: number;
+  source?: ImageSourcePropType;
 };
 
 /**
  * Naadloze loop: één phase 0→1 met linear easing.
  * Alle beweging via interpolate — waarden op 0 en 1 zijn gelijk, geen zichtbare naad.
  */
-export function SellerMascotDance({ size = 56 }: SellerMascotDanceProps) {
+export function SellerMascotDance({
+  size = 56,
+  source = MASCOT_SOURCE,
+}: SellerMascotDanceProps) {
   const phase = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -76,8 +87,8 @@ export function SellerMascotDance({ size = 56 }: SellerMascotDanceProps) {
         }}
       >
         <Image
-          source={MASCOT_SOURCE}
-          style={{ width: size, height: size }}
+          source={source}
+          style={[styles.mascotImage, { width: size, height: size }]}
           resizeMode="contain"
           accessible={false}
         />
@@ -89,7 +100,11 @@ export function SellerMascotDance({ size = 56 }: SellerMascotDanceProps) {
 const styles = StyleSheet.create({
   shell: {
     alignItems: "center",
-    justifyContent: "flex-end",
+    justifyContent: "center",
     overflow: "visible",
+    backgroundColor: "transparent",
+  },
+  mascotImage: {
+    backgroundColor: "transparent",
   },
 });
