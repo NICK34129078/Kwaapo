@@ -16,7 +16,6 @@ import {
 } from "react-native";
 import { Video, ResizeMode } from "expo-av";
 import { useNavigation } from "@react-navigation/native";
-import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FeedItem, type FeedItemPlaybackMetrics } from "../components/FeedItem";
 import { useGlobalFeed } from "../context/GlobalFeedContext";
@@ -58,12 +57,11 @@ type AggregatedPlaybackMetrics = {
 
 function ReelsFeedTopBar() {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
   const isFocused = useIsFocused();
   const { user } = useAuth();
   const { openAuthPrompt } = useAuthPrompt();
 
-  if (!isFocused) {
+  if (!isFocused || user) {
     return null;
   }
 
@@ -73,45 +71,34 @@ function ReelsFeedTopBar() {
       pointerEvents="box-none"
     >
       <View style={styles.feedTopBarSide} />
-      {user ? (
+      <View style={styles.feedTopBarAuth}>
         <Pressable
-          style={styles.feedTopBarIconBtn}
-          onPress={() => navigation.navigate("Profile" as never)}
+          style={styles.feedTopBarAuthBtn}
+          onPress={() =>
+            openAuthPrompt({
+              message: "Welkom terug — log hieronder in.",
+            })
+          }
           accessibilityRole="button"
-          accessibilityLabel="Ga naar profiel"
+          accessibilityLabel="Inloggen"
         >
-          <Ionicons name="person-circle-outline" size={30} color={theme.text} />
+          <Text style={styles.feedTopBarAuthTxt}>Inloggen</Text>
         </Pressable>
-      ) : (
-        <View style={styles.feedTopBarAuth}>
-          <Pressable
-            style={styles.feedTopBarAuthBtn}
-            onPress={() =>
-              openAuthPrompt({
-                message: "Welkom terug — log hieronder in.",
-              })
-            }
-            accessibilityRole="button"
-            accessibilityLabel="Inloggen"
-          >
-            <Text style={styles.feedTopBarAuthTxt}>Inloggen</Text>
-          </Pressable>
-          <Pressable
-            style={styles.feedTopBarAuthBtn}
-            onPress={() =>
-              openAuthPrompt({
-                message: "Maak een account om te liken, reageren en te uploaden.",
-              })
-            }
-            accessibilityRole="button"
-            accessibilityLabel="Account maken"
-          >
-            <Text style={[styles.feedTopBarAuthTxt, styles.feedTopBarAuthAccent]}>
-              Account maken
-            </Text>
-          </Pressable>
-        </View>
-      )}
+        <Pressable
+          style={styles.feedTopBarAuthBtn}
+          onPress={() =>
+            openAuthPrompt({
+              message: "Maak een account om te liken, reageren en te uploaden.",
+            })
+          }
+          accessibilityRole="button"
+          accessibilityLabel="Account maken"
+        >
+          <Text style={[styles.feedTopBarAuthTxt, styles.feedTopBarAuthAccent]}>
+            Account maken
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -710,11 +697,6 @@ const styles = StyleSheet.create({
   },
   feedTopBarAuthAccent: {
     color: theme.accent,
-  },
-  feedTopBarIconBtn: {
-    padding: 6,
-    borderRadius: 20,
-    backgroundColor: "rgba(0,0,0,0.25)",
   },
   preloadBox: {
     position: "absolute",
