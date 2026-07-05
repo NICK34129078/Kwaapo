@@ -73,6 +73,7 @@ import { SavedPostsGrid } from "../components/SavedPostsGrid";
 import { AvatarImage } from "../components/AvatarImage";
 import { SellerOrderCountBadge } from "../components/SellerOrderCountBadge";
 import { logSellerOpenOrders } from "../constants/sellerOpenOrdersDebug";
+import { logSellerOrderInstant } from "../constants/sellerOrderInstantDebug";
 import { logSellerOrderBadge } from "../constants/sellerOrderBadgeDebug";
 import { logSellerSettingsNavigation } from "../constants/sellerSettingsNavigationDebug";
 import { FullScreenImageModal } from "../components/FullScreenImageModal";
@@ -231,6 +232,11 @@ function ProfileAuthenticatedScreen({
       return;
     }
     logSellerOpenOrders(`badge rendered ${openSellerOrderCount}`);
+    if (openSellerOrderCount > 0) {
+      logSellerOrderInstant(
+        `profile gear badge rendered ${openSellerOrderCount}`
+      );
+    }
   }, [isBusinessProfile, isOwnProfile, openSellerOrderCount]);
 
   const openSellerOrdersFromSettings = useCallback(() => {

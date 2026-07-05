@@ -7,6 +7,7 @@ import { PressableScale } from "./PressableScale";
 import { SellerOrderCountBadge } from "./SellerOrderCountBadge";
 import { useSellerFulfillmentOptional } from "../context/SellerFulfillmentContext";
 import { logSellerOpenOrders } from "../constants/sellerOpenOrdersDebug";
+import { logSellerOrderInstant } from "../constants/sellerOrderInstantDebug";
 
 /** Instagram-achtig: dunne witte lijnen, geen accentkleur in de balk. */
 const IG = {
@@ -73,6 +74,7 @@ export function BottomNavbar({
   useEffect(() => {
     if (profileActionCount > 0) {
       logSellerOpenOrders(`badge rendered ${profileActionCount}`);
+      logSellerOrderInstant(`profile tab badge rendered ${profileActionCount}`);
     }
   }, [profileActionCount]);
 

@@ -25,6 +25,7 @@ import {
   validateCheckoutAddressSync,
 } from "../utils/checkoutAddressValidation";
 import { logSellerShipUpdateErrorDev } from "../utils/orderShipError";
+import { logBuyerShipmentToast } from "../constants/buyerShipmentToastDebug";
 import {
   mapOrderFulfillmentRow,
   type OrderFulfillmentInfo,
@@ -404,6 +405,8 @@ export async function markSellerOrderAsShipped(
   ) {
     throw new Error("Verzending kon niet worden bevestigd in de database.");
   }
+
+  logBuyerShipmentToast(`order marked shipped ${orderId}`);
 
   return updated;
 }

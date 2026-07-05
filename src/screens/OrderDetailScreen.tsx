@@ -35,6 +35,7 @@ import {
   type SellerShipChecklistState,
 } from "../components/SellerShipChecklist";
 import { orderNeedsSellerAction } from "../utils/sellerFulfillment";
+import { logBuyerShipmentToast } from "../constants/buyerShipmentToastDebug";
 import type { BuyerOrder } from "../types/order";
 import { PLATFORM_FEE_PERCENT_LABEL } from "../constants/platformFee";
 import { formatPriceEur } from "../utils/formatPrice";
@@ -200,6 +201,7 @@ export function OrderDetailScreen() {
     setShipBusy(true);
     reportShippingStarted(order.id);
     try {
+      logBuyerShipmentToast(`order marked shipped ${order.id}`);
       const updated = await markSellerOrderAsShipped(order.id, trackingCode);
       if (
         updated.shippingStatus !== "shipped" &&

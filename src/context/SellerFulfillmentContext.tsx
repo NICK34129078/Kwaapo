@@ -25,7 +25,11 @@ import {
   formatOrderIdsForLog,
   logSellerOpenOrders,
 } from "../constants/sellerOpenOrdersDebug";
-import { clearSellerOrderInstantTiming } from "../constants/sellerOrderInstantDebug";
+import {
+  clearSellerOrderInstantTiming,
+  logSellerOrderInstant,
+  markSellerOrderInstantBadgeRendered,
+} from "../constants/sellerOrderInstantDebug";
 import { getOpenSellerOrderIdsFromSnapshot } from "../utils/sellerOpenOrders";
 
 export type SyncNewPaidSellerOrderInput = {
@@ -223,8 +227,11 @@ export function SellerFulfillmentProvider({
         return;
       }
 
+      const oldCount = openOrderIdsRef.current.size;
       openOrderIdsRef.current.add(input.orderId);
       const newCount = openOrderIdsRef.current.size;
+      logSellerOrderInstant(`count update started ${oldCount} ${newCount}`);
+      markSellerOrderInstantBadgeRendered(input.notificationId);
       logSellerOpenOrders(
         `realtime order added ${input.orderId} ${newCount}`
       );
