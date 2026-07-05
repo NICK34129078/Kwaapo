@@ -13,9 +13,11 @@ import { useAuth } from "./AuthContext";
 import { useSellerFulfillment } from "./SellerFulfillmentContext";
 import { logInAppToastOnce } from "../constants/inAppToastOnceDebug";
 import {
+  buildFallbackPayload,
   buildSellerNotificationFallback,
   buyerNotificationRowFromService,
   enrichBuyerNotification,
+  enrichSellerNotification,
   sellerNotificationRowFromService,
   subscribeOrderNotificationInserts,
 } from "../services/notificationRealtimeService";
@@ -34,6 +36,7 @@ import {
   persistInAppToastShownId,
 } from "../services/inAppToastShownStorage";
 import { logBuyerNotification } from "../constants/buyerNotificationDebug";
+import { logBuyerShipmentToast } from "../constants/buyerShipmentToastDebug";
 import { logSellerOrderNotification } from "../constants/sellerOrderNotificationDebug";
 import {
   logSellerOrderInstant,
@@ -92,6 +95,13 @@ function isSellerNewPaidToast(payload: InAppNotificationPayload): boolean {
   );
 }
 
+function isBuyerOrderShippedToast(payload: InAppNotificationPayload): boolean {
+  return (
+    payload.audience === "buyer" &&
+    payload.notificationType === "order_shipped"
+  );
+}
+
 function formatDebugIds(ids: string[]): string {
   return ids.length > 0 ? ids.join(", ") : "none";
 }
@@ -116,7 +126,8 @@ export function InAppNotificationProvider({
   const commitToastShown = useCallback(
     async (
       notificationId: string,
-      audience: InAppNotificationPayload["audience"]
+      audience: InAppNotificationPayload["audience"],
+      notificationType?: string
     ) => {
       seenIds.current.add(notificationId);
       storageShownIds.current.add(notificationId);
@@ -130,6 +141,9 @@ export function InAppNotificationProvider({
         await markSellerNotificationToastShown(notificationId);
       } else {
         await markBuyerNotificationToastShown(notificationId);
+        if (notificationType === "order_shipped") {
+          logBuyerShipmentToast(`marked toast_shown_at ${notificationId}`);
+        }
       }
 
       logInAppToastOnce("marked shown", notificationId);
@@ -141,6 +155,9 @@ export function InAppNotificationProvider({
     (notificationId: string, meta: ToastOnceMeta): boolean => {
       if (meta.toastShownAt) {
         seenIds.current.add(notificationId);
+        if (meta.notificationType === "order_shipped" && meta.audience === "buyer") {
+          logBuyerShipmentToast(`skipped already shown ${notificationId}`);
+        }
         logInAppToastOnce(
           "skipped already shown database",
           notificationId,
@@ -150,22 +167,28 @@ export function InAppNotificationProvider({
       }
 
       if (seenIds.current.has(notificationId)) {
+        if (meta.notificationType === "order_shipped" && meta.audience === "buyer") {
+          logBuyerShipmentToast(`skipped already shown ${notificationId}`);
+        }
         logInAppToastOnce(
           "skipped already shown memory",
           notificationId,
           meta.notificationType
         );
-        void commitToastShown(notificationId, meta.audience);
+        void commitToastShown(notificationId, meta.audience, meta.notificationType);
         return true;
       }
 
       if (storageShownIds.current.has(notificationId)) {
+        if (meta.notificationType === "order_shipped" && meta.audience === "buyer") {
+          logBuyerShipmentToast(`skipped already shown ${notificationId}`);
+        }
         logInAppToastOnce(
           "skipped already shown storage",
           notificationId,
           meta.notificationType
         );
-        void commitToastShown(notificationId, meta.audience);
+        void commitToastShown(notificationId, meta.audience, meta.notificationType);
         return true;
       }
 
@@ -177,8 +200,11 @@ export function InAppNotificationProvider({
           `${ageMs}ms`
         );
         if (isPendingToastTooOld(meta.createdAt)) {
+          if (meta.notificationType === "order_shipped" && meta.audience === "buyer") {
+            logBuyerShipmentToast(`skipped too old ${notificationId}`);
+          }
           logInAppToastOnce("skipped too old", notificationId, `${ageMs}ms`);
-          void commitToastShown(notificationId, meta.audience);
+          void commitToastShown(notificationId, meta.audience, meta.notificationType);
           return true;
         }
       }
@@ -206,7 +232,7 @@ export function InAppNotificationProvider({
           payload.id,
           payload.notificationType
         );
-        void commitToastShown(payload.id, payload.audience);
+        void commitToastShown(payload.id, payload.audience, payload.notificationType);
         return false;
       }
 
@@ -245,10 +271,41 @@ export function InAppNotificationProvider({
         payload.id,
         payload.notificationType
       );
-      void commitToastShown(payload.id, payload.audience);
+      if (isBuyerOrderShippedToast(payload)) {
+        logBuyerShipmentToast(`queued ${payload.id}`);
+      }
+      if (isSellerNewPaidToast(payload)) {
+        logSellerOrderInstant(`toast queued ${payload.id}`);
+      }
+      void commitToastShown(payload.id, payload.audience, payload.notificationType);
       return true;
     },
     [commitToastShown, navigationRef, shouldSkipToastOnce]
+  );
+
+  const replaceQueuedPayload = useCallback(
+    (payload: InAppNotificationPayload) => {
+      const updateQueue = (
+        setter: React.Dispatch<React.SetStateAction<InAppNotificationPayload[]>>
+      ) => {
+        setter((current) => {
+          const index = current.findIndex((item) => item.id === payload.id);
+          if (index < 0) {
+            return current;
+          }
+          const next = [...current];
+          next[index] = payload;
+          return next;
+        });
+      };
+
+      if (payload.audience === "seller") {
+        updateQueue(setSellerQueue);
+      } else {
+        updateQueue(setBuyerQueue);
+      }
+    },
+    []
   );
 
   const handleIncomingSellerOrderNotification = useCallback(
@@ -265,26 +322,44 @@ export function InAppNotificationProvider({
         logSellerOrderInstant(`realtime received ${row.id} ${row.order_id}`);
       }
 
+      if (row.notification_type === "new_paid_order") {
+        logSellerOrderInstant(`global handler started ${row.id}`);
+        syncNewPaidSellerOrder({
+          notificationId: row.id,
+          orderId: row.order_id,
+        });
+      }
+
       const payload = buildSellerNotificationFallback(row);
-      const queued = queueToastPayload(payload, {
+      queueToastPayload(payload, {
         ...meta,
         audience: "seller",
         notificationType: row.notification_type,
       });
-      if (!queued) {
-        return;
-      }
 
-      syncNewPaidSellerOrder({
-        notificationId: row.id,
-        orderId: row.order_id,
-      });
+      void enrichSellerNotification(row)
+        .then((enriched) => {
+          replaceQueuedPayload(enriched);
+        })
+        .catch((error) => {
+          logInAppToastOnce(
+            "error enrichSellerNotification",
+            row.id,
+            error instanceof Error ? error.message : String(error)
+          );
+          logSellerOrderNotification(
+            "error",
+            "processSellerInsert",
+            row.id,
+            error instanceof Error ? error.message : String(error)
+          );
+        });
     },
-    [queueToastPayload, syncNewPaidSellerOrder]
+    [queueToastPayload, replaceQueuedPayload, syncNewPaidSellerOrder]
   );
 
   const handleIncomingBuyerOrderNotification = useCallback(
-    async (
+    (
       row: Parameters<typeof enrichBuyerNotification>[0],
       meta: ToastOnceMeta
     ) => {
@@ -296,28 +371,35 @@ export function InAppNotificationProvider({
         );
       }
 
-      try {
-        const payload = await enrichBuyerNotification(row);
-        queueToastPayload(payload, {
-          ...meta,
-          audience: "buyer",
-          notificationType: row.notification_type,
-        });
-      } catch (error) {
-        logInAppToastOnce(
-          "error enrichBuyerNotification",
-          row.id,
-          error instanceof Error ? error.message : String(error)
-        );
-        logBuyerNotification(
-          "error",
-          "processBuyerInsert",
-          row.id,
-          error instanceof Error ? error.message : String(error)
-        );
+      const fallback = buildFallbackPayload(row, "buyer");
+      const queued = queueToastPayload(fallback, {
+        ...meta,
+        audience: "buyer",
+        notificationType: row.notification_type,
+      });
+      if (!queued) {
+        return;
       }
+
+      void enrichBuyerNotification(row)
+        .then((enriched) => {
+          replaceQueuedPayload(enriched);
+        })
+        .catch((error) => {
+          logInAppToastOnce(
+            "error enrichBuyerNotification",
+            row.id,
+            error instanceof Error ? error.message : String(error)
+          );
+          logBuyerNotification(
+            "error",
+            "processBuyerInsert",
+            row.id,
+            error instanceof Error ? error.message : String(error)
+          );
+        });
     },
-    [queueToastPayload]
+    [queueToastPayload, replaceQueuedPayload]
   );
 
   const handlersRef = useRef({
@@ -375,7 +457,7 @@ export function InAppNotificationProvider({
 
       for (const notification of pending) {
         const row = buyerNotificationRowFromService(notification);
-        await handlersRef.current.handleIncomingBuyerOrderNotification(row, {
+        handlersRef.current.handleIncomingBuyerOrderNotification(row, {
           source: "pending",
           createdAt: notification.createdAt,
           toastShownAt: notification.toastShownAt,
@@ -513,6 +595,9 @@ export function InAppNotificationProvider({
       );
       return;
     }
+    if (isBuyerOrderShippedToast(visibleNotification)) {
+      logBuyerShipmentToast(`toast displayed ${visibleNotification.id}`);
+    }
     logBuyerNotification(`queue rendered ${visibleNotification.id}`);
   }, [navigationRef, visibleNotification]);
 
@@ -536,6 +621,8 @@ export function InAppNotificationProvider({
           notification.orderId,
           notification.id
         );
+      } else if (isBuyerOrderShippedToast(notification)) {
+        logBuyerShipmentToast(`navigate to order ${notification.orderId}`);
       }
 
       if (notification.audience === "seller") {

@@ -16,7 +16,10 @@ export type InAppNotificationPayload = {
   createdAt: string;
 };
 
-export const IN_APP_NOTIFICATION_VISIBLE_MS = 4000;
+export const IN_APP_NOTIFICATION_VISIBLE_MS = 5000;
+
+/** Alias for order in-app toast auto-dismiss duration. */
+export const IN_APP_ORDER_TOAST_DURATION_MS = IN_APP_NOTIFICATION_VISIBLE_MS;
 
 /** Pending fetch may only replay toasts for events this recent (ms). */
 export const IN_APP_TOAST_PENDING_MAX_AGE_MS = 60_000;
@@ -51,7 +54,11 @@ export function isPendingToastTooOld(createdAt: string, nowMs = Date.now()): boo
 }
 
 export function sellerNewOrderToastTitle(): string {
-  return "Nieuwe bestelling ontvangen";
+  return "Nieuwe bestelling ontvangen 📦";
+}
+
+export function sellerNewOrderToastSubtitle(): string {
+  return "Klaar om af te handelen.";
 }
 
 export function sellerNewOrderToastBody(
@@ -63,8 +70,26 @@ export function sellerNewOrderToastBody(
 }
 
 export const NOTIFICATION_SUBTITLES: Record<string, string | undefined> = {
+  new_paid_order: "Klaar om af te handelen.",
   order_shipped: "Volg je pakket met de trackinginformatie.",
 };
+
+export function buyerOrderShippedToastTitle(): string {
+  return "Je bestelling is onderweg 📦";
+}
+
+export function buyerOrderShippedToastBody(
+  productName: string | null | undefined,
+  sellerName: string | null | undefined
+): string {
+  const product = productName?.trim() || "Je bestelling";
+  const seller = sellerName?.trim() || "de verkoper";
+  return `${product} is verzonden door ${seller}.`;
+}
+
+export function buyerOrderShippedToastSubtitle(): string {
+  return NOTIFICATION_SUBTITLES.order_shipped ?? "Volg je pakket met de trackinginformatie.";
+}
 
 export function notificationOrderReference(orderId: string): string {
   const trimmed = orderId.trim();

@@ -1,11 +1,16 @@
 import {
+  buyerOrderShippedToastBody,
+  buyerOrderShippedToastTitle,
   dequeueInAppNotification,
   enqueueInAppNotification,
   inAppToastPendingCutoffIso,
+  IN_APP_NOTIFICATION_VISIBLE_MS,
+  IN_APP_ORDER_TOAST_DURATION_MS,
   isPendingToastTooOld,
   IN_APP_TOAST_PENDING_MAX_AGE_MS,
   notificationOrderReference,
   sellerNewOrderToastBody,
+  sellerNewOrderToastSubtitle,
   sellerNewOrderToastTitle,
   shouldSuppressInAppNotification,
   type InAppNotificationPayload,
@@ -68,8 +73,12 @@ export function runInAppNotificationTests(): void {
   );
 
   assert(
-    sellerNewOrderToastTitle() === "Nieuwe bestelling ontvangen",
+    sellerNewOrderToastTitle() === "Nieuwe bestelling ontvangen 📦",
     "seller toast title"
+  );
+  assert(
+    sellerNewOrderToastSubtitle() === "Klaar om af te handelen.",
+    "seller toast subtitle"
   );
   assert(
     sellerNewOrderToastBody("Staging Live Notification Test Tee", "€19,99") ===
@@ -92,6 +101,29 @@ export function runInAppNotificationTests(): void {
   assert(
     !isPendingToastTooOld("2026-07-04T11:59:30.000Z", now),
     "toast within 60s is not too old"
+  );
+
+  assert(
+    IN_APP_NOTIFICATION_VISIBLE_MS === 5000,
+    "buyer/seller toast visible duration"
+  );
+  assert(
+    IN_APP_ORDER_TOAST_DURATION_MS === IN_APP_NOTIFICATION_VISIBLE_MS,
+    "order toast duration alias"
+  );
+  assert(
+    buyerOrderShippedToastTitle() === "Je bestelling is onderweg 📦",
+    "buyer shipped toast title"
+  );
+  assert(
+    buyerOrderShippedToastBody("Vintage Jacket", "Nick Shop") ===
+      "Vintage Jacket is verzonden door Nick Shop.",
+    "buyer shipped toast body"
+  );
+  assert(
+    buyerOrderShippedToastBody(null, null) ===
+      "Je bestelling is verzonden door de verkoper.",
+    "buyer shipped toast body fallbacks"
   );
 
   console.log("inAppNotification tests passed");

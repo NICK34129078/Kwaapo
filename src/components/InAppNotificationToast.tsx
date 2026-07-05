@@ -51,6 +51,10 @@ export function InAppNotificationToast({
   const activeId = useRef<string | null>(null);
 
   const hide = useCallback(() => {
+    if (dismissTimer.current) {
+      clearTimeout(dismissTimer.current);
+      dismissTimer.current = null;
+    }
     Animated.parallel([
       Animated.timing(translateY, {
         toValue: -120,
@@ -137,12 +141,19 @@ export function InAppNotificationToast({
 
   const metaParts = isCompactSellerToast
     ? []
-    : [
-        notification.variantLabel ? `Maat ${notification.variantLabel}` : null,
-        notification.amountLabel,
-        notification.orderReference,
-        formatNotificationTime(notification.createdAt),
-      ].filter(Boolean);
+    : notification.audience === "buyer"
+      ? [
+          notification.variantLabel,
+          notification.amountLabel,
+          notification.orderReference,
+          formatNotificationTime(notification.createdAt),
+        ].filter(Boolean)
+      : [
+          notification.variantLabel ? `Maat ${notification.variantLabel}` : null,
+          notification.amountLabel,
+          notification.orderReference,
+          formatNotificationTime(notification.createdAt),
+        ].filter(Boolean);
 
   return (
     <Modal
@@ -211,6 +222,10 @@ export function InAppNotificationToast({
               </Text>
               {!isCompactSellerToast && notification.subtitle ? (
                 <Text style={styles.subtitle} numberOfLines={2}>
+                  {notification.subtitle}
+                </Text>
+              ) : isCompactSellerToast && notification.subtitle ? (
+                <Text style={styles.subtitleCompact} numberOfLines={1}>
                   {notification.subtitle}
                 </Text>
               ) : null}
@@ -330,6 +345,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     marginTop: 4,
+  },
+  subtitleCompact: {
+    color: theme.textMuted,
+    fontSize: 11,
+    lineHeight: 14,
+    marginTop: 2,
+    fontWeight: "600",
   },
   meta: {
     color: theme.accent,

@@ -1,19 +1,24 @@
 import { supabase } from "../lib/supabase";
 import { logBuyerNotification } from "../constants/buyerNotificationDebug";
+import { logBuyerShipmentToast } from "../constants/buyerShipmentToastDebug";
 import { logSellerOrderNotification } from "../constants/sellerOrderNotificationDebug";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
   formatOrderItemSizeLabel,
 } from "../utils/orderDashboard";
 import {
+  buyerOrderShippedToastBody,
+  buyerOrderShippedToastSubtitle,
+  buyerOrderShippedToastTitle,
   NOTIFICATION_SUBTITLES,
   notificationOrderReference,
   sellerNewOrderToastBody,
+  sellerNewOrderToastSubtitle,
   sellerNewOrderToastTitle,
   type InAppNotificationAudience,
   type InAppNotificationPayload,
 } from "../utils/inAppNotification";
-import type { BuyerOrder } from "../types/order";
+import type { BuyerOrder, OrderParticipant } from "../types/order";
 import type { SellerOrderDetail, SellerOrderListRow } from "./ordersService";
 
 type SellerNotificationRow = {
@@ -43,6 +48,19 @@ function firstProductImage(
   return image && image.trim().length > 0 ? image : null;
 }
 
+function sellerDisplayName(seller: OrderParticipant | null | undefined): string {
+  return (
+    seller?.displayName?.trim() ||
+    seller?.username?.trim() ||
+    "de verkoper"
+  );
+}
+
+function parseSellerNameFromShippedBody(body: string): string | null {
+  const match = body.match(/\sis verzonden door\s(.+?)\.\s*(?:Volg je pakket|$)/i);
+  return match?.[1]?.trim() || null;
+}
+
 function buildPayloadFromSellerOrder(
   row: SellerNotificationRow,
   sellerOrder: SellerOrderListRow | SellerOrderDetail
@@ -67,7 +85,10 @@ function buildPayloadFromSellerOrder(
       row.notification_type === "new_paid_order"
         ? sellerNewOrderToastBody(productName, amountLabel)
         : row.body,
-    subtitle: null,
+    subtitle:
+      row.notification_type === "new_paid_order"
+        ? sellerNewOrderToastSubtitle()
+        : null,
     productImageUrl: firstProductImage(sellerOrder.items),
     productName,
     variantLabel,
@@ -84,22 +105,24 @@ function buildPayloadFromBuyerOrder(
   const firstItem = buyerOrder.items[0];
   const order = buyerOrder.order;
   const variantLabel = formatOrderItemSizeLabel(firstItem);
-  const hasTracking = Boolean(order.trackingCode?.trim());
-  const subtitle =
-    row.notification_type === "order_shipped" && hasTracking
-      ? NOTIFICATION_SUBTITLES.order_shipped
-      : NOTIFICATION_SUBTITLES[row.notification_type] ?? null;
+  const productName = row.product_name ?? firstItem?.product?.name ?? null;
+  const sellerName = sellerDisplayName(buyerOrder.seller);
+  const isOrderShipped = row.notification_type === "order_shipped";
 
   return {
     id: row.id,
     orderId: row.order_id,
     audience: "buyer",
     notificationType: row.notification_type,
-    title: row.title,
-    body: row.body,
-    subtitle,
+    title: isOrderShipped ? buyerOrderShippedToastTitle() : row.title,
+    body: isOrderShipped
+      ? buyerOrderShippedToastBody(productName, sellerName)
+      : row.body,
+    subtitle: isOrderShipped
+      ? buyerOrderShippedToastSubtitle()
+      : NOTIFICATION_SUBTITLES[row.notification_type] ?? null,
     productImageUrl: firstProductImage(buyerOrder.items),
-    productName: row.product_name ?? firstItem?.product?.name ?? null,
+    productName,
     variantLabel,
     amountLabel: formatPriceEur(order.subtotalAmount),
     orderReference: notificationOrderReference(order.id),
@@ -107,24 +130,40 @@ function buildPayloadFromBuyerOrder(
   };
 }
 
-function buildFallbackPayload(
+export function buildFallbackPayload(
   row: SellerNotificationRow | BuyerNotificationRow,
   audience: InAppNotificationAudience
 ): InAppNotificationPayload {
   const productName = row.product_name?.trim() || "Product";
   const isSellerNewPaid =
     audience === "seller" && row.notification_type === "new_paid_order";
+  const isBuyerShipped =
+    audience === "buyer" && row.notification_type === "order_shipped";
+  const parsedSellerName =
+    isBuyerShipped && "body" in row
+      ? parseSellerNameFromShippedBody(row.body)
+      : null;
 
   return {
     id: row.id,
     orderId: row.order_id,
     audience,
     notificationType: row.notification_type,
-    title: isSellerNewPaid ? sellerNewOrderToastTitle() : row.title,
+    title: isSellerNewPaid
+      ? sellerNewOrderToastTitle()
+      : isBuyerShipped
+        ? buyerOrderShippedToastTitle()
+        : row.title,
     body: isSellerNewPaid
       ? sellerNewOrderToastBody(productName, "")
-      : row.body,
-    subtitle: NOTIFICATION_SUBTITLES[row.notification_type] ?? null,
+      : isBuyerShipped
+        ? buyerOrderShippedToastBody(row.product_name, parsedSellerName)
+        : row.body,
+    subtitle: isBuyerShipped
+      ? buyerOrderShippedToastSubtitle()
+      : isSellerNewPaid
+        ? sellerNewOrderToastSubtitle()
+        : NOTIFICATION_SUBTITLES[row.notification_type] ?? null,
     productImageUrl: null,
     productName: row.product_name,
     variantLabel: null,
@@ -154,7 +193,10 @@ export function buildSellerNotificationFallback(
       row.notification_type === "new_paid_order"
         ? sellerNewOrderToastBody(productName, amountLabel)
         : row.body,
-    subtitle: null,
+    subtitle:
+      row.notification_type === "new_paid_order"
+        ? sellerNewOrderToastSubtitle()
+        : null,
     productImageUrl: null,
     productName: row.product_name,
     variantLabel: null,
@@ -230,55 +272,119 @@ export function subscribeOrderNotificationInserts(
     onBuyerInsert: (row: BuyerNotificationRow) => void;
   }
 ): () => void {
-  const channel = supabase
-    .channel(`in-app-notifications-${userId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "seller_notifications",
-        filter: `seller_id=eq.${userId}`,
-      },
-      (payload) => {
-        const row = mapSellerNotificationRow(payload.new as Record<string, unknown>);
-        if (row.notification_type !== "new_paid_order") {
+  let disposed = false;
+  let retryAttempt = 0;
+  let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+  let channel = supabase.channel(`in-app-notifications-${userId}-${Date.now()}`);
+
+  const MAX_RETRY_DELAY_MS = 30_000;
+
+  const clearRetry = () => {
+    if (retryTimeout) {
+      clearTimeout(retryTimeout);
+      retryTimeout = null;
+    }
+  };
+
+  const scheduleReconnect = () => {
+    if (disposed) {
+      return;
+    }
+    clearRetry();
+    const delay = Math.min(1000 * 2 ** retryAttempt, MAX_RETRY_DELAY_MS);
+    retryAttempt += 1;
+    logSellerOrderNotification("realtime reconnect scheduled", `${delay}ms`);
+    logBuyerNotification("realtime reconnect scheduled", `${delay}ms`);
+    retryTimeout = setTimeout(() => {
+      retryTimeout = null;
+      if (!disposed) {
+        connect();
+      }
+    }, delay);
+  };
+
+  const connect = () => {
+    if (disposed) {
+      return;
+    }
+
+    void supabase.removeChannel(channel);
+    channel = supabase.channel(`in-app-notifications-${userId}-${Date.now()}`);
+
+    channel
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "seller_notifications",
+          filter: `seller_id=eq.${userId}`,
+        },
+        (payload) => {
+          const row = mapSellerNotificationRow(
+            payload.new as Record<string, unknown>
+          );
+          if (row.notification_type !== "new_paid_order") {
+            return;
+          }
+          logSellerOrderNotification(
+            "realtime payload received",
+            row.id,
+            row.order_id
+          );
+          handlers.onSellerInsert(row);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "buyer_notifications",
+          filter: `buyer_id=eq.${userId}`,
+        },
+        (payload) => {
+          const row = mapBuyerNotificationRow(
+            payload.new as Record<string, unknown>
+          );
+          if (row.notification_type !== "order_shipped") {
+            return;
+          }
+          logBuyerShipmentToast(`realtime received ${row.id}`);
+          logBuyerNotification(
+            "realtime payload received",
+            row.id,
+            row.order_id
+          );
+          handlers.onBuyerInsert(row);
+        }
+      )
+      .subscribe((status, err) => {
+        logSellerOrderNotification(`subscription status ${status}`);
+        logBuyerNotification(`subscription status ${status}`);
+        if (err) {
+          logSellerOrderNotification("error", "realtime channel", err.message);
+          logBuyerNotification("error", "realtime channel", err.message);
+          scheduleReconnect();
           return;
         }
-        logSellerOrderNotification("realtime payload received", row.id, row.order_id);
-        handlers.onSellerInsert(row);
-      }
-    )
-    .on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "buyer_notifications",
-        filter: `buyer_id=eq.${userId}`,
-      },
-      (payload) => {
-        const row = mapBuyerNotificationRow(payload.new as Record<string, unknown>);
-        if (row.notification_type !== "order_shipped") {
+        if (status === "SUBSCRIBED") {
+          retryAttempt = 0;
           return;
         }
-        logBuyerNotification("realtime payload received", row.id, row.order_id);
-        handlers.onBuyerInsert(row);
-      }
-    )
-    .subscribe((status, err) => {
-      logSellerOrderNotification(`subscription status ${status}`);
-      logBuyerNotification(`subscription status ${status}`);
-      if (err) {
-        logSellerOrderNotification("error", "realtime channel", err.message);
-        logBuyerNotification("error", "realtime channel", err.message);
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        logSellerOrderNotification("error", "realtime channel", status);
-        logBuyerNotification("error", "realtime channel", status);
-      }
-    });
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          logSellerOrderNotification("error", "realtime channel", status);
+          logBuyerNotification("error", "realtime channel", status);
+          scheduleReconnect();
+        }
+      });
+  };
+
+  connect();
 
   return () => {
+    disposed = true;
+    clearRetry();
     void supabase.removeChannel(channel);
   };
 }
