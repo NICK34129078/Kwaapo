@@ -2,12 +2,11 @@
  * KVK Handelsregister Basisprofiel — server-side verification only.
  * Secrets: KVK_API_KEY (required), KVK_API_BASE (optional, defaults to production)
  *
- * Test: KVK_API_BASE=https://api.kvk.nl/test/api/v1
- *       KVK_API_KEY=l7xx1f2691f2520d487b902f4e0b57a0b197
+ * Test: KVK_API_BASE=https://api.kvk.nl/test/api/v1 with KVK's public test key in
+ *       KVK_API_KEY (see KVK developer portal). No keys are hardcoded here.
  */
 
 const DEFAULT_KVK_API_BASE = "https://api.kvk.nl/api/v1";
-const KVK_TEST_API_KEY = "l7xx1f2691f2520d487b902f4e0b57a0b197";
 
 function jsonKvk(data, status = 200, cors = {}) {
   return new Response(JSON.stringify(data), {
@@ -209,7 +208,7 @@ function isDeregistered(profile) {
 
 function getKvkConfig(env) {
   const base = clean(env.KVK_API_BASE) || DEFAULT_KVK_API_BASE;
-  const apiKey = clean(env.KVK_API_KEY) || (base.includes("/test/") ? KVK_TEST_API_KEY : "");
+  const apiKey = clean(env.KVK_API_KEY);
   return { base: base.replace(/\/$/, ""), apiKey };
 }
 

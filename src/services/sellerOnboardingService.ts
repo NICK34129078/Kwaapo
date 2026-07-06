@@ -17,9 +17,6 @@ import {
   type SellerType,
 } from "../types/sellerOnboarding";
 
-const SELLER_ONBOARDING_COLUMNS =
-  "id, seller_onboarding_status, seller_type, business_name, kvk_number, vat_number, business_email, business_phone, business_country, business_city, business_postal_code, business_street, business_house_number, stripe_connect_account_id, stripe_connect_onboarding_complete, stripe_charges_enabled, stripe_payouts_enabled, stripe_requirements_currently_due, stripe_requirements_disabled_reason, stripe_status_updated_at, seller_verified_at, seller_rejection_reason, display_name, kvk_verified_at, kvk_verification_source";
-
 function clean(value: string | null | undefined): string {
   return value?.trim() ?? "";
 }
@@ -525,11 +522,10 @@ export function getSellerStatusCardContent(
 }
 
 export async function fetchMySellerOnboarding(): Promise<SellerOnboarding | null> {
-  const userId = await getCurrentUserId();
+  // Own full record (incl. PII columns) comes from a SECURITY DEFINER RPC —
+  // direct table SELECT no longer exposes sensitive columns (migration 0039).
   const { data, error } = await supabase
-    .from("profiles")
-    .select(SELLER_ONBOARDING_COLUMNS)
-    .eq("id", userId)
+    .rpc("get_my_seller_onboarding")
     .maybeSingle<SellerOnboardingRow>();
 
   if (error) {
@@ -541,12 +537,19 @@ export async function fetchMySellerOnboarding(): Promise<SellerOnboarding | null
   return mapSellerOnboardingRow(data);
 }
 
+// Columns a buyer may see about another seller (no PII/secrets). Enough to
+// drive canSellerAcceptSales(); sensitive fields stay owner-only (migration 0039).
+const SELLER_PUBLIC_COLUMNS =
+  "id, seller_onboarding_status, seller_type, business_name, business_country, business_city, display_name, seller_verified_at, seller_rejection_reason, kvk_verified_at, stripe_connect_onboarding_complete, stripe_charges_enabled, stripe_payouts_enabled, stripe_requirements_currently_due, stripe_requirements_disabled_reason, stripe_status_updated_at";
+
 export async function fetchSellerOnboardingByProfileId(
   profileId: string
 ): Promise<SellerOnboarding | null> {
+  // Buyer-facing lookup: safe columns only. PII (email/kvk/address/stripe id)
+  // is not selected and is no longer readable for other users' profiles.
   const { data, error } = await supabase
     .from("profiles")
-    .select(SELLER_ONBOARDING_COLUMNS)
+    .select(SELLER_PUBLIC_COLUMNS)
     .eq("id", profileId)
     .maybeSingle<SellerOnboardingRow>();
 
@@ -580,7 +583,7 @@ export async function updateMyBusinessInfo(
     kvkVerificationSource = null;
   }
 
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from("profiles")
     .update({
       seller_type: validated.sellerType,
@@ -599,34 +602,28 @@ export async function updateMyBusinessInfo(
       kvk_verified_at: kvkVerifiedAt,
       kvk_verification_source: kvkVerificationSource,
     })
-    .eq("id", userId)
-    .select(SELLER_ONBOARDING_COLUMNS)
-    .single<SellerOnboardingRow>();
+    .eq("id", userId);
 
   if (error) {
     throw error;
   }
-  const mapped = mapSellerOnboardingRow(data);
+  // Sensitive columns are no longer readable via a RETURNING select (migration
+  // 0039); re-read the owner's own record through the definer RPC.
+  const mapped = await fetchMySellerOnboarding();
+  if (!mapped) {
+    throw new Error("Kon je verkopersgegevens niet laden na opslaan.");
+  }
   void refreshSellerReadinessFromWorker().catch(() => undefined);
   return mapped;
 }
 
 export async function markSellerPendingReview(): Promise<SellerOnboarding> {
-  const userId = await getCurrentUserId();
-
   await refreshSellerReadinessFromWorker();
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select(SELLER_ONBOARDING_COLUMNS)
-    .eq("id", userId)
-    .single<SellerOnboardingRow>();
-
-  if (error) {
-    throw error;
+  const onboarding = await fetchMySellerOnboarding();
+  if (!onboarding) {
+    throw new Error("Kon je verkopersgegevens niet laden.");
   }
-
-  const onboarding = mapSellerOnboardingRow(data);
   if (!onboarding.sellerType) {
     throw new Error("Kies eerst hoe je verkoopt.");
   }

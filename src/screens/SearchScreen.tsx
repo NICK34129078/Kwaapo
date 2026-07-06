@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AvatarImage } from "../components/AvatarImage";
 import { supabase } from "../lib/supabase";
+import { sanitizePostgrestFilterValue } from "../utils/postgrestFilter";
 
 type SearchProfile = {
   id: string;
@@ -36,7 +37,7 @@ export function SearchScreen() {
   const [results, setResults] = useState<SearchProfile[]>([]);
 
   const runSearch = useCallback(async (rawValue: string) => {
-    const cleanValue = rawValue.trim();
+    const cleanValue = sanitizePostgrestFilterValue(rawValue);
 
     if (!cleanValue) {
       setResults([]);
