@@ -1,4 +1,7 @@
 import React from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   FlatList,
@@ -10,9 +13,6 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import type { Product } from "../types/product";
 import { formatPriceEur } from "../utils/formatPrice";
 
@@ -42,6 +42,7 @@ export function UploadProductPickerPanel({
   onClose,
 }: Props) {
   const { theme } = useTheme();
+
   const styles = useThemedStyles(createStyles);
 
   if (!visible) {
@@ -286,5 +287,6 @@ function createStyles(theme: AppTheme) {
     textAlign: "center",
     lineHeight: 18,
   },
-  });
+});
 }
+

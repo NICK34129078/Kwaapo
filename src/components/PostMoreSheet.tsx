@@ -1,4 +1,8 @@
 import React, { useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   Modal,
   Platform,
@@ -11,9 +15,6 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import type { FeedPost } from "../data/placeholder";
 import { resolvePostUsername } from "../services/sharePostService";
 
@@ -99,7 +100,9 @@ export function PostMoreSheet({
   onReport,
   onBlock,
 }: Props) {
+  const { t } = useTranslation();
   const styles = useThemedStyles(createStyles);
+
   const insets = useSafeAreaInsets();
   const handle = resolvePostUsername(post);
 
@@ -124,7 +127,7 @@ export function PostMoreSheet({
       return [
         {
           id: "stats",
-          label: "Statistieken",
+          label: t("feed.stats"),
           icon: "stats-chart-outline",
           onPress: () => onViewStats?.(),
           accent: true,
@@ -132,13 +135,13 @@ export function PostMoreSheet({
         },
         {
           id: "copy",
-          label: "Link kopiëren",
+          label: t("feed.copyLink"),
           icon: "link-outline",
           onPress: onCopyLink,
         },
         {
           id: "delete",
-          label: "Verwijderen",
+          label: t("feed.deletePost"),
           icon: "trash-outline",
           onPress: () => onDelete?.(),
           destructive: true,
@@ -147,12 +150,14 @@ export function PostMoreSheet({
       ];
     }
 
-    const followLabel = isFollowing ? `Ontvolgen @${handle}` : `Volgen @${handle}`;
+    const followLabel = isFollowing
+      ? t("feed.unfollow", { handle })
+      : t("feed.followHandle", { handle });
 
     return [
       {
         id: "not-interested",
-        label: "Niet geïnteresseerd",
+        label: t("feed.notInterested"),
         icon: "eye-off-outline",
         onPress: () => onNotInterested?.(),
         disabled: !onNotInterested,
@@ -167,20 +172,20 @@ export function PostMoreSheet({
       },
       {
         id: "copy",
-        label: "Link kopiëren",
+        label: t("feed.copyLink"),
         icon: "link-outline",
         onPress: onCopyLink,
       },
       {
         id: "profile",
-        label: "Bekijk profiel",
+        label: t("feed.viewProfile"),
         icon: "person-circle-outline",
         onPress: () => onViewProfile?.(),
         disabled: !onViewProfile,
       },
       {
         id: "report",
-        label: "Melden",
+        label: t("feed.report"),
         icon: "flag-outline",
         onPress: () => onReport?.(),
         destructive: true,
@@ -188,7 +193,7 @@ export function PostMoreSheet({
       },
       {
         id: "block",
-        label: `Blokkeer @${handle}`,
+        label: t("feed.blockHandle", { handle }),
         icon: "ban-outline",
         onPress: () => onBlock?.(),
         destructive: true,
@@ -209,6 +214,7 @@ export function PostMoreSheet({
     onToggleFollow,
     onViewProfile,
     onViewStats,
+    t,
   ]);
 
   return (
@@ -223,7 +229,7 @@ export function PostMoreSheet({
           style={StyleSheet.absoluteFill}
           onPress={onClose}
           accessibilityRole="button"
-          accessibilityLabel="Sluit menu"
+          accessibilityLabel={t("feed.closeMenu")}
         />
         <View
           style={[
@@ -232,7 +238,7 @@ export function PostMoreSheet({
           ]}
         >
           <View style={styles.grabber} />
-          <Text style={styles.sheetTitle}>Meer opties</Text>
+          <Text style={styles.sheetTitle}>{t("feed.moreOptions")}</Text>
           {actions.map((action, index) => (
             <View key={action.id}>
               {index > 0 ? <View style={styles.separator} /> : null}
@@ -258,9 +264,9 @@ export function PostMoreSheet({
               pressed && styles.rowPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Annuleren"
+            accessibilityLabel={t("common.cancel")}
           >
-            <Text style={styles.cancelLabel}>Annuleren</Text>
+            <Text style={styles.cancelLabel}>{t("common.cancel")}</Text>
           </Pressable>
         </View>
       </View>
@@ -270,77 +276,78 @@ export function PostMoreSheet({
 
 function createStyles(theme: AppTheme) {
   return StyleSheet.create({
-    overlay: {
-      flex: 1,
-      justifyContent: "flex-end",
-      backgroundColor: theme.overlay,
-    },
-    sheet: {
-      backgroundColor: theme.bgElevated,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      paddingTop: 8,
-      paddingHorizontal: 12,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.border,
-    },
-    grabber: {
-      alignSelf: "center",
-      width: 36,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: "rgba(255,255,255,0.22)",
-      marginBottom: 12,
-    },
-    sheetTitle: {
-      color: theme.textMuted,
-      fontSize: 13,
-      fontWeight: "600",
-      textAlign: "center",
-      marginBottom: 4,
-      letterSpacing: 0.2,
-    },
-    row: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 14,
-      minHeight: 56,
-      paddingHorizontal: 8,
-      borderRadius: 12,
-    },
-    rowPressed: {
-      backgroundColor: theme.accentFaint,
-    },
-    rowDisabled: {
-      opacity: 0.45,
-    },
-    rowLabel: {
-      flex: 1,
-      fontSize: 16,
-      fontWeight: "500",
-    },
-    separator: {
-      height: StyleSheet.hairlineWidth,
-      backgroundColor: theme.border,
-      marginHorizontal: 8,
-    },
-    cancelGap: {
-      height: 8,
-    },
-    cancelBtn: {
-      minHeight: 52,
-      borderRadius: 14,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: theme.bg,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.border,
-      marginBottom: 4,
-    },
-    cancelLabel: {
-      color: theme.text,
-      fontSize: 16,
-      fontWeight: "600",
-    },
-  });
+  overlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: theme.overlay,
+  },
+  sheet: {
+    backgroundColor: theme.bgElevated,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 8,
+    paddingHorizontal: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  grabber: {
+    alignSelf: "center",
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    marginBottom: 12,
+  },
+  sheetTitle: {
+    color: theme.textMuted,
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 4,
+    letterSpacing: 0.2,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    minHeight: 56,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+  },
+  rowPressed: {
+    backgroundColor: theme.accentFaint,
+  },
+  rowDisabled: {
+    opacity: 0.45,
+  },
+  rowLabel: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: theme.border,
+    marginHorizontal: 8,
+  },
+  cancelGap: {
+    height: 8,
+  },
+  cancelBtn: {
+    minHeight: 52,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.bg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    marginBottom: 4,
+  },
+  cancelLabel: {
+    color: theme.text,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+});
 }
+

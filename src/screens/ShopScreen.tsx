@@ -1,4 +1,8 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Animated,
@@ -16,10 +20,6 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ProductListingImage } from "../components/ProductListingImage";
-import { AvatarImage } from "../components/AvatarImage";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { useAuth } from "../context/AuthContext";
 import {
   getMainCategoryDef,
@@ -39,12 +39,6 @@ import {
   mergeProductIntoList,
   subscribeProductCatalog,
 } from "../services/productCatalogRefresh";
-import {
-  resolveShopBrandLabel,
-  resolveShopBrandSubtitle,
-  searchShopBrands,
-  type ShopBrandProfile,
-} from "../services/shopBrandSearchService";
 import type { Product } from "../types/product";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
@@ -62,6 +56,7 @@ const LOW_STOCK_THRESHOLD = 5;
 
 function ShopProductSkeleton({ width }: { width: number }) {
   const styles = useThemedStyles(createStyles);
+
   return (
     <View style={[styles.card, { width }]}>
       <View style={[styles.productImageWrap, styles.skeletonBlock]} />
@@ -82,7 +77,9 @@ function ShopProductCard({
   width: number;
   onPress: () => void;
 }) {
+  const { t } = useTranslation();
   const styles = useThemedStyles(createStyles);
+
   const scale = useRef(new Animated.Value(1)).current;
   const imageUri = product.images[0];
 
@@ -126,44 +123,13 @@ function ShopProductCard({
           </Text>
           <Text style={styles.productPrice}>{formatPriceEur(product.price)}</Text>
           {product.stock > 0 && product.stock <= LOW_STOCK_THRESHOLD ? (
-            <Text style={styles.lowStock}>Nog {product.stock} beschikbaar</Text>
+            <Text style={styles.lowStock}>
+              {t("shop.stockLow", { count: product.stock })}
+            </Text>
           ) : null}
         </View>
       </Pressable>
     </Animated.View>
-  );
-}
-
-function ShopBrandRow({
-  brand,
-  onPress,
-}: {
-  brand: ShopBrandProfile;
-  onPress: () => void;
-}) {
-  const { theme } = useTheme();
-  const styles = useThemedStyles(createStyles);
-  return (
-    <Pressable
-      style={styles.brandRow}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={resolveShopBrandLabel(brand)}
-    >
-      <AvatarImage uri={brand.avatarUrl} style={styles.brandAvatar} />
-      <View style={styles.brandText}>
-        <Text style={styles.brandName} numberOfLines={1}>
-          {resolveShopBrandLabel(brand)}
-        </Text>
-        <Text style={styles.brandHandle} numberOfLines={1}>
-          {resolveShopBrandSubtitle(brand)}
-        </Text>
-      </View>
-      <View style={styles.brandBadge}>
-        <Ionicons name="storefront-outline" size={14} color={theme.accent} />
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
-    </Pressable>
   );
 }
 
@@ -181,25 +147,30 @@ function resolveFeedMode(
   return "browse";
 }
 
-function subtitleForTab(feedTab: ShopFeedTabId, hasUser: boolean): string {
+function subtitleForTab(
+  feedTab: ShopFeedTabId,
+  hasUser: boolean,
+  t: (key: string, options?: Record<string, unknown>) => string
+): string {
   if (feedTab === "voor_jou") {
     return hasUser
-      ? "Producten die passen bij jouw interesses."
-      : "Log in voor persoonlijke aanbevelingen — nu zie je alle beschikbare producten.";
-  }
-  if (feedTab === "merken") {
-    return "Alleen geverifieerde verkopers met live producten in de shop.";
+      ? t("shop.subtitleForYou")
+      : t("shop.subtitleForYouGuest");
   }
   if (feedTab === "browse") {
-    return "Ontdek alle producten die nu beschikbaar zijn.";
+    return t("shop.subtitleBrowse");
   }
   const def = getMainCategoryDef(feedTab);
-  return def ? `Shop ${def.label.toLowerCase()} — filter op type.` : "";
+  return def
+    ? t("shop.subtitleCategory", { category: def.label.toLowerCase() })
+    : "";
 }
 
 export function ShopScreen() {
+  const { t } = useTranslation();
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -216,27 +187,21 @@ export function ShopScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
-  const [brands, setBrands] = useState<ShopBrandProfile[]>([]);
-  const [brandsLoading, setBrandsLoading] = useState(false);
 
   const productsRef = useRef<Product[]>([]);
   const loadMoreInFlightRef = useRef(false);
   const fetchRequestIdRef = useRef(0);
-  const brandFetchRequestIdRef = useRef(0);
   const seenProductIdsRef = useRef(new BoundedSeenIds(SHOP_WINDOW.SEEN_MAX));
   const scrollYRef = useRef(0);
 
   productsRef.current = products;
 
   const mainCategoryFilter = useMemo((): ShopMainCategoryCode | null => {
-    if (feedTab === "voor_jou" || feedTab === "browse" || feedTab === "merken") {
+    if (feedTab === "voor_jou" || feedTab === "browse") {
       return null;
     }
     return feedTab;
   }, [feedTab]);
-
-  const isMerkenTab = feedTab === "merken";
-  const showBrandSection = isMerkenTab || query.trim().length > 0;
 
   const mainDef = getMainCategoryDef(mainCategoryFilter ?? undefined);
   const showAudienceRow =
@@ -314,12 +279,6 @@ export function ShopScreen() {
 
   const loadFirstBatch = useCallback(async () => {
     const requestId = ++fetchRequestIdRef.current;
-    if (feedTab === "merken") {
-      setProducts([]);
-      setHasMore(false);
-      return;
-    }
-
     const trimmedQuery = query.trim();
     const mode = resolveFeedMode(feedTab, !!user?.id, trimmedQuery.length > 0);
 
@@ -341,23 +300,8 @@ export function ShopScreen() {
     }
   }, [feedTab, fetchBatch, query, registerProductsInSeen, user?.id]);
 
-  const loadBrands = useCallback(async () => {
-    const requestId = ++brandFetchRequestIdRef.current;
-    try {
-      const results = await searchShopBrands(query);
-      if (requestId !== brandFetchRequestIdRef.current) {
-        return;
-      }
-      setBrands(results);
-    } catch {
-      if (requestId === brandFetchRequestIdRef.current) {
-        setBrands([]);
-      }
-    }
-  }, [query]);
-
   const loadMore = useCallback(async () => {
-    if (feedTab === "merken" || loadMoreInFlightRef.current || !hasMore || initialLoading) {
+    if (loadMoreInFlightRef.current || !hasMore || initialLoading) {
       return;
     }
     loadMoreInFlightRef.current = true;
@@ -384,26 +328,6 @@ export function ShopScreen() {
   }, [appendProducts, feedTab, fetchBatch, hasMore, initialLoading, query, registerProductsInSeen, user?.id]);
 
   useEffect(() => {
-    if (!showBrandSection) {
-      setBrands([]);
-      setBrandsLoading(false);
-      return;
-    }
-
-    const delay = query.trim().length > 0 ? 280 : 0;
-    setBrandsLoading(true);
-    const timer = setTimeout(() => {
-      void loadBrands().finally(() => setBrandsLoading(false));
-    }, delay);
-    return () => clearTimeout(timer);
-  }, [loadBrands, query, showBrandSection]);
-
-  useEffect(() => {
-    if (feedTab === "merken") {
-      setInitialLoading(false);
-      return;
-    }
-
     const delay = query.trim().length > 0 ? 280 : 0;
     const timer = setTimeout(() => {
       setInitialLoading(true);
@@ -411,24 +335,16 @@ export function ShopScreen() {
       void loadFirstBatch().finally(() => setInitialLoading(false));
     }, delay);
     return () => clearTimeout(timer);
-  }, [feedTab, loadFirstBatch, query]);
+  }, [loadFirstBatch, query]);
 
   useFocusEffect(
     useCallback(() => {
-      if (feedTab !== "merken") {
-        void loadFirstBatch();
-      }
-      if (showBrandSection) {
-        void loadBrands();
-      }
-    }, [feedTab, loadBrands, loadFirstBatch, showBrandSection])
+      void loadFirstBatch();
+    }, [loadFirstBatch])
   );
 
   useEffect(() => {
     return subscribeProductCatalog((event) => {
-      if (feedTab === "merken") {
-        return;
-      }
       if (event.kind === "created" || event.kind === "updated") {
         if (event.product.isActive && event.product.stock > 0 && !query.trim()) {
           setProducts((prev) => mergeProductIntoList(prev, event.product));
@@ -436,27 +352,13 @@ export function ShopScreen() {
       }
       void loadFirstBatch();
     });
-  }, [feedTab, loadFirstBatch, query]);
-
-  const openBrand = useCallback(
-    (brand: ShopBrandProfile) => {
-      navigation.navigate("PublicProfile", { profileId: brand.id });
-    },
-    [navigation]
-  );
+  }, [loadFirstBatch, query]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     setHasMore(true);
-    const productRefresh =
-      feedTab === "merken"
-        ? Promise.resolve()
-        : loadFirstBatch();
-    const brandRefresh = showBrandSection ? loadBrands() : Promise.resolve();
-    void Promise.all([productRefresh, brandRefresh]).finally(() =>
-      setRefreshing(false)
-    );
-  }, [feedTab, loadBrands, loadFirstBatch, showBrandSection]);
+    void loadFirstBatch().finally(() => setRefreshing(false));
+  }, [loadFirstBatch]);
 
   const resetToBrowseAll = useCallback(() => {
     setFeedTab("browse");
@@ -483,70 +385,21 @@ export function ShopScreen() {
     [navigation]
   );
 
-  const listEmpty = isMerkenTab
-    ? !brandsLoading && brands.length === 0
-    : !initialLoading && products.length === 0;
-
-  const brandSearchHeader = useMemo(() => {
-    if (isMerkenTab || !showBrandSection) {
-      return null;
-    }
-
-    return (
-      <View style={styles.brandsSection}>
-        <Text style={styles.sectionTitle}>Bedrijven</Text>
-        {brandsLoading ? (
-          <View style={styles.brandsLoadingWrap}>
-            <ActivityIndicator size="small" color={theme.accent} />
-          </View>
-        ) : brands.length > 0 ? (
-          brands.map((brand) => (
-            <ShopBrandRow
-              key={brand.id}
-              brand={brand}
-              onPress={() => openBrand(brand)}
-            />
-          ))
-        ) : query.trim() ? (
-          <Text style={styles.brandsEmpty}>
-            Geen geverifieerde bedrijven gevonden voor deze zoekterm.
-          </Text>
-        ) : null}
-        {!initialLoading || products.length > 0 ? (
-          <Text style={[styles.sectionTitle, styles.productsSectionTitle]}>
-            Producten
-          </Text>
-        ) : null}
-      </View>
-    );
-  }, [
-    brands,
-    brandsLoading,
-    initialLoading,
-    isMerkenTab,
-    openBrand,
-    products.length,
-    query,
-    showBrandSection,
-  ]);
+  const listEmpty = !initialLoading && products.length === 0;
 
   return (
     <View style={styles.root}>
       <View style={[styles.fixedHeader, { paddingTop: insets.top + 12 }]}>
-        <Text style={styles.kicker}>Kwaapo Store</Text>
-        <Text style={styles.title}>Shop voor jou</Text>
-        <Text style={styles.subtitle}>{subtitleForTab(feedTab, !!user?.id)}</Text>
+        <Text style={styles.kicker}>{t("shop.kwaapoStore")}</Text>
+        <Text style={styles.title}>{t("shop.shopForYou")}</Text>
+        <Text style={styles.subtitle}>{subtitleForTab(feedTab, !!user?.id, t)}</Text>
 
         <View style={styles.searchWrap}>
           <Ionicons name="search-outline" size={18} color={theme.textMuted} />
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder={
-              isMerkenTab
-                ? "Zoek een geverifieerd bedrijf..."
-                : "Zoek op merk, naam of product..."
-            }
+            placeholder={t("shop.searchPlaceholder")}
             placeholderTextColor={theme.textMuted}
             style={styles.searchInput}
             autoCapitalize="none"
@@ -602,7 +455,7 @@ export function ShopScreen() {
                   audienceStepDone && !audienceFilter && styles.chipTextSelected,
                 ]}
               >
-                Alles
+                {t("shop.all")}
               </Text>
             </Pressable>
             {SHOP_AUDIENCES.map((item) => {
@@ -637,7 +490,7 @@ export function ShopScreen() {
               onPress={() => setSubcategoryFilter(null)}
             >
               <Text style={[styles.chipText, !subcategoryFilter && styles.chipTextSelected]}>
-                Alles
+                {t("shop.all")}
               </Text>
             </Pressable>
             {(SHOP_SUBCATEGORIES[mainCategoryFilter] ?? []).map((item) => {
@@ -660,144 +513,89 @@ export function ShopScreen() {
         ) : null}
       </View>
 
-      {isMerkenTab ? (
-        <FlatList
-          style={styles.productList}
-          data={brands}
-          key="shop-brands"
-          keyExtractor={(item) => item.id}
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={[
-            styles.content,
-            { paddingBottom: insets.bottom + 110 },
-            brands.length === 0 && styles.contentEmpty,
-          ]}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={theme.accent}
-              colors={[theme.accent]}
-            />
-          }
-          renderItem={({ item }) => (
-            <ShopBrandRow brand={item} onPress={() => openBrand(item)} />
-          )}
-          ListHeaderComponent={
-            brandsLoading && brands.length === 0 ? (
-              <View style={styles.brandsLoadingWrap}>
+      <FlatList
+        style={styles.productList}
+        data={products}
+        keyExtractor={(item) => item.id}
+        numColumns={2}
+        columnWrapperStyle={styles.gridRow}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: insets.bottom + 110 },
+          products.length === 0 && styles.contentEmpty,
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.accent}
+            colors={[theme.accent]}
+          />
+        }
+        renderItem={({ item }) => (
+          <ShopProductCard
+            product={item}
+            width={cardWidth}
+            onPress={() => openProduct(item)}
+          />
+        )}
+        ListHeaderComponent={
+          initialLoading && products.length === 0 ? (
+            <View style={styles.skeletonGrid}>
+              <View style={styles.gridRow}>
+                <ShopProductSkeleton width={cardWidth} />
+                <ShopProductSkeleton width={cardWidth} />
+              </View>
+              <View style={styles.gridRow}>
+                <ShopProductSkeleton width={cardWidth} />
+                <ShopProductSkeleton width={cardWidth} />
+              </View>
+              <View style={styles.gridRow}>
+                <ShopProductSkeleton width={cardWidth} />
+                <ShopProductSkeleton width={cardWidth} />
+              </View>
+            </View>
+          ) : null
+        }
+        ListEmptyComponent={
+          listEmpty ? (
+            <View style={styles.emptyWrap}>
+              <Ionicons name="bag-outline" size={44} color={theme.textMuted} />
+              <Text style={styles.emptyTitle}>{t("shop.emptyTitle")}</Text>
+              <Text style={styles.emptyText}>{t("shop.emptyHint")}</Text>
+              <Pressable style={styles.emptyBtn} onPress={resetToBrowseAll}>
+                <Text style={styles.emptyBtnText}>{t("shop.viewAll")}</Text>
+              </Pressable>
+            </View>
+          ) : null
+        }
+        ListFooterComponent={
+          products.length > 0 ? (
+            <View style={styles.footer}>
+              {loadingMore ? (
                 <ActivityIndicator size="small" color={theme.accent} />
-              </View>
-            ) : null
-          }
-          ListEmptyComponent={
-            listEmpty ? (
-              <View style={styles.emptyWrap}>
-                <Ionicons name="storefront-outline" size={44} color={theme.textMuted} />
-                <Text style={styles.emptyTitle}>
-                  {query.trim() ? "Geen bedrijven gevonden" : "Nog geen bedrijven"}
-                </Text>
-                <Text style={styles.emptyText}>
-                  {query.trim()
-                    ? "Probeer een andere zoekterm."
-                    : "Alleen geverifieerde verkopers met een live product verschijnen hier."}
-                </Text>
-              </View>
-            ) : null
-          }
-          showsVerticalScrollIndicator={false}
-        />
-      ) : (
-        <FlatList
-          style={styles.productList}
-          data={products}
-          key="shop-products"
-          keyExtractor={(item) => item.id}
-          numColumns={2}
-          columnWrapperStyle={styles.gridRow}
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={[
-            styles.content,
-            { paddingBottom: insets.bottom + 110 },
-            products.length === 0 && !brandSearchHeader && styles.contentEmpty,
-          ]}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={theme.accent}
-              colors={[theme.accent]}
-            />
-          }
-          renderItem={({ item }) => (
-            <ShopProductCard
-              product={item}
-              width={cardWidth}
-              onPress={() => openProduct(item)}
-            />
-          )}
-          ListHeaderComponent={
-            <>
-              {brandSearchHeader}
-              {initialLoading && products.length === 0 ? (
-                <View style={styles.skeletonGrid}>
-                  <View style={styles.gridRow}>
-                    <ShopProductSkeleton width={cardWidth} />
-                    <ShopProductSkeleton width={cardWidth} />
-                  </View>
-                  <View style={styles.gridRow}>
-                    <ShopProductSkeleton width={cardWidth} />
-                    <ShopProductSkeleton width={cardWidth} />
-                  </View>
-                  <View style={styles.gridRow}>
-                    <ShopProductSkeleton width={cardWidth} />
-                    <ShopProductSkeleton width={cardWidth} />
-                  </View>
-                </View>
+              ) : !hasMore ? (
+                <Text style={styles.footerText}>{t("shop.seenAll")}</Text>
               ) : null}
-            </>
-          }
-          ListEmptyComponent={
-            listEmpty ? (
-              <View style={styles.emptyWrap}>
-                <Ionicons name="bag-outline" size={44} color={theme.textMuted} />
-                <Text style={styles.emptyTitle}>Hier is nog niets</Text>
-                <Text style={styles.emptyText}>
-                  Probeer een andere categorie of bekijk alles.
-                </Text>
-                <Pressable style={styles.emptyBtn} onPress={resetToBrowseAll}>
-                  <Text style={styles.emptyBtnText}>Bekijk alles</Text>
-                </Pressable>
-              </View>
-            ) : null
-          }
-          ListFooterComponent={
-            products.length > 0 ? (
-              <View style={styles.footer}>
-                {loadingMore ? (
-                  <ActivityIndicator size="small" color={theme.accent} />
-                ) : !hasMore ? (
-                  <Text style={styles.footerText}>Je hebt alles gezien.</Text>
-                ) : null}
-              </View>
-            ) : null
-          }
-          onEndReached={() => {
-            void loadMore();
-          }}
-          onEndReachedThreshold={1 - SHOP_WINDOW.LOAD_TRIGGER_RATIO}
-          onScroll={(e) => {
-            scrollYRef.current = e.nativeEvent.contentOffset.y;
-          }}
-          scrollEventThrottle={16}
-          maintainVisibleContentPosition={{
-            minIndexForVisible: 0,
-            autoscrollToTopThreshold: 10,
-          }}
-          showsVerticalScrollIndicator={false}
-          removeClippedSubviews={false}
-        />
-      )}
+            </View>
+          ) : null
+        }
+        onEndReached={() => {
+          void loadMore();
+        }}
+        onEndReachedThreshold={1 - SHOP_WINDOW.LOAD_TRIGGER_RATIO}
+        onScroll={(e) => {
+          scrollYRef.current = e.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
+        maintainVisibleContentPosition={{
+          minIndexForVisible: 0,
+          autoscrollToTopThreshold: 10,
+        }}
+        showsVerticalScrollIndicator={false}
+        removeClippedSubviews={false}
+      />
     </View>
   );
 }
@@ -999,69 +797,6 @@ function createStyles(theme: AppTheme) {
     fontSize: 13,
     fontWeight: "600",
   },
-  brandsSection: {
-    marginBottom: 8,
-  },
-  sectionTitle: {
-    color: theme.text,
-    fontSize: 15,
-    fontWeight: "800",
-    marginBottom: 10,
-    marginTop: 4,
-  },
-  productsSectionTitle: {
-    marginTop: 18,
-  },
-  brandsLoadingWrap: {
-    paddingVertical: 16,
-    alignItems: "center",
-  },
-  brandsEmpty: {
-    color: theme.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-    marginBottom: 8,
-  },
-  brandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    marginBottom: 8,
-    borderRadius: 16,
-    backgroundColor: theme.bgElevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-  },
-  brandAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-  },
-  brandText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  brandName: {
-    color: theme.text,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  brandHandle: {
-    color: theme.textMuted,
-    fontSize: 13,
-    marginTop: 2,
-  },
-  brandBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.accentSoft,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.accentBorderMuted,
-  },
-  });
+});
 }
+

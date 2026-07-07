@@ -560,6 +560,73 @@ async function fetchPostMediaByPostIds(
   return map;
 }
 
+async function attachPostAudioFieldsFromDb(
+  posts: UserVideoPost[]
+): Promise<UserVideoPost[]> {
+  const ids = posts.map((post) => post.id).filter(isUuid);
+  if (ids.length === 0) {
+    return posts;
+  }
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select(
+      "id, filename, audio_url, audio_title, audio_artist, audio_source, audio_start_ms, audio_volume, audio_duration_ms, audio_track_id"
+    )
+    .in("id", ids);
+
+  if (error) {
+    if (__DEV__) {
+      console.warn("[FeedSpotify] enrichment error batch", error.message);
+    }
+    return posts;
+  }
+
+  const byId = new Map(
+    (data ?? []).map((row) => {
+      const id = (row as { id?: string }).id;
+      return [id ?? "", row as MaybePostRow];
+    })
+  );
+
+  return posts.map((post) => {
+    const row = byId.get(post.id);
+    if (!row) {
+      if (__DEV__) {
+        console.log(
+          `[FeedSpotify] feed reel received ${post.id} none (row missing)`
+        );
+      }
+      return post;
+    }
+
+    const audioFields = audioFieldsFromRow(row);
+    const trackId = audioFields.audioTrackId ?? "none";
+    if (__DEV__) {
+      console.log(`[FeedSpotify] feed reel received ${post.id} ${trackId}`);
+    }
+
+    const filename =
+      typeof row.filename === "string" && row.filename.length > 0
+        ? row.filename
+        : post.filename;
+
+    const merged: UserVideoPost = {
+      ...post,
+      ...(filename ? { filename } : {}),
+      ...audioFields,
+    };
+
+    if (__DEV__) {
+      console.log(
+        `[FeedSpotify] music fields mapped ${post.id} ${merged.audioTitle ?? "none"}`
+      );
+    }
+
+    return merged;
+  });
+}
+
 async function attachMusicThumbsToPosts(
   posts: UserVideoPost[]
 ): Promise<UserVideoPost[]> {
@@ -572,6 +639,15 @@ async function attachMusicThumbsToPosts(
 
   const tracksById = await fetchMusicTracksByIds(trackIds);
   if (tracksById.size === 0) {
+    if (__DEV__) {
+      for (const post of posts) {
+        if (post.audioTrackId) {
+          console.log(
+            `[FeedSpotify] banner hidden ${post.id} track_not_in_library`
+          );
+        }
+      }
+    }
     return posts;
   }
 
@@ -580,13 +656,47 @@ async function attachMusicThumbsToPosts(
       return post;
     }
     const track = tracksById.get(post.audioTrackId);
-    if (!track?.coverUrl) {
+    if (!track) {
+      if (__DEV__) {
+        console.log(`[FeedSpotify] banner hidden ${post.id} track_not_found`);
+      }
       return post;
     }
-    return {
-      ...post,
-      musicThumbUrl: track.coverUrl,
-    };
+
+    const patch: Partial<UserVideoPost> = {};
+    if (track.coverUrl) {
+      patch.musicThumbUrl = track.coverUrl;
+    }
+    if (!post.audioTitle?.trim()) {
+      patch.audioTitle = track.title;
+    }
+    if (!post.audioArtist?.trim() && track.artist) {
+      patch.audioArtist = track.artist;
+    }
+    if (!post.audioUrl?.trim() && track.audioUrl) {
+      patch.audioUrl = track.audioUrl;
+    }
+    if (
+      (!post.audioSource || post.audioSource === "none") &&
+      track.externalProvider
+    ) {
+      patch.audioSource = "external";
+    }
+    if (post.audioDurationMs == null && track.durationMs != null) {
+      patch.audioDurationMs = track.durationMs;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return post;
+    }
+
+    const merged = { ...post, ...patch };
+    if (__DEV__) {
+      console.log(
+        `[FeedSpotify] music fields mapped ${post.id} ${merged.audioTitle ?? "none"}`
+      );
+    }
+    return merged;
   });
 }
 
@@ -744,13 +854,36 @@ async function mapSupabasePostRowsToUserVideoPosts(
       ...rankingFieldsFromRow(rawRow),
     });
   }
-  return attachMusicThumbsToPosts(await attachLinkedProductsToPosts(mapped));
+  const enriched =
+    scope === "global" ? await attachPostAudioFieldsFromDb(mapped) : mapped;
+  return attachMusicThumbsToPosts(await attachLinkedProductsToPosts(enriched));
 }
 
 /**
  * Profielposts: eigen profiel via Supabase; andere profielen via Worker.
  * @returns `undefined` als `json.posts` ontbreekt — caller moet state niet leegmaken.
  */
+/**
+ * Profielposts: Supabase met RLS (privacy + follow). Eigen profiel: scope own_profile.
+ */
+async function fetchProfilePostsFromSupabase(
+  userId: string,
+  scope: UserVideoPostMappingScope
+): Promise<UserVideoPost[]> {
+  const { data, error } = await supabase
+    .from("posts")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("is_deleted", false)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return mapSupabasePostRowsToUserVideoPosts(data ?? [], scope);
+}
+
 export async function fetchUserPosts(
   userId: string,
   scope: UserVideoPostMappingScope = "own_profile"
@@ -763,24 +896,7 @@ export async function fetchUserPosts(
     return fetchOwnUserPostsFromSupabase(userId);
   }
 
-  const workerUrl = new URL(CLOUD_VIDEO_WORKER_BASE);
-  workerUrl.searchParams.set("userPosts", "1");
-  workerUrl.searchParams.set("userId", userId);
-
-  const { res, json } = await fetchWorkerPostsJson(workerUrl.toString(), {
-    method: "GET",
-  });
-
-  if (!res.ok || json.success === false) {
-    throw new Error(json.message || "Worker fetch failed");
-  }
-
-  if (!Array.isArray(json.posts)) {
-    return undefined;
-  }
-
-  const ownerProfilesById = await fetchOwnerProfilesByIds(json.posts);
-  return await mapWorkerPostsToUserVideoPosts(json.posts, scope, ownerProfilesById);
+  return fetchProfilePostsFromSupabase(userId, scope);
 }
 
 export function userVideoPostFromPostRow(

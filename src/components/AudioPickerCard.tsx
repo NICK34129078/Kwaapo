@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   Alert,
   Image,
@@ -10,7 +13,6 @@ import {
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../constants/theme";
 import type { SpotifyTrackResult } from "../services/spotifyService";
 
 export const AUDIO_VOLUME_LOW = 0.35;
@@ -53,6 +55,9 @@ export function AudioPickerCard({
   onVolumeChange,
   onOpenSpotifyPicker,
 }: Props) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   const mode: AudioMode = selectedSpotifyTrack
     ? "spotify"
     : selectedUri
@@ -208,7 +213,8 @@ export function AudioPickerCard({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   card: {
     marginTop: 12,
     marginBottom: 4,
@@ -375,3 +381,5 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
+}
+

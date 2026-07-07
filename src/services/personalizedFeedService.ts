@@ -20,7 +20,8 @@ function clampLimit(limit?: number): number {
  */
 export async function fetchPersonalizedFeed(
   limit?: number,
-  excludePostIds?: string[]
+  excludePostIds?: string[],
+  options?: { allowRecentlyViewed?: boolean }
 ): Promise<UserVideoPost[]> {
   const {
     data: { user },
@@ -31,15 +32,26 @@ export async function fetchPersonalizedFeed(
 
   const lim = clampLimit(limit);
   const validExclude = (excludePostIds ?? []).filter(isPersistablePostId);
+  const allowRecentlyViewed = options?.allowRecentlyViewed === true;
 
-  const argsFull = {
+  const argsFull: Record<string, unknown> = {
     p_limit: lim,
     p_exclude_post_ids: validExclude,
   };
+  if (allowRecentlyViewed) {
+    argsFull.p_allow_recently_viewed = true;
+  }
 
   let { data, error } = await supabase.rpc("get_personalized_feed", argsFull);
 
-  if (error && validExclude.length === 0) {
+  if (error && allowRecentlyViewed) {
+    const retry = await supabase.rpc("get_personalized_feed", {
+      p_limit: lim,
+      p_exclude_post_ids: validExclude,
+    });
+    data = retry.data;
+    error = retry.error;
+  } else if (error && validExclude.length === 0) {
     const retry = await supabase.rpc("get_personalized_feed", {
       p_limit: lim,
     });

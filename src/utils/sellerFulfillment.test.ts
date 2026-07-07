@@ -1,7 +1,9 @@
 import {
+  buildSellerOrderListSections,
   countSellerOrdersNeedingAttention,
   matchesSellerOrderFilter,
   orderNeedsSellerAction,
+  resolveSellerOrderListBucket,
   sortSellerOrders,
 } from "./sellerFulfillment";
 import { formatSellerOrderBadgeCount } from "./sellerOrderBadge";
@@ -87,6 +89,22 @@ export function runSellerFulfillmentTests(): void {
 
   const sorted = sortSellerOrders([shipped, unpaid, toShip]);
   assert(sorted[0]?.order.id === "a", "sort action first");
+
+  assert(resolveSellerOrderListBucket(toShip.order) === "action_required", "bucket action");
+  assert(resolveSellerOrderListBucket(shipped.order) === "shipped", "bucket shipped");
+  const delivered = makeSellerOrder(
+    makeOrder({ id: "g", shippingStatus: "delivered" })
+  );
+  assert(resolveSellerOrderListBucket(delivered.order) === "completed", "bucket completed");
+
+  const sections = buildSellerOrderListSections([toShip, shipped, delivered], {
+    action_required: "Actie vereist",
+    shipped: "Verzonden",
+    completed: "Afgerond",
+    other: "Overig",
+  });
+  assert(sections.length === 3, "three sections");
+  assert(sections[0]?.key === "action_required", "action section first");
 }
 
 if (require.main === module) {

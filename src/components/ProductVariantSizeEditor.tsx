@@ -1,4 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   Alert,
   Modal,
@@ -9,9 +12,6 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import {
   getSizeMode,
   sizePresetsForSizeMode,
@@ -51,6 +51,7 @@ function StockStepperRow({
 }) {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const adjust = useCallback(
     (delta: number) => {
       onChangeStock(Math.max(0, stock + delta));
@@ -119,6 +120,7 @@ export function ProductVariantSizeEditor({
 }: Props) {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const sizeMode = getSizeMode(mainCategory, subcategory);
   const presets = useMemo(
     () => [...sizePresetsForSizeMode(sizeMode, audience)],
@@ -488,5 +490,6 @@ function createStyles(theme: AppTheme) {
   modalBtn: { paddingVertical: 10, paddingHorizontal: 4 },
   modalBtnText: { color: theme.textMuted, fontWeight: "700", fontSize: 15 },
   modalBtnPrimaryText: { color: theme.accent, fontWeight: "800", fontSize: 15 },
-  });
+});
 }
+

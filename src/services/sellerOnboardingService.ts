@@ -1,5 +1,9 @@
 import { supabase } from "../lib/supabase";
 import {
+  fetchMySellerTermsAcceptance,
+  hasAcceptedCurrentSellerTerms,
+} from "./sellerTermsService";
+import {
   normalizeKvkNumberInput,
   verifyKvkBusinessDetails,
 } from "./kvkVerifyService";
@@ -332,20 +336,24 @@ function bedrijfsgegevensStatusLabel(
 }
 
 export function getSellerOnboardingDashboardLines(
-  onboarding: SellerOnboarding
+  onboarding: SellerOnboarding,
+  options?: { termsAccepted?: boolean }
 ): string[] {
+  const termsAccepted = options?.termsAccepted ?? false;
   return [
     `KVK & bedrijfsgegevens: ${bedrijfsgegevensStatusLabel(onboarding)}`,
     `Stripe uitbetalingen: ${sellerPayoutStatusLabel(onboarding)}`,
+    `Seller-voorwaarden: ${termsAccepted ? "Geaccepteerd" : "Nog accepteren"}`,
     `Controle: ${kontroleStatusLabel(onboarding.status)}`,
     `Verkoop actief: ${getSalesStatusLabel(onboarding)}`,
   ];
 }
 
-/** Bepaal onboarding-stap (1=gegevens, 2=Stripe, 3=indienen). */
+/** Bepaal onboarding-stap (1=gegevens, 2=Stripe, 3=voorwaarden, 4=indienen). */
 export function resolveSellerOnboardingStep(
-  onboarding: SellerOnboarding | null | undefined
-): 1 | 2 | 3 {
+  onboarding: SellerOnboarding | null | undefined,
+  options?: { termsAccepted?: boolean }
+): 1 | 2 | 3 | 4 {
   if (
     !onboarding ||
     onboarding.status === "not_started" ||
@@ -357,7 +365,10 @@ export function resolveSellerOnboardingStep(
   if (!hasCompletedStripePayoutSetup(onboarding)) {
     return 2;
   }
-  return 3;
+  if (!options?.termsAccepted) {
+    return 3;
+  }
+  return 4;
 }
 
 /** Toon waarschuwing op productpagina als verkoper nog niet geverifieerd is. */
@@ -630,6 +641,11 @@ export async function markSellerPendingReview(): Promise<SellerOnboarding> {
   }
   if (!onboarding.stripeConnectOnboardingComplete) {
     throw new Error("Stel eerst je uitbetalingen via Stripe in.");
+  }
+
+  const termsAcceptance = await fetchMySellerTermsAcceptance();
+  if (!hasAcceptedCurrentSellerTerms(termsAcceptance)) {
+    throw new Error("Accepteer eerst de seller-voorwaarden in je verkoopaccount.");
   }
 
   if (onboarding.status === "verified" && isSellerFullyReadyForLiveSales(onboarding)) {

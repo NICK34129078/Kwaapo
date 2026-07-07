@@ -1,4 +1,7 @@
 import React, { useCallback, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Pressable,
@@ -10,7 +13,6 @@ import {
 import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { theme } from "../constants/theme";
 import { SuccessCelebrationHero } from "../components/SuccessCelebrationHero";
 import { fetchSellerOrderById } from "../services/ordersService";
 import type { SellerOrderDetail } from "../services/ordersService";
@@ -21,6 +23,9 @@ import {
 } from "../utils/orderDashboard";
 
 export function OrderShippedSuccessScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
@@ -183,7 +188,8 @@ export function OrderShippedSuccessScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -330,3 +336,5 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 });
+}
+

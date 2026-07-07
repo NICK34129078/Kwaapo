@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Alert,
@@ -15,9 +18,6 @@ import {
 import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { useAuth } from "../context/AuthContext";
 import { fetchProfileById } from "../services/profileService";
 import {
@@ -96,6 +96,7 @@ function ProductManageRow({
 }) {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const imageUri = product.images[0];
   const stockStatus = getProductStockStatus(product.stock);
 
@@ -180,6 +181,7 @@ function SellerOrderCard({
 }) {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const firstItem = sellerOrder.items[0];
   const product = firstItem?.product;
   const order = sellerOrder.order;
@@ -251,6 +253,7 @@ function SellerOrderCard({
 export function MyShopScreen() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
@@ -1170,5 +1173,6 @@ function createStyles(theme: AppTheme) {
     fontSize: 14,
     fontWeight: "800",
   },
-  });
+});
 }
+

@@ -1,7 +1,9 @@
 import React, { useEffect, useRef } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import { Animated, Easing, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../constants/theme";
 import { SellerMascotDance } from "./SellerMascotDance";
 
 const MASCOT_TRANSPARENT = require("../../assets/seller-mascot-transparent.png");
@@ -11,6 +13,9 @@ type SuccessCelebrationHeroProps = {
 };
 
 export function SuccessCelebrationHero({ mascotSize = 80 }: SuccessCelebrationHeroProps) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   const checkScale = useRef(new Animated.Value(0)).current;
   const checkOpacity = useRef(new Animated.Value(0)).current;
   const ringScale = useRef(new Animated.Value(0.85)).current;
@@ -71,7 +76,8 @@ export function SuccessCelebrationHero({ mascotSize = 80 }: SuccessCelebrationHe
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   wrap: {
     alignItems: "center",
     justifyContent: "center",
@@ -101,3 +107,5 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
 });
+}
+

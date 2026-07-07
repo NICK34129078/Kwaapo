@@ -1289,6 +1289,73 @@ function buildFeedPageResponse(rows, limit) {
 }
 
 /**
+ * @param {any} env
+ * @param {string | null | undefined} viewerUserId
+ * @param {string} ownerUserId
+ */
+async function canViewerSeeProfilePosts(env, viewerUserId, ownerUserId) {
+  const owner = (ownerUserId || "").trim();
+  if (!owner) {
+    return false;
+  }
+  if (viewerUserId && viewerUserId === owner) {
+    return true;
+  }
+  const profiles = await supabaseRequest(
+    env,
+    "GET",
+    "/profiles?select=is_private&id=eq." + encodeURIComponent(owner) + "&limit=1"
+  );
+  const isPrivate =
+    Array.isArray(profiles) && profiles[0] && profiles[0].is_private === true;
+  if (!isPrivate) {
+    return true;
+  }
+  if (!viewerUserId) {
+    return false;
+  }
+  const follows = await supabaseRequest(
+    env,
+    "GET",
+    "/follows?select=follower_id&follower_id=eq." +
+      encodeURIComponent(viewerUserId) +
+      "&following_id=eq." +
+      encodeURIComponent(owner) +
+      "&limit=1"
+  );
+  return Array.isArray(follows) && follows.length > 0;
+}
+
+/**
+ * @param {any} env
+ * @param {any[]} posts
+ * @param {string | null | undefined} viewerUserId
+ */
+async function filterPostsForProfilePrivacy(env, posts, viewerUserId) {
+  if (!Array.isArray(posts) || posts.length === 0) {
+    return [];
+  }
+  const ownerIds = Array.from(
+    new Set(
+      posts
+        .map((p) => (typeof p?.user_id === "string" ? p.user_id.trim() : ""))
+        .filter(Boolean)
+    )
+  );
+  const allowed = new Map();
+  await Promise.all(
+    ownerIds.map(async (ownerId) => {
+      const ok = await canViewerSeeProfilePosts(env, viewerUserId, ownerId);
+      allowed.set(ownerId, ok);
+    })
+  );
+  return posts.filter((p) => {
+    const owner = typeof p?.user_id === "string" ? p.user_id.trim() : "";
+    return owner && allowed.get(owner) === true;
+  });
+}
+
+/**
  * Profiel (?userPosts=1): alleen posts van één gebruiker.
  * @param {any} env
  * @param {string} userId
@@ -1568,12 +1635,26 @@ export default {
       try {
         const hasPageParams =
           url.searchParams.has("limit") || url.searchParams.has("cursor");
+        let viewerUserId = null;
+        try {
+          const auth = await requireAuthUser(request, env, cors);
+          if (!auth.error && auth.userId) {
+            viewerUserId = auth.userId;
+          }
+        } catch {
+          viewerUserId = null;
+        }
 
         if (hasPageParams) {
           const limit = parseFeedPageLimit(url.searchParams.get("limit"));
           const cursor = parseFeedPageCursor(url.searchParams.get("cursor"));
           const posts = await fetchPostsPage(env, { limit, cursor });
-          const page = buildFeedPageResponse(posts, limit);
+          const filteredPosts = await filterPostsForProfilePrivacy(
+            env,
+            posts,
+            viewerUserId
+          );
+          const page = buildFeedPageResponse(filteredPosts, limit);
           console.log("[posts] fetched", {
             mode: "global_page",
             limit,
@@ -1596,7 +1677,12 @@ export default {
 
         const posts = await fetchPostsForUser(env);
         const rawPosts = Array.isArray(posts) ? posts : [];
-        const validPosts = orderGlobalFeedControlledExplore(rawPosts);
+        const privacyFiltered = await filterPostsForProfilePrivacy(
+          env,
+          rawPosts,
+          viewerUserId
+        );
+        const validPosts = orderGlobalFeedControlledExplore(privacyFiltered);
         console.log("[posts] fetched", {
           mode: "global",
           total: rawPosts.length,
@@ -1632,6 +1718,21 @@ export default {
         });
       }
       try {
+        let viewerUserId = null;
+        try {
+          const auth = await requireAuthUser(request, env, cors);
+          if (!auth.error && auth.userId) {
+            viewerUserId = auth.userId;
+          }
+        } catch {
+          viewerUserId = null;
+        }
+        const canView = await canViewerSeeProfilePosts(env, viewerUserId, userId);
+        if (!canView) {
+          return new Response(JSON.stringify({ success: true, posts: [] }), {
+            headers: { "Content-Type": "application/json", ...cors },
+          });
+        }
         const posts = await fetchPostsByUserId(env, userId);
         const validPosts = Array.isArray(posts) ? posts : [];
         console.log("[posts] fetched", {

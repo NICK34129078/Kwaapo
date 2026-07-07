@@ -16,10 +16,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "../context/AuthContext";
-import { theme, spacing } from "../constants/theme";
+import { spacing } from "../constants/theme";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import { validatePasswordResetForm } from "../utils/passwordResetValidation";
 
 export function ResetPasswordScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const {
@@ -201,7 +207,8 @@ export function ResetPasswordScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -286,3 +293,5 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 });
+}
+

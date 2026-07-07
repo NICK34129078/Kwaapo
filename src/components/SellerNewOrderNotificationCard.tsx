@@ -1,12 +1,19 @@
 import React from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../constants/theme";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
   formatOrderItemSizeLine,
 } from "../utils/orderDashboard";
 import { notificationOrderReference } from "../utils/inAppNotification";
+import { OrderStatusBadge } from "./orders/OrderStatusBadge";
+import {
+  ORDER_LIST_IMAGE_RADIUS,
+  ORDER_LIST_IMAGE_SIZE,
+} from "./orders/orderListUi";
 import type { SellerNotification } from "../services/sellerNotificationService";
 import type { SellerOrderListRow } from "../services/ordersService";
 
@@ -34,6 +41,10 @@ export function SellerNewOrderNotificationCard({
   sellerOrder,
   onPress,
 }: SellerNewOrderNotificationCardProps) {
+  const { theme } = useTheme();
+
+  const styles = useThemedStyles(createStyles);
+
   const firstItem = sellerOrder?.items[0];
   const product = firstItem?.product;
   const order = sellerOrder?.order;
@@ -80,8 +91,11 @@ export function SellerNewOrderNotificationCard({
             {formatNotificationDate(notification.createdAt)}
             {order ? ` · ${notificationOrderReference(order.id)}` : ""}
           </Text>
-          <View style={styles.statusBadge}>
-            <Text style={styles.statusBadgeText}>Betaald – klaar om te verzenden</Text>
+          <View style={styles.footer}>
+            <OrderStatusBadge
+              label="Betaald – klaar om te verzenden"
+              tone="accent"
+            />
           </View>
         </View>
         <Ionicons name="chevron-forward" size={20} color={theme.textMuted} />
@@ -90,7 +104,8 @@ export function SellerNewOrderNotificationCard({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   card: {
     marginBottom: 12,
     padding: 14,
@@ -118,9 +133,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   thumb: {
-    width: 72,
-    height: 72,
-    borderRadius: 12,
+    width: ORDER_LIST_IMAGE_SIZE,
+    height: ORDER_LIST_IMAGE_SIZE,
+    borderRadius: ORDER_LIST_IMAGE_RADIUS,
     backgroundColor: theme.bg,
   },
   thumbFallback: {
@@ -136,9 +151,9 @@ const styles = StyleSheet.create({
   },
   productName: {
     color: theme.text,
-    fontSize: 16,
-    fontWeight: "900",
-    lineHeight: 21,
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 20,
   },
   amountLine: {
     color: theme.text,
@@ -151,19 +166,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
   },
-  statusBadge: {
-    alignSelf: "flex-start",
-    marginTop: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: theme.accentMedium,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.accentBorder,
-  },
-  statusBadgeText: {
-    color: theme.accent,
-    fontSize: 11,
-    fontWeight: "900",
+  footer: {
+    marginTop: 6,
   },
 });
+}
+

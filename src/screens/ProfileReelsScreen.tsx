@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   Dimensions,
   FlatList,
@@ -24,9 +27,6 @@ import {
   type PostStats,
 } from "../services/postStatsService";
 import { isPersistablePostId } from "../services/postLikesService";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import type { UserVideoPost } from "../types/userVideoPost";
 
 const INITIAL_H = Dimensions.get("window").height;
@@ -74,6 +74,7 @@ function PostStatsPanel({
   onClose: () => void;
 }) {
   const styles = useThemedStyles(createStyles);
+
   return (
     <Modal
       visible={visible}
@@ -128,6 +129,7 @@ function PostStatsPanel({
 export function ProfileReelsScreen() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
@@ -356,7 +358,7 @@ export function ProfileReelsScreen() {
             accessibilityRole="button"
             accessibilityLabel="Statistieken"
           >
-            <Ionicons name="stats-chart-outline" size={24} color={theme.onMediaIcon} />
+            <Ionicons name="stats-chart-outline" size={24} color={theme.text} />
             <Text style={styles.chromeBtnLabel}>Statistieken</Text>
           </Pressable>
         ) : (
@@ -369,7 +371,7 @@ export function ProfileReelsScreen() {
           accessibilityLabel="Sluiten"
           hitSlop={10}
         >
-          <Ionicons name="close" size={28} color={theme.onMediaIcon} />
+          <Ionicons name="close" size={28} color={theme.text} />
         </Pressable>
       </View>
 
@@ -442,7 +444,7 @@ function createStyles(theme: AppTheme) {
     borderColor: "rgba(255,255,255,0.25)",
   },
   chromeBtnLabel: {
-    color: theme.onMediaText,
+    color: theme.text,
     fontSize: 13,
     fontWeight: "600",
   },
@@ -491,5 +493,6 @@ function createStyles(theme: AppTheme) {
     fontSize: 15,
     fontWeight: "600",
   },
-  });
+});
 }
+

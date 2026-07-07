@@ -1,4 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   Modal,
   Pressable,
@@ -9,9 +12,6 @@ import {
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 
 type Props = {
   visible: boolean;
@@ -43,6 +43,7 @@ function getContainedSize(
 export function FullScreenImageModal({ visible, imageUri, onClose }: Props) {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const uri = typeof imageUri === "string" ? imageUri.trim() : "";
@@ -130,30 +131,31 @@ export function FullScreenImageModal({ visible, imageUri, onClose }: Props) {
   );
 }
 
-function createStyles(_theme: AppTheme) {
+function createStyles(theme: AppTheme) {
   return StyleSheet.create({
-    backdrop: {
-      flex: 1,
-      backgroundColor: "rgba(0,0,0,0.92)",
-    },
-    imageStage: {
-      flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    image: {
-      width: "100%",
-      height: "100%",
-    },
-    closeBtn: {
-      position: "absolute",
-      right: 16,
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "rgba(255,255,255,0.12)",
-    },
-  });
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.92)",
+  },
+  imageStage: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  image: {
+    width: "100%",
+    height: "100%",
+  },
+  closeBtn: {
+    position: "absolute",
+    right: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+});
 }
+

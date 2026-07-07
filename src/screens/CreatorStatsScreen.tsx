@@ -1,4 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   FlatList,
@@ -13,9 +16,6 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import {
   fetchMyShopPostStats,
   type MyShopPostStat,
@@ -52,7 +52,9 @@ function buildProductMeta(stat: MyShopPostStat): string {
 
 function StatRow({ stat }: { stat: MyShopPostStat }) {
   const { theme } = useTheme();
+
   const styles = useThemedStyles(createStyles);
+
   const title =
     stat.productTitle?.trim() ||
     stat.caption?.trim() ||
@@ -92,6 +94,7 @@ function StatRow({ stat }: { stat: MyShopPostStat }) {
 export function CreatorStatsScreen() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState<MyShopPostStat[]>([]);
@@ -333,5 +336,6 @@ function createStyles(theme: AppTheme) {
     lineHeight: 20,
     textAlign: "center",
   },
-  });
+});
 }
+

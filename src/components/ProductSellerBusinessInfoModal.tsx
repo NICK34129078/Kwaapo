@@ -1,4 +1,7 @@
 import React from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   Modal,
   Pressable,
@@ -9,9 +12,6 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import {
   formatPublicBusinessLocation,
   getPublicSellerBusinessName,
@@ -27,6 +27,7 @@ type Props = {
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   const styles = useThemedStyles(createStyles);
+
   return (
     <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>
@@ -42,7 +43,9 @@ export function ProductSellerBusinessInfoModal({
   onClose,
 }: Props) {
   const { theme } = useTheme();
+
   const styles = useThemedStyles(createStyles);
+
   const insets = useSafeAreaInsets();
 
   if (!seller || !verifiedBusiness) {
@@ -184,5 +187,6 @@ function createStyles(theme: AppTheme) {
     lineHeight: 20,
     marginTop: 4,
   },
-  });
+});
 }
+

@@ -8,7 +8,7 @@ import {
 } from "../types/profile";
 
 const PROFILE_COLUMNS =
-  "id, username, display_name, avatar_url, bio, account_type";
+  "id, username, display_name, avatar_url, bio, account_type, is_private";
 
 export async function fetchProfileById(
   profileId: string

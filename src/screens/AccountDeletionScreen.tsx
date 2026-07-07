@@ -1,4 +1,7 @@
 import React, { useCallback, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Alert,
@@ -13,9 +16,6 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { LEGAL_DISCLAIMER } from "../constants/appPolicies";
 import { requestAccountDeletion } from "../services/accountDeletionService";
 import { useAuth } from "../context/AuthContext";
@@ -24,6 +24,7 @@ import { getReadableErrorMessage } from "../utils/getReadableErrorMessage";
 export function AccountDeletionScreen() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { signOut } = useAuth();
@@ -270,5 +271,6 @@ function createStyles(theme: AppTheme) {
     alignItems: "center",
     justifyContent: "center",
   },
-  });
+});
 }
+

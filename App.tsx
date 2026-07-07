@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import {
@@ -34,21 +34,23 @@ import { CheckoutReviewScreen } from "./src/screens/CheckoutReviewScreen";
 import { CheckoutFailedScreen } from "./src/screens/CheckoutFailedScreen";
 import { CheckoutInfoScreen } from "./src/screens/CheckoutInfoScreen";
 import { SellerOnboardingScreen } from "./src/screens/SellerOnboardingScreen";
-import { SellerTermsScreen } from "./src/screens/SellerTermsScreen";
 import { PolicyDocumentScreen } from "./src/screens/PolicyDocumentScreen";
 import { AccountDeletionScreen } from "./src/screens/AccountDeletionScreen";
+import { BlockedUsersScreen } from "./src/screens/BlockedUsersScreen";
+import { LanguageSettingsScreen } from "./src/screens/LanguageSettingsScreen";
 import { ResetPasswordScreen } from "./src/screens/ResetPasswordScreen";
 import { PasswordRecoveryNavigator } from "./src/navigation/PasswordRecoveryNavigator";
 import { SellerFulfillmentProvider } from "./src/context/SellerFulfillmentContext";
+import { NotificationCenterProvider } from "./src/context/NotificationCenterContext";
 import { InAppNotificationProvider } from "./src/context/InAppNotificationContext";
 import { BottomNavbar } from "./src/components/BottomNavbar";
-import { ActivityInAppToast } from "./src/components/ActivityInAppToast";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { AuthPromptProvider } from "./src/context/AuthPromptContext";
 import { GlobalFeedProvider } from "./src/context/GlobalFeedContext";
 import { LikesProvider } from "./src/context/LikesContext";
 import { UserUploadsProvider } from "./src/context/UserUploadsContext";
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
+import { LanguageProvider, useLanguage } from "./src/context/LanguageContext";
 import { PUBLIC_SHARE_BASE } from "./src/constants/shareLinks";
 import {
   configurePushNotificationHandlers,
@@ -78,8 +80,12 @@ const linking = {
 
 function ThemedNavigationContainer({
   children,
+  navigationRef,
+  onReady,
 }: {
   children: React.ReactNode;
+  navigationRef: React.RefObject<NavigationContainerRef<any> | null>;
+  onReady: () => void;
 }) {
   const { theme } = useTheme();
   const navigationTheme = useMemo(
@@ -98,7 +104,12 @@ function ThemedNavigationContainer({
   );
 
   return (
-    <NavigationContainer theme={navigationTheme} linking={linking as any}>
+    <NavigationContainer
+      ref={navigationRef}
+      theme={navigationTheme}
+      linking={linking as any}
+      onReady={onReady}
+    >
       {children}
     </NavigationContainer>
   );
@@ -129,6 +140,8 @@ function MainTabs() {
 
 function AppGate() {
   const { loading, user } = useAuth();
+  const { theme, isReady: themeReady } = useTheme();
+  const { isReady: languageReady } = useLanguage();
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
   const [navigationReady, setNavigationReady] = useState(false);
 
@@ -172,7 +185,7 @@ function AppGate() {
     return () => subscription?.remove();
   }, [navigationReady]);
 
-  if (loading || !themeReady) {
+  if (loading || !themeReady || !languageReady) {
     return (
       <View style={[styles.loadingRoot, { backgroundColor: theme.bg }]}>
         <ActivityIndicator size="large" color={theme.accent} />
@@ -183,15 +196,13 @@ function AppGate() {
   return (
     <AuthPromptProvider>
       <SellerFulfillmentProvider>
-      <ActivityNotificationsProvider>
+      <NotificationCenterProvider>
       <LikesProvider>
         <GlobalFeedProvider>
           <UserUploadsProvider>
             <InAppNotificationProvider navigationRef={navigationRef}>
-            <NavigationContainer
-              ref={navigationRef}
-              theme={navTheme}
-              linking={linking as any}
+            <ThemedNavigationContainer
+              navigationRef={navigationRef}
               onReady={() => setNavigationReady(true)}
             >
               <PasswordRecoveryNavigator
@@ -293,11 +304,6 @@ function AppGate() {
                   options={{ animation: "slide_from_right" }}
                 />
                 <RootStack.Screen
-                  name="SellerTerms"
-                  component={SellerTermsScreen}
-                  options={{ animation: "slide_from_right" }}
-                />
-                <RootStack.Screen
                   name="PolicyDocument"
                   component={PolicyDocumentScreen}
                   options={{ animation: "slide_from_right" }}
@@ -305,6 +311,16 @@ function AppGate() {
                 <RootStack.Screen
                   name="AccountDeletion"
                   component={AccountDeletionScreen}
+                  options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="BlockedUsers"
+                  component={BlockedUsersScreen}
+                  options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="LanguageSettings"
+                  component={LanguageSettingsScreen}
                   options={{ animation: "slide_from_right" }}
                 />
                 <RootStack.Screen
@@ -316,12 +332,12 @@ function AppGate() {
                   }}
                 />
               </RootStack.Navigator>
-            </NavigationContainer>
+            </ThemedNavigationContainer>
             </InAppNotificationProvider>
           </UserUploadsProvider>
         </GlobalFeedProvider>
       </LikesProvider>
-      </ActivityNotificationsProvider>
+      </NotificationCenterProvider>
       </SellerFulfillmentProvider>
     </AuthPromptProvider>
   );
@@ -331,11 +347,13 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
       <SafeAreaProvider>
-        <ThemeProvider>
-          <AuthProvider>
-            <AppGate />
-          </AuthProvider>
-        </ThemeProvider>
+        <LanguageProvider>
+          <ThemeProvider>
+            <AuthProvider>
+              <AppGate />
+            </AuthProvider>
+          </ThemeProvider>
+        </LanguageProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

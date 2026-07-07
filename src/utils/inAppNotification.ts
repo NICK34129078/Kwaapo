@@ -1,3 +1,5 @@
+import i18n from "../i18n/index";
+
 export type InAppNotificationAudience = "buyer" | "seller";
 
 export type InAppNotificationPayload = {
@@ -54,41 +56,51 @@ export function isPendingToastTooOld(createdAt: string, nowMs = Date.now()): boo
 }
 
 export function sellerNewOrderToastTitle(): string {
-  return "Nieuwe bestelling ontvangen 📦";
+  return i18n.t("notifications.sellerNewOrderTitle");
 }
 
 export function sellerNewOrderToastSubtitle(): string {
-  return "Klaar om af te handelen.";
+  return i18n.t("notifications.sellerNewOrderSubtitle");
 }
 
 export function sellerNewOrderToastBody(
   productName: string,
   amountLabel: string
 ): string {
-  const name = productName.trim() || "Product";
-  return `${name} verkocht voor ${amountLabel}.`;
+  const name = productName.trim() || i18n.t("common.product");
+  return i18n.t("notifications.sellerNewOrderBody", {
+    product: name,
+    amount: amountLabel,
+  });
 }
 
 export const NOTIFICATION_SUBTITLES: Record<string, string | undefined> = {
-  new_paid_order: "Klaar om af te handelen.",
-  order_shipped: "Volg je pakket met de trackinginformatie.",
+  get new_paid_order() {
+    return i18n.t("notifications.sellerNewOrderSubtitle");
+  },
+  get order_shipped() {
+    return i18n.t("notifications.buyerShippedSubtitle");
+  },
 };
 
 export function buyerOrderShippedToastTitle(): string {
-  return "Je bestelling is onderweg 📦";
+  return i18n.t("notifications.buyerShippedTitle");
 }
 
 export function buyerOrderShippedToastBody(
   productName: string | null | undefined,
   sellerName: string | null | undefined
 ): string {
-  const product = productName?.trim() || "Je bestelling";
-  const seller = sellerName?.trim() || "de verkoper";
-  return `${product} is verzonden door ${seller}.`;
+  const product = productName?.trim() || i18n.t("orders.orders");
+  const seller = sellerName?.trim() || i18n.t("shop.seller");
+  return i18n.t("notifications.buyerShippedBody", {
+    product,
+    seller,
+  });
 }
 
 export function buyerOrderShippedToastSubtitle(): string {
-  return NOTIFICATION_SUBTITLES.order_shipped ?? "Volg je pakket met de trackinginformatie.";
+  return i18n.t("notifications.buyerShippedSubtitle");
 }
 
 export function notificationOrderReference(orderId: string): string {

@@ -1,4 +1,7 @@
 import React, { useCallback, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Pressable,
@@ -10,9 +13,6 @@ import {
 import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { fetchBuyerOrderById } from "../services/ordersService";
 import type { BuyerOrder } from "../types/order";
 import { formatPriceEur } from "../utils/formatPrice";
@@ -27,6 +27,7 @@ import {
 export function OrderSuccessScreen() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
@@ -301,5 +302,6 @@ function createStyles(theme: AppTheme) {
     fontSize: 16,
     fontWeight: "900",
   },
-  });
+});
 }
+

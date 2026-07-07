@@ -1,6 +1,8 @@
 import React, { useCallback, useMemo } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import { StyleSheet, Text, View } from "react-native";
-import type { AppTheme } from "../constants/themeTokens";
 import { categoryRequiresAudience } from "../constants/productSizePresets";
 import {
   legacyCategoryLabelFromCodes,
@@ -10,7 +12,6 @@ import {
   type ShopAudienceCode,
   type ShopMainCategoryCode,
 } from "../constants/shopCategories";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { ChoiceCard, ChoiceCardGrid } from "./ChoiceCardGrid";
 
 export type ProductCategorySection = "main" | "audience" | "type";
@@ -26,26 +27,6 @@ type Props = {
   section?: ProductCategorySection;
 };
 
-function createStyles(theme: AppTheme) {
-  return StyleSheet.create({
-    root: {
-      gap: 14,
-    },
-    sectionTitle: {
-      color: theme.text,
-      fontSize: 20,
-      fontWeight: "800",
-      lineHeight: 28,
-    },
-    summary: {
-      color: theme.textMuted,
-      fontSize: 14,
-      fontWeight: "600",
-      marginTop: -6,
-    },
-  });
-}
-
 export function ProductCategoryPicker({
   mainCategory,
   audience,
@@ -56,6 +37,7 @@ export function ProductCategoryPicker({
   section,
 }: Props) {
   const styles = useThemedStyles(createStyles);
+
   const mainDef = useMemo(
     () => SHOP_MAIN_CATEGORIES.find((c) => c.code === mainCategory),
     [mainCategory]
@@ -171,3 +153,24 @@ export function buildCategoryPayload(
     category: legacyCategoryLabelFromCodes(mainCategory, audience, subcategory),
   };
 }
+
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+  root: {
+    gap: 14,
+  },
+  sectionTitle: {
+    color: theme.text,
+    fontSize: 20,
+    fontWeight: "800",
+    lineHeight: 28,
+  },
+  summary: {
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: "600",
+    marginTop: -6,
+  },
+});
+}
+

@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Animated,
@@ -11,9 +14,6 @@ import {
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { ProductListingImage } from "./ProductListingImage";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { fetchOwnerShopProducts } from "../services/productsService";
 import {
   mergeProductIntoList,
@@ -48,6 +48,7 @@ function ProductCard({
   isOwnProfile: boolean;
 }) {
   const styles = useThemedStyles(createStyles);
+
   const scale = useRef(new Animated.Value(1)).current;
   const imageUri = product.images[0];
 
@@ -106,6 +107,7 @@ export function ProfileShopGrid({
 }: Props) {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
   const { width } = useWindowDimensions();
   const [canAddProducts, setCanAddProducts] = useState(!isOwnProfile);
@@ -249,106 +251,107 @@ export function ProfileShopGrid({
 
 function createStyles(theme: AppTheme) {
   return StyleSheet.create({
-    root: {
-      paddingHorizontal: 16,
-      paddingTop: 12,
-    },
-    loadingWrap: {
-      paddingVertical: 32,
-      alignItems: "center",
-    },
-    addProductButton: {
-      minHeight: 48,
-      borderRadius: 14,
-      marginBottom: 14,
-      backgroundColor: theme.accent,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 8,
-    },
-    addProductButtonText: {
-      color: theme.bg,
-      fontSize: 15,
-      fontWeight: "900",
-    },
-    grid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: GAP,
-      paddingBottom: 20,
-    },
-    card: {
-      borderRadius: 18,
-      overflow: "hidden",
-      backgroundColor: theme.bgElevated,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.border,
-    },
-    imageWrap: {
-      width: "100%",
-      aspectRatio: 0.82,
-      backgroundColor: "#101010",
-      overflow: "hidden",
-    },
-    conceptBadge: {
-      position: "absolute",
-      top: 8,
-      left: 8,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 999,
-      backgroundColor: "rgba(0,0,0,0.72)",
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.border,
-    },
-    conceptBadgeText: {
-      color: theme.textMuted,
-      fontSize: 11,
-      fontWeight: "800",
-    },
-    image: {
-      width: "100%",
-      height: "100%",
-    },
-    cardBody: {
-      paddingHorizontal: 10,
-      paddingVertical: 10,
-    },
-    productName: {
-      color: theme.text,
-      fontSize: 14,
-      fontWeight: "700",
-      lineHeight: 18,
-      minHeight: 36,
-    },
-    productPrice: {
-      color: theme.accent,
-      fontSize: 15,
-      fontWeight: "800",
-      marginTop: 5,
-    },
-    lowStock: {
-      color: "rgba(255,255,255,0.65)",
-      fontSize: 12,
-      marginTop: 6,
-      fontWeight: "600",
-    },
-    emptyWrap: {
-      paddingVertical: 40,
-      alignItems: "center",
-      gap: 8,
-    },
-    emptyTitle: {
-      color: theme.text,
-      fontSize: 16,
-      fontWeight: "800",
-    },
-    emptyText: {
-      color: theme.textMuted,
-      fontSize: 14,
-      lineHeight: 20,
-      textAlign: "center",
-    },
-  });
+  root: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  loadingWrap: {
+    paddingVertical: 32,
+    alignItems: "center",
+  },
+  addProductButton: {
+    minHeight: 48,
+    borderRadius: 14,
+    marginBottom: 14,
+    backgroundColor: theme.accent,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  addProductButtonText: {
+    color: theme.bg,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: GAP,
+    paddingBottom: 20,
+  },
+  card: {
+    borderRadius: 18,
+    overflow: "hidden",
+    backgroundColor: theme.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  imageWrap: {
+    width: "100%",
+    aspectRatio: 0.82,
+    backgroundColor: "#101010",
+    overflow: "hidden",
+  },
+  conceptBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  conceptBadgeText: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  image: {
+    width: "100%",
+    height: "100%",
+  },
+  cardBody: {
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  productName: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 18,
+    minHeight: 36,
+  },
+  productPrice: {
+    color: theme.accent,
+    fontSize: 15,
+    fontWeight: "800",
+    marginTop: 5,
+  },
+  lowStock: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 12,
+    marginTop: 6,
+    fontWeight: "600",
+  },
+  emptyWrap: {
+    paddingVertical: 40,
+    alignItems: "center",
+    gap: 8,
+  },
+  emptyTitle: {
+    color: theme.text,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  emptyText: {
+    color: theme.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+  },
+});
 }
+

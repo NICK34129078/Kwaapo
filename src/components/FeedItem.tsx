@@ -1,4 +1,8 @@
 import React, { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import { Image } from "expo-image";
 import {
   Alert,
@@ -29,13 +33,13 @@ import {
 import { ProductReelShopCard } from "./ProductReelShopCard";
 import { CommentsSheet } from "./CommentsSheet";
 import { PostMoreSheet } from "./PostMoreSheet";
+import { UnfollowConfirmModal } from "./UnfollowConfirmModal";
 import { ReportReasonSheet } from "./ReportReasonSheet";
 import { AvatarImage } from "./AvatarImage";
 import {
   DoubleTapHeartAnimation,
   type DoubleTapHeartHandle,
 } from "./DoubleTapHeartAnimation";
-import { ReelPauseIndicator } from "./ReelPauseIndicator";
 import type { ProfilePostMediaItem } from "../types/userVideoPost";
 import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
@@ -51,9 +55,6 @@ import {
 } from "../services/savedPostsService";
 import { formatPriceEur } from "../utils/formatPrice";
 import { PressableScale } from "./PressableScale";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { fetchPostShareCount } from "../services/postSharesService";
 import {
   buildPublicPostShareUrl,
@@ -189,7 +190,6 @@ type ReelImageCarouselProps = {
   dotsBottom: number;
   onCarouselDraggingChange?: (dragging: boolean) => void;
   onSlidePress?: (e: GestureResponderEvent) => void;
-  tapToPauseAudio?: boolean;
 };
 
 function ReelImageCarousel({
@@ -200,9 +200,9 @@ function ReelImageCarousel({
   dotsBottom,
   onCarouselDraggingChange,
   onSlidePress,
-  tapToPauseAudio = false,
 }: ReelImageCarouselProps) {
   const styles = useThemedStyles(createStyles);
+
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
@@ -266,11 +266,7 @@ function ReelImageCarousel({
             style={{ width: pageWidth, height: pageHeight }}
             onPress={onSlidePress}
             accessibilityRole="button"
-            accessibilityLabel={
-              tapToPauseAudio
-                ? "Tik om audio te pauzeren, dubbel tik om te liken"
-                : "Dubbel tik om te liken"
-            }
+            accessibilityLabel="Dubbel tik om te liken"
           >
             <Image
               source={{ uri: slide.url }}
@@ -312,8 +308,10 @@ export function FeedItem({
   onRequestRemove,
   onRequestRemoveAuthor,
 }: Props) {
+  const { t } = useTranslation();
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
   const { user } = useAuth();
   const { openAuthPrompt } = useAuthPrompt();
@@ -328,6 +326,7 @@ export function FeedItem({
   const [moreVisible, setMoreVisible] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
+  const [unfollowConfirmVisible, setUnfollowConfirmVisible] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [reportReasonVisible, setReportReasonVisible] = useState(false);
   const [moderationBusy, setModerationBusy] = useState(false);
@@ -341,11 +340,9 @@ export function FeedItem({
     return Number.isNaN(parsed) ? 0 : parsed;
   });
   const [shopCardVisible, setShopCardVisible] = useState(true);
-  const [userPaused, setUserPaused] = useState(false);
 
   useEffect(() => {
     setShopCardVisible(true);
-    setUserPaused(false);
   }, [item.id]);
   const ownerLabel =
     item.ownerUsername && item.ownerUsername.length > 0
@@ -368,20 +365,15 @@ export function FeedItem({
   const activeVideoUri = item.videoUrl ?? "";
   const carouselSlides = useMemo(() => buildCarouselSlides(item), [item]);
   const asCarouselReel = carouselSlides.length > 0 && isCarouselReelItem(item);
-  const asStaticImageReel =
-    !asVideo &&
-    !asCarouselReel &&
-    typeof item.imageUrl === "string" &&
-    item.imageUrl.length > 0;
   const postAudioUrl =
     typeof item.audioUrl === "string" && item.audioUrl.length > 0
       ? item.audioUrl
       : null;
-  const hasPostAudio =
-    postAudioUrl != null &&
-    (asVideo || asCarouselReel || asStaticImageReel);
-  const supportsTapToPause =
-    asVideo || (hasPostAudio && (asCarouselReel || asStaticImageReel));
+  const hasPlayablePostAudio =
+    postAudioUrl != null && (asCarouselReel || asVideo);
+  const canOpenSoundReels =
+    typeof item.audioTrackId === "string" && item.audioTrackId.length > 0;
+  const showMusicBadge = hasPlayablePostAudio || canOpenSoundReels;
   // Video met eigen audio-overlay: video dempen zodat er geen dubbele audio is.
   // Op web spelen we de overlay-track niet af, dus daar houden we het videogeluid.
   const muteVideoForOverlay =
@@ -393,9 +385,7 @@ export function FeedItem({
         : item.audioTitle
       : item.audioArtist && item.audioArtist.length > 0
         ? item.audioArtist
-        : "Eigen audio";
-  const canOpenSoundReels =
-    typeof item.audioTrackId === "string" && item.audioTrackId.length > 0;
+        : t("feed.customAudio");
   const postAudioVolume =
     typeof item.audioVolume === "number" && Number.isFinite(item.audioVolume)
       ? Math.min(1, Math.max(0, item.audioVolume))
@@ -410,16 +400,23 @@ export function FeedItem({
   const isLongCaption = captionText.length > CAPTION_COLLAPSE_CHARS;
 
   useEffect(() => {
-    if (!isActive) {
-      setUserPaused(false);
-    }
-  }, [isActive]);
-
-  useEffect(() => {
     setCaptionExpanded(false);
     setCommentsVisible(false);
     setCommentsCount(resolveCommentsCount(item));
   }, [item.id, item.commentsCount, item.comments]);
+
+  useEffect(() => {
+    if (!__DEV__ || !isActive) {
+      return;
+    }
+    if (showMusicBadge) {
+      console.log(`[FeedSpotify] banner rendered ${item.id} ${postAudioLabel}`);
+    } else if (canOpenSoundReels) {
+      console.log(
+        `[FeedSpotify] banner hidden ${item.id} missing_title_after_enrich`
+      );
+    }
+  }, [isActive, item.id, showMusicBadge, postAudioLabel, canOpenSoundReels]);
 
   const onCaptionPress = useCallback(() => {
     if (!isLongCaption) {
@@ -523,25 +520,21 @@ export function FeedItem({
     }
   }, []);
 
-  // Web: play/pause op actief + gebruikers-pauze
+  // Web: exact één speler tegelijk — pauze, reset, daarna play bij actief
   useEffect(() => {
     if (Platform.OS !== "web" || !asVideo) return;
-    const v = webVideoRef.current;
-    if (!v) return;
-    if (!isActive) {
+    if (isActive) {
+      const v = webVideoRef.current;
+      if (!v) return;
+      v.muted = false;
+      const p = v.play();
+      if (p && typeof (p as Promise<unknown>).catch === "function") {
+        (p as Promise<unknown>).catch(() => {});
+      }
+    } else {
       stopWebPlayback();
-      return;
     }
-    v.muted = muteVideoForOverlay;
-    if (userPaused) {
-      v.pause();
-      return;
-    }
-    const p = v.play();
-    if (p && typeof (p as Promise<unknown>).catch === "function") {
-      (p as Promise<unknown>).catch(() => {});
-    }
-  }, [isActive, userPaused, asVideo, muteVideoForOverlay, stopWebPlayback]);
+  }, [isActive, asVideo, stopWebPlayback]);
 
   // Native: bij inactief expliciet pauze + seek 0; afspeel volgt `shouldPlay={isActive}`
   useEffect(() => {
@@ -587,7 +580,7 @@ export function FeedItem({
   }, []);
 
   useEffect(() => {
-    if (!hasPostAudio || !postAudioUrl || Platform.OS === "web") {
+    if (!hasPlayablePostAudio || !postAudioUrl || Platform.OS === "web") {
       return;
     }
 
@@ -617,12 +610,12 @@ export function FeedItem({
         if (postAudioStartMs > 0) {
           await sound.setPositionAsync(postAudioStartMs);
         }
-        if (isActive && !userPaused) {
+        if (isActive) {
           await sound.playAsync();
         }
       } catch (error) {
         if (__DEV__) {
-          console.warn("[FeedItem] post audio load failed", {
+          console.warn("[FeedItem] carousel audio load failed", {
             id: item.id,
             error,
           });
@@ -638,7 +631,7 @@ export function FeedItem({
       }
     };
   }, [
-    hasPostAudio,
+    hasPlayablePostAudio,
     postAudioUrl,
     postAudioVolume,
     postAudioStartMs,
@@ -646,7 +639,7 @@ export function FeedItem({
   ]);
 
   useEffect(() => {
-    if (!hasPostAudio || Platform.OS === "web") {
+    if (!hasPlayablePostAudio || Platform.OS === "web") {
       return;
     }
     const sound = carouselAudioRef.current;
@@ -655,7 +648,7 @@ export function FeedItem({
     }
     void (async () => {
       try {
-        if (isActive && !userPaused) {
+        if (isActive) {
           await sound.playAsync();
         } else {
           await sound.pauseAsync();
@@ -664,17 +657,17 @@ export function FeedItem({
         /* playback state nog niet klaar */
       }
     })();
-  }, [hasPostAudio, isActive, userPaused]);
+  }, [hasPlayablePostAudio, isActive]);
 
   useEffect(() => {
-    if (!hasPostAudio) {
+    if (!hasPlayablePostAudio) {
       return;
     }
     return () => {
       carouselAudioRef.current = null;
       void stopCarouselAudio();
     };
-  }, [hasPostAudio, stopCarouselAudio]);
+  }, [hasPlayablePostAudio, stopCarouselAudio]);
 
   const avatarUri = item.ownerAvatarUrl ?? item.avatarUrl ?? null;
 
@@ -867,6 +860,32 @@ export function FeedItem({
     })();
   }, [item]);
 
+  const performUnfollow = useCallback(() => {
+    if (!user?.id || !targetProfileId) {
+      return;
+    }
+    setFollowBusy(true);
+    void (async () => {
+      try {
+        const { error } = await supabase
+          .from("follows")
+          .delete()
+          .eq("follower_id", user.id)
+          .eq("following_id", targetProfileId);
+        if (error) {
+          throw error;
+        }
+        setIsFollowing(false);
+        setUnfollowConfirmVisible(false);
+      } catch (e) {
+        const msg = getReadableErrorMessage(e, t("followRequest.error"));
+        Alert.alert(t("alerts.error"), msg);
+      } finally {
+        setFollowBusy(false);
+      }
+    })();
+  }, [t, targetProfileId, user?.id]);
+
   const onToggleFollow = useCallback(() => {
     if (user == null) {
       requireAuth("Log in om creators te volgen.");
@@ -875,36 +894,28 @@ export function FeedItem({
     if (!targetProfileId || isOwnPost || followBusy) {
       return;
     }
-    const next = !isFollowing;
+    if (isFollowing) {
+      setUnfollowConfirmVisible(true);
+      return;
+    }
     setFollowBusy(true);
-    setIsFollowing(next);
+    setIsFollowing(true);
     void (async () => {
       try {
-        if (next) {
-          const { error } = await supabase.from("follows").insert({
-            follower_id: user.id,
-            following_id: targetProfileId,
-          });
-          if (error) {
-            if (error.code === "23505") {
-              return;
-            }
-            throw error;
+        const { error } = await supabase.from("follows").insert({
+          follower_id: user.id,
+          following_id: targetProfileId,
+        });
+        if (error) {
+          if (error.code === "23505") {
+            return;
           }
-        } else {
-          const { error } = await supabase
-            .from("follows")
-            .delete()
-            .eq("follower_id", user.id)
-            .eq("following_id", targetProfileId);
-          if (error) {
-            throw error;
-          }
+          throw error;
         }
       } catch (e) {
-        setIsFollowing(!next);
-        const msg = getReadableErrorMessage(e, "Volgen mislukt.");
-        Alert.alert("Fout", msg);
+        setIsFollowing(false);
+        const msg = getReadableErrorMessage(e, t("followRequest.error"));
+        Alert.alert(t("alerts.error"), msg);
       } finally {
         setFollowBusy(false);
       }
@@ -914,6 +925,7 @@ export function FeedItem({
     isFollowing,
     isOwnPost,
     requireAuth,
+    t,
     targetProfileId,
     user,
   ]);
@@ -1126,29 +1138,8 @@ export function FeedItem({
   }, [canOpenSoundReels, item.audioTrackId, item.id, navigation]);
 
   const lastMediaTapAtRef = useRef(0);
-  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const carouselDraggingRef = useRef(false);
   const heartAnimRef = useRef<DoubleTapHeartHandle | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (singleTapTimerRef.current) {
-        clearTimeout(singleTapTimerRef.current);
-      }
-    };
-  }, []);
-
-  const toggleUserPaused = useCallback(() => {
-    if (!supportsTapToPause) {
-      return;
-    }
-    setUserPaused((prev) => !prev);
-    if (Platform.OS !== "web") {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
-        () => {}
-      );
-    }
-  }, [supportsTapToPause]);
 
   const onCarouselDraggingChange = useCallback((dragging: boolean) => {
     carouselDraggingRef.current = dragging;
@@ -1187,26 +1178,14 @@ export function FeedItem({
       }
       const now = Date.now();
       if (now - lastMediaTapAtRef.current <= DOUBLE_TAP_MS) {
-        if (singleTapTimerRef.current) {
-          clearTimeout(singleTapTimerRef.current);
-          singleTapTimerRef.current = null;
-        }
         lastMediaTapAtRef.current = 0;
         const ne = e?.nativeEvent;
         onDoubleTapLike(ne?.pageX, ne?.pageY);
         return;
       }
       lastMediaTapAtRef.current = now;
-
-      if (singleTapTimerRef.current) {
-        clearTimeout(singleTapTimerRef.current);
-      }
-      singleTapTimerRef.current = setTimeout(() => {
-        singleTapTimerRef.current = null;
-        toggleUserPaused();
-      }, DOUBLE_TAP_MS);
     },
-    [onDoubleTapLike, toggleUserPaused]
+    [onDoubleTapLike]
   );
 
   return (
@@ -1252,7 +1231,7 @@ export function FeedItem({
           source={{ uri: activeVideoUri }}
           style={StyleSheet.absoluteFill}
           resizeMode={ResizeMode.COVER}
-          shouldPlay={isActive && !userPaused}
+          shouldPlay={isActive}
           isLooping
           isMuted={!isActive || muteVideoForOverlay}
           useNativeControls={false}
@@ -1277,7 +1256,6 @@ export function FeedItem({
             dotsBottom={carouselDotsBottom}
             onCarouselDraggingChange={onCarouselDraggingChange}
             onSlidePress={onMediaAreaPress}
-            tapToPauseAudio={hasPostAudio}
           />
         </View>
       ) : !asVideo ? (
@@ -1297,19 +1275,19 @@ export function FeedItem({
         pointerEvents="none"
       />
 
-      {supportsTapToPause && (asVideo || asStaticImageReel) ? (
+      {!asCarouselReel ? (
         <Pressable
-          style={styles.mediaTapLayer}
+          style={[
+            styles.mediaTapLayer,
+            {
+              bottom: reelsBottomInset + 72,
+              right: 72,
+            },
+          ]}
           onPress={onMediaAreaPress}
           accessibilityRole="button"
-          accessibilityLabel={
-            userPaused ? "Tik om af te spelen" : "Tik om te pauzeren"
-          }
+          accessibilityLabel={t("feed.doubleTapLike")}
         />
-      ) : null}
-
-      {supportsTapToPause ? (
-        <ReelPauseIndicator visible={userPaused && isActive} />
       ) : null}
 
       <DoubleTapHeartAnimation ref={heartAnimRef} />
@@ -1321,22 +1299,30 @@ export function FeedItem({
           style={styles.railAction}
           scaleTo={0.9}
           onPress={onLikePress}
+          accessibilityRole="button"
+          accessibilityLabel={t("feed.likes")}
         >
           <Ionicons
             name={isLikedByCurrentUser ? "heart" : "heart-outline"}
             size={ACTION_ICON}
-            color={isLikedByCurrentUser ? "#ff375f" : theme.onMediaIcon}
+            color={theme.text}
           />
           <Text style={styles.railCount}>
             {formatLikesForDisplay(likesCount)}
           </Text>
         </PressableScale>
 
-        <PressableScale style={styles.railAction} scaleTo={0.9} onPress={onCommentPress}>
+        <PressableScale
+          style={styles.railAction}
+          scaleTo={0.9}
+          onPress={onCommentPress}
+          accessibilityRole="button"
+          accessibilityLabel={t("feed.comments")}
+        >
           <Ionicons
             name="chatbubble-outline"
             size={ACTION_ICON}
-            color={theme.onMediaIcon}
+            color={theme.text}
           />
           <Text style={styles.railCount}>
             {formatLikesForDisplay(commentsCount)}
@@ -1348,12 +1334,12 @@ export function FeedItem({
           scaleTo={0.93}
           onPress={onSharePress}
           accessibilityRole="button"
-          accessibilityLabel="Deel deze reel"
+          accessibilityLabel={t("feed.shareReel")}
         >
           <Ionicons
             name="paper-plane-outline"
             size={SHARE_ICON}
-            color={theme.onMediaIcon}
+            color={theme.text}
             style={styles.shareIcon}
           />
           <Text style={styles.railCount}>
@@ -1366,13 +1352,13 @@ export function FeedItem({
           scaleTo={0.9}
           onPress={onSavePress}
           accessibilityRole="button"
-          accessibilityLabel={isSaved ? "Verwijder uit opgeslagen" : "Opslaan"}
+          accessibilityLabel={isSaved ? t("feed.removeFromSaved") : t("feed.save")}
           accessibilityState={{ selected: isSaved }}
         >
           <Ionicons
             name={isSaved ? "bookmark" : "bookmark-outline"}
             size={ACTION_ICON}
-            color={theme.onMediaIcon}
+            color={theme.text}
           />
         </PressableScale>
 
@@ -1381,12 +1367,12 @@ export function FeedItem({
           scaleTo={0.9}
           onPress={onMorePress}
           accessibilityRole="button"
-          accessibilityLabel="Meer opties"
+          accessibilityLabel={t("feed.moreOptions")}
         >
           <Ionicons
             name="ellipsis-horizontal"
             size={MORE_ICON}
-            color={theme.onMediaIcon}
+            color={theme.text}
           />
         </PressableScale>
       </View>
@@ -1404,7 +1390,7 @@ export function FeedItem({
           style={styles.bottomUserRow}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityLabel="Bekijk profiel"
+          accessibilityLabel={t("feed.viewProfile")}
         >
           <AvatarImage
             uri={avatarUri}
@@ -1426,8 +1412,8 @@ export function FeedItem({
             accessibilityLabel={
               isLongCaption
                 ? captionExpanded
-                  ? "Caption inklappen"
-                  : "Volledige caption tonen"
+                  ? t("feed.collapseCaption")
+                  : t("feed.expandCaption")
                 : undefined
             }
           >
@@ -1439,23 +1425,23 @@ export function FeedItem({
                 ? captionText
                 : truncateCaption(captionText, CAPTION_COLLAPSE_CHARS)}
               {isLongCaption && !captionExpanded ? (
-                <Text style={styles.captionToggle}>... meer</Text>
+                <Text style={styles.captionToggle}>... {t("common.more")}</Text>
               ) : null}
               {isLongCaption && captionExpanded ? (
-                <Text style={styles.captionToggle}> minder</Text>
+                <Text style={styles.captionToggle}> {t("common.less")}</Text>
               ) : null}
             </Text>
           </Pressable>
         ) : null}
 
-        {hasPostAudio ? (
+        {showMusicBadge ? (
           canOpenSoundReels ? (
             <Pressable
               onPress={onSoundPress}
               style={styles.audioBadgeRow}
               hitSlop={6}
               accessibilityRole="button"
-              accessibilityLabel={`Meer posts met ${postAudioLabel}`}
+              accessibilityLabel={t("feed.morePostsWithSound", { label: postAudioLabel })}
             >
               {item.musicThumbUrl ? (
                 <Image
@@ -1494,9 +1480,9 @@ export function FeedItem({
               style={styles.shopCta}
               hitSlop={8}
               accessibilityRole="link"
-              accessibilityLabel="Bekijk product"
+              accessibilityLabel={t("feed.viewProduct")}
             >
-              <Text style={styles.shopCtaText}>Bekijk product</Text>
+              <Text style={styles.shopCtaText}>{t("feed.viewProduct")}</Text>
             </Pressable>
           </View>
         ) : null}
@@ -1537,6 +1523,18 @@ export function FeedItem({
         onClose={() => setReportReasonVisible(false)}
         onSubmit={onSubmitReport}
         busy={moderationBusy}
+      />
+
+      <UnfollowConfirmModal
+        visible={unfollowConfirmVisible}
+        username={item.username}
+        busy={followBusy}
+        onCancel={() => {
+          if (!followBusy) {
+            setUnfollowConfirmVisible(false);
+          }
+        }}
+        onConfirm={performUnfollow}
       />
 
       {item.linkedProduct ? (
@@ -1591,8 +1589,6 @@ function createStyles(theme: AppTheme) {
     position: "absolute",
     alignItems: "center",
     gap: GROUP_GAP,
-    zIndex: 20,
-    elevation: 20,
   },
   railAction: {
     alignItems: "center",
@@ -1606,7 +1602,7 @@ function createStyles(theme: AppTheme) {
     paddingVertical: 1,
   },
   railCount: {
-    color: theme.onMediaText,
+    color: theme.text,
     fontSize: COUNT_FS,
     fontWeight: "600",
     letterSpacing: 0.15,
@@ -1635,7 +1631,7 @@ function createStyles(theme: AppTheme) {
     borderColor: "rgba(255,255,255,0.95)",
   },
   handle: {
-    color: theme.onMediaText,
+    color: theme.text,
     fontSize: HANDLE_FS,
     fontWeight: "700",
     letterSpacing: 0.2,
@@ -1711,15 +1707,18 @@ function createStyles(theme: AppTheme) {
     backgroundColor: "rgba(255,255,255,0.14)",
   },
   shopCtaText: {
-    color: theme.onMediaText,
+    color: theme.text,
     fontSize: 11,
     fontWeight: "600",
     letterSpacing: 0.15,
   },
   mediaTapLayer: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    left: 0,
     zIndex: 8,
     elevation: 8,
   },
-  });
+});
 }
+

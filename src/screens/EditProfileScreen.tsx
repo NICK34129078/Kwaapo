@@ -1,22 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { AppTheme } from "../constants/themeTokens";
 import { AvatarImage } from "../components/AvatarImage";
 import { useAuth } from "../context/AuthContext";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { useAvatarPicker } from "../hooks/useAvatarPicker";
 import { supabase } from "../lib/supabase";
 
@@ -42,183 +41,12 @@ function isValidUsername(value: string): boolean {
 
 const USERNAME_MAX_LENGTH = 30;
 
-function createStyles(theme: AppTheme) {
-  return StyleSheet.create({
-    root: {
-      flex: 1,
-      backgroundColor: theme.bg,
-    },
-    topBar: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: theme.border,
-    },
-    iconButton: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: theme.bgElevated,
-    },
-    iconButtonSpacer: {
-      width: 36,
-      height: 36,
-    },
-    title: {
-      color: theme.text,
-      fontSize: 18,
-      fontWeight: "800",
-    },
-    loadingWrap: {
-      flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    content: {
-      paddingHorizontal: 18,
-      paddingTop: 18,
-      gap: 14,
-    },
-    avatarWrap: {
-      alignItems: "center",
-      marginBottom: 6,
-      gap: 10,
-    },
-    avatarPressable: {
-      position: "relative",
-    },
-    avatar: {
-      width: 112,
-      height: 112,
-      borderRadius: 56,
-    },
-    avatarUploadingOverlay: {
-      position: "absolute",
-      left: 0,
-      right: 0,
-      top: 0,
-      bottom: 0,
-      borderRadius: 56,
-      backgroundColor: theme.overlay,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    changeAvatarBtn: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      borderRadius: 999,
-      backgroundColor: theme.bgElevated,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.border,
-    },
-    changeAvatarText: {
-      color: theme.text,
-      fontSize: 14,
-      fontWeight: "700",
-    },
-    sectionCard: {
-      borderRadius: 14,
-      backgroundColor: theme.bgElevated,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.border,
-      paddingHorizontal: 14,
-      paddingVertical: 4,
-      gap: 2,
-    },
-    sectionTitle: {
-      color: theme.textMuted,
-      fontSize: 12,
-      fontWeight: "700",
-      letterSpacing: 0.4,
-      textTransform: "uppercase",
-      paddingTop: 10,
-      paddingBottom: 6,
-    },
-    appearanceRow: {
-      minHeight: 52,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 12,
-      paddingVertical: 8,
-    },
-    appearanceTextWrap: {
-      flex: 1,
-      minWidth: 0,
-      gap: 2,
-    },
-    appearanceLabelRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-    },
-    appearanceLabel: {
-      color: theme.text,
-      fontSize: 15,
-      fontWeight: "700",
-    },
-    appearanceHint: {
-      color: theme.textMuted,
-      fontSize: 12,
-      lineHeight: 16,
-    },
-    field: {
-      gap: 7,
-    },
-    label: {
-      color: theme.text,
-      fontSize: 14,
-      fontWeight: "700",
-    },
-    helperText: {
-      color: theme.textMuted,
-      fontSize: 12,
-      lineHeight: 16,
-    },
-    input: {
-      minHeight: 46,
-      borderRadius: 12,
-      backgroundColor: theme.inputBackground,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.border,
-      color: theme.inputText,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      fontSize: 15,
-    },
-    bioInput: {
-      minHeight: 120,
-    },
-    saveBtn: {
-      marginTop: 8,
-      minHeight: 48,
-      borderRadius: 12,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: theme.accent,
-    },
-    saveBtnDisabled: {
-      opacity: 0.5,
-    },
-    saveText: {
-      color: theme.accentText,
-      fontSize: 16,
-      fontWeight: "800",
-    },
-  });
-}
-
 export function EditProfileScreen({ onClose, onSaved }: Props) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { theme, isDarkMode, toggleDarkMode } = useTheme();
-  const styles = useThemedStyles(createStyles);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [username, setUsername] = useState("");
@@ -310,6 +138,7 @@ export function EditProfileScreen({ onClose, onSaved }: Props) {
     }
 
     setSaving(true);
+    console.log("[EditProfile] saving username", cleanUsername);
     const { error } = await supabase
       .from("profiles")
       .update({
@@ -318,6 +147,7 @@ export function EditProfileScreen({ onClose, onSaved }: Props) {
         bio: bio.trim(),
       })
       .eq("id", user.id);
+    console.log("[EditProfile] update result", { error });
     setSaving(false);
 
     if (error) {
@@ -349,11 +179,11 @@ export function EditProfileScreen({ onClose, onSaved }: Props) {
           onPress={onClose}
           style={styles.iconButton}
           accessibilityRole="button"
-          accessibilityLabel="Sluit account settings"
+          accessibilityLabel="Sluit profiel bewerken"
         >
-          <Ionicons name="close" size={22} color={theme.icon} />
+          <Ionicons name="close" size={22} color={theme.text} />
         </Pressable>
-        <Text style={styles.title}>Account settings</Text>
+        <Text style={styles.title}>Profiel bewerken</Text>
         <View style={styles.iconButtonSpacer} />
       </View>
 
@@ -396,40 +226,6 @@ export function EditProfileScreen({ onClose, onSaved }: Props) {
             </Pressable>
           </View>
 
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Weergave</Text>
-            <View style={styles.appearanceRow}>
-              <View style={styles.appearanceTextWrap}>
-                <View style={styles.appearanceLabelRow}>
-                  <Ionicons
-                    name={isDarkMode ? "moon" : "sunny"}
-                    size={18}
-                    color={theme.accent}
-                  />
-                  <Text style={styles.appearanceLabel}>Donkere modus</Text>
-                </View>
-                <Text style={styles.appearanceHint}>
-                  {isDarkMode
-                    ? "Donkere achtergronden en lichte tekst."
-                    : "Lichte achtergronden en donkere tekst."}
-                </Text>
-              </View>
-              <Switch
-                value={isDarkMode}
-                onValueChange={toggleDarkMode}
-                trackColor={{
-                  false: theme.switchTrackFalse,
-                  true: theme.switchTrackTrue,
-                }}
-                thumbColor={theme.bg}
-                ios_backgroundColor={theme.switchTrackFalse}
-                accessibilityRole="switch"
-                accessibilityLabel="Donkere modus"
-                accessibilityHint="Schakel tussen donkere en lichte modus"
-              />
-            </View>
-          </View>
-
           <View style={styles.field}>
             <Text style={styles.label}>Accountnaam</Text>
             <TextInput
@@ -438,7 +234,7 @@ export function EditProfileScreen({ onClose, onSaved }: Props) {
               autoCapitalize="none"
               autoCorrect={false}
               placeholder="@gebruikersnaam"
-              placeholderTextColor={theme.placeholder}
+              placeholderTextColor={theme.textMuted}
               maxLength={USERNAME_MAX_LENGTH + 1}
               style={styles.input}
             />
@@ -454,7 +250,7 @@ export function EditProfileScreen({ onClose, onSaved }: Props) {
               value={displayName}
               onChangeText={setDisplayName}
               placeholder="Jouw naam"
-              placeholderTextColor={theme.placeholder}
+              placeholderTextColor={theme.textMuted}
               style={styles.input}
             />
           </View>
@@ -465,7 +261,7 @@ export function EditProfileScreen({ onClose, onSaved }: Props) {
               value={bio}
               onChangeText={setBio}
               placeholder="Vertel iets over jezelf"
-              placeholderTextColor={theme.placeholder}
+              placeholderTextColor={theme.textMuted}
               multiline
               textAlignVertical="top"
               maxLength={200}
@@ -481,7 +277,7 @@ export function EditProfileScreen({ onClose, onSaved }: Props) {
             accessibilityLabel="Profiel opslaan"
           >
             {saving ? (
-              <ActivityIndicator size="small" color={theme.accentText} />
+              <ActivityIndicator size="small" color={theme.bg} />
             ) : (
               <Text style={styles.saveText}>Save</Text>
             )}
@@ -492,3 +288,130 @@ export function EditProfileScreen({ onClose, onSaved }: Props) {
     </View>
   );
 }
+
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: theme.bg,
+  },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.border,
+  },
+  iconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.bgElevated,
+  },
+  iconButtonSpacer: {
+    width: 36,
+    height: 36,
+  },
+  title: {
+    color: theme.text,
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  loadingWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  content: {
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    gap: 14,
+  },
+  avatarWrap: {
+    alignItems: "center",
+    marginBottom: 6,
+    gap: 10,
+  },
+  avatarPressable: {
+    position: "relative",
+  },
+  avatar: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+  },
+  avatarUploadingOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 56,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  changeAvatarBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: theme.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  changeAvatarText: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  field: {
+    gap: 7,
+  },
+  label: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  helperText: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  input: {
+    minHeight: 46,
+    borderRadius: 12,
+    backgroundColor: theme.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    color: theme.text,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+  },
+  bioInput: {
+    minHeight: 120,
+  },
+  saveBtn: {
+    marginTop: 8,
+    minHeight: 48,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.accent,
+  },
+  saveBtnDisabled: {
+    opacity: 0.5,
+  },
+  saveText: {
+    color: theme.bg,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+});
+}
+

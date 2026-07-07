@@ -1,4 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Alert,
@@ -16,9 +20,6 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { AvatarImage } from "../components/AvatarImage";
 import { ProductListingImage } from "../components/ProductListingImage";
 import { ProductSellerBusinessInfoModal } from "../components/ProductSellerBusinessInfoModal";
@@ -69,8 +70,9 @@ function ProductImageCarousel({
   imageIndex: number;
   onIndexChange: (index: number) => void;
 }) {
-  const listRef = useRef<FlatList<string>>(null);
   const styles = useThemedStyles(createStyles);
+
+  const listRef = useRef<FlatList<string>>(null);
 
   const getItemLayout = useCallback(
     (_: ArrayLike<string> | null | undefined, index: number) => ({
@@ -154,8 +156,10 @@ function ProductImageCarousel({
 }
 
 export function ProductDetailScreen() {
+  const { t } = useTranslation();
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
@@ -235,10 +239,10 @@ export function ProductDetailScreen() {
 
   const sellerDisplayName = useMemo(() => {
     if (!seller) {
-      return "Onbekende verkoper";
+      return t("productDetail.unknownSeller");
     }
     return getPublicSellerBusinessName(seller, verifiedBusinessSeller);
-  }, [seller, verifiedBusinessSeller]);
+  }, [seller, verifiedBusinessSeller, t]);
 
   const sellerUsername = useMemo(() => {
     if (!seller?.username?.trim()) {
@@ -252,10 +256,10 @@ export function ProductDetailScreen() {
       return sellerUsername;
     }
     if (sellerUsername) {
-      return `Verkocht door ${sellerUsername}`;
+      return t("productDetail.soldBy", { handle: sellerUsername });
     }
-    return "Verkocht door onbekende verkoper";
-  }, [sellerUsername, verifiedBusinessSeller]);
+    return t("productDetail.soldByUnknown");
+  }, [sellerUsername, verifiedBusinessSeller, t]);
 
   const showSellerVerificationWarning = useMemo(() => {
     if (!seller || canManage) {
@@ -282,24 +286,24 @@ export function ProductDetailScreen() {
       const updated = await setProductActive(product.id, !product.isActive);
       setProduct(updated);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Status wijzigen mislukt.";
-      Alert.alert("Fout", msg);
+      const msg = e instanceof Error ? e.message : t("productDetail.statusChangeFailed");
+      Alert.alert(t("alerts.error"), msg);
     } finally {
       setBusy(false);
     }
-  }, [product]);
+  }, [product, t]);
 
   const onDelete = useCallback(() => {
     if (!product) {
       return;
     }
     Alert.alert(
-      "Product verwijderen?",
-      `"${product.name}" wordt permanent verwijderd.`,
+      t("productDetail.deleteTitle"),
+      t("productDetail.deleteMessage", { name: product.name }),
       [
-        { text: "Annuleren", style: "cancel" },
+        { text: t("common.cancel"), style: "cancel" },
         {
-          text: "Verwijderen",
+          text: t("common.delete"),
           style: "destructive",
           onPress: () => {
             void (async () => {
@@ -309,8 +313,8 @@ export function ProductDetailScreen() {
                 navigation.goBack();
               } catch (e) {
                 const msg =
-                  e instanceof Error ? e.message : "Verwijderen mislukt.";
-                Alert.alert("Fout", msg);
+                  e instanceof Error ? e.message : t("productDetail.deleteFailed");
+                Alert.alert(t("alerts.error"), msg);
               } finally {
                 setBusy(false);
               }
@@ -319,7 +323,7 @@ export function ProductDetailScreen() {
         },
       ]
     );
-  }, [navigation, product]);
+  }, [navigation, product, t]);
 
   const onSubmitProductReport = useCallback(
     async (reason: string) => {
@@ -327,28 +331,28 @@ export function ProductDetailScreen() {
         return;
       }
       if (!user) {
-        openAuthPrompt({ message: "Log in om dit product te melden." });
+        openAuthPrompt({ message: t("productDetail.reportLogin") });
         return;
       }
       setReportBusy(true);
       try {
         const { duplicate } = await reportProduct(product.id, reason);
         Alert.alert(
-          "Bedankt",
+          t("productDetail.thanks"),
           duplicate
-            ? "We hebben je eerdere melding al ontvangen."
-            : "We beoordelen je melding zo snel mogelijk."
+            ? t("productDetail.reportDuplicate")
+            : t("productDetail.reportReceived")
         );
       } catch (e) {
         Alert.alert(
-          "Melden mislukt",
-          getReadableErrorMessage(e, "Probeer het later opnieuw.")
+          t("productDetail.reportFailed"),
+          getReadableErrorMessage(e, t("productDetail.tryAgainLater"))
         );
       } finally {
         setReportBusy(false);
       }
     },
-    [openAuthPrompt, product?.id, reportBusy, user]
+    [openAuthPrompt, product?.id, reportBusy, t, user]
   );
 
   const usesVariantCheckout = useMemo(
@@ -393,13 +397,13 @@ export function ProductDetailScreen() {
     }
     if (!sellerSalesActive) {
       Alert.alert(
-        "Niet beschikbaar",
-        "Dit product is momenteel tijdelijk niet beschikbaar voor aankoop."
+        t("productDetail.unavailable"),
+        t("productDetail.unavailableMessage")
       );
       return;
     }
     if (buyBlockedBySize) {
-      Alert.alert("Maat kiezen", "Kies eerst een maat.");
+      Alert.alert(t("productDetail.chooseSizeTitle"), t("productDetail.chooseSizeMessage"));
       return;
     }
     navigation.navigate("CheckoutReview", {
@@ -417,6 +421,7 @@ export function ProductDetailScreen() {
     selectedSize,
     selectedVariant,
     sellerSalesActive,
+    t,
   ]);
 
   const onToggleSave = useCallback(() => {
@@ -424,7 +429,7 @@ export function ProductDetailScreen() {
       return;
     }
     if (!user) {
-      openAuthPrompt({ message: "Log in om producten te bewaren." });
+      openAuthPrompt({ message: t("productDetail.saveLogin") });
       return;
     }
     const next = !isSaved;
@@ -432,10 +437,10 @@ export function ProductDetailScreen() {
     void (next ? saveProductLocally(product.id) : unsaveProductLocally(product.id)).catch(
       () => {
         setIsSaved(!next);
-        Alert.alert("Opslaan mislukt", "Probeer het opnieuw.");
+        Alert.alert(t("productDetail.saveFailed"), t("productDetail.tryAgain"));
       }
     );
-  }, [isSaved, openAuthPrompt, product, user]);
+  }, [isSaved, openAuthPrompt, product, t, user]);
 
   const onSellerPress = useCallback(() => {
     if (!seller?.id) {
@@ -497,12 +502,12 @@ export function ProductDetailScreen() {
           style={styles.topBtn}
           hitSlop={10}
           accessibilityRole="button"
-          accessibilityLabel="Terug"
+          accessibilityLabel={t("common.back")}
         >
           <Ionicons name="chevron-back" size={26} color={theme.text} />
         </Pressable>
         <Text style={styles.screenTitle} numberOfLines={1}>
-          Product
+          {t("productDetail.title")}
         </Text>
         {canManage ? (
           <Pressable
@@ -510,7 +515,7 @@ export function ProductDetailScreen() {
             style={styles.topBtn}
             hitSlop={10}
             accessibilityRole="button"
-            accessibilityLabel="Bewerken"
+            accessibilityLabel={t("common.edit")}
           >
             <Ionicons name="create-outline" size={24} color={theme.accent} />
           </Pressable>
@@ -518,7 +523,7 @@ export function ProductDetailScreen() {
           <Pressable
             onPress={() => {
               if (!user) {
-                openAuthPrompt({ message: "Log in om dit product te melden." });
+                openAuthPrompt({ message: t("productDetail.reportLogin") });
                 return;
               }
               setReportVisible(true);
@@ -526,7 +531,7 @@ export function ProductDetailScreen() {
             style={styles.topBtn}
             hitSlop={10}
             accessibilityRole="button"
-            accessibilityLabel="Rapporteer product"
+            accessibilityLabel={t("productDetail.reportProduct")}
           >
             <Ionicons name="flag-outline" size={22} color={theme.text} />
           </Pressable>
@@ -541,7 +546,7 @@ export function ProductDetailScreen() {
         </View>
       ) : !product ? (
         <View style={styles.centerState}>
-          <Text style={styles.emptyText}>Product niet gevonden.</Text>
+          <Text style={styles.emptyText}>{t("productDetail.notFound")}</Text>
         </View>
       ) : (
         <>
@@ -571,7 +576,7 @@ export function ProductDetailScreen() {
               )}
               {!product.isActive && canManage ? (
                 <View style={styles.inactiveBadge}>
-                  <Text style={styles.inactiveBadgeText}>Inactief</Text>
+                  <Text style={styles.inactiveBadgeText}>{t("productDetail.inactive")}</Text>
                 </View>
               ) : null}
             </View>
@@ -613,17 +618,19 @@ export function ProductDetailScreen() {
               <Text style={styles.price}>{formatPriceEur(product.price)}</Text>
               <View style={styles.metaGrid}>
                 <View style={styles.metaPill}>
-                  <Text style={styles.metaLabel}>Merk</Text>
-                  <Text style={styles.metaValue}>{product.brand || "Onbekend"}</Text>
+                  <Text style={styles.metaLabel}>{t("productDetail.brand")}</Text>
+                  <Text style={styles.metaValue}>{product.brand || t("productDetail.unknown")}</Text>
                 </View>
                 <View style={styles.metaPill}>
-                  <Text style={styles.metaLabel}>Categorie</Text>
-                  <Text style={styles.metaValue}>{product.category || "Overig"}</Text>
+                  <Text style={styles.metaLabel}>{t("productDetail.category")}</Text>
+                  <Text style={styles.metaValue}>{product.category || t("productDetail.other")}</Text>
                 </View>
                 <View style={styles.metaPill}>
-                  <Text style={styles.metaLabel}>Voorraad</Text>
+                  <Text style={styles.metaLabel}>{t("productDetail.stock")}</Text>
                   <Text style={styles.metaValue}>
-                    {product.stock > 0 ? `${product.stock} beschikbaar` : "Niet op voorraad"}
+                    {product.stock > 0
+                      ? t("productDetail.inStock", { count: product.stock })
+                      : t("productDetail.notInStock")}
                   </Text>
                 </View>
               </View>
@@ -632,14 +639,13 @@ export function ProductDetailScreen() {
                 <View style={styles.verifyWarning}>
                   <Ionicons name="information-circle-outline" size={20} color="#f5c542" />
                   <Text style={styles.verifyWarningText}>
-                    Deze verkoper is nog niet volledig geverifieerd. Kopen is nog niet
-                    mogelijk tot het verkoopaccount is goedgekeurd.
+                    {t("productDetail.verifyWarning")}
                   </Text>
                 </View>
               ) : null}
 
               <View style={styles.sellerBlock}>
-                <Text style={styles.sellerSectionEyebrow}>Verkocht door</Text>
+                <Text style={styles.sellerSectionEyebrow}>{t("productDetail.soldByEyebrow")}</Text>
                 <View style={styles.sellerRow}>
                   <AvatarImage uri={seller?.avatarUrl} style={styles.sellerAvatar} />
                   <View style={styles.sellerTextWrap}>
@@ -654,7 +660,7 @@ export function ProductDetailScreen() {
                           color={theme.accent}
                         />
                         <Text style={styles.verifiedBadgeText}>
-                          Geverifieerde zakelijke verkoper
+                          {t("productDetail.verifiedSeller")}
                         </Text>
                       </View>
                     ) : null}
@@ -674,10 +680,10 @@ export function ProductDetailScreen() {
                       style={styles.sellerActionBtn}
                       onPress={() => setBusinessInfoVisible(true)}
                       accessibilityRole="button"
-                      accessibilityLabel="Bekijk bedrijfsinformatie"
+                      accessibilityLabel={t("productDetail.viewBusinessInfo")}
                     >
                       <Text style={styles.sellerActionBtnText}>
-                        Bekijk bedrijfsinformatie
+                        {t("productDetail.viewBusinessInfo")}
                       </Text>
                     </Pressable>
                   ) : null}
@@ -689,7 +695,7 @@ export function ProductDetailScreen() {
                     onPress={onSellerPress}
                     disabled={!seller?.id}
                     accessibilityRole="button"
-                    accessibilityLabel="Bekijk verkopersprofiel"
+                    accessibilityLabel={t("productDetail.viewSellerProfile")}
                   >
                     <Text
                       style={[
@@ -697,7 +703,7 @@ export function ProductDetailScreen() {
                         verifiedBusinessSeller && styles.sellerActionBtnTextSecondary,
                       ]}
                     >
-                      Bekijk verkopersprofiel
+                      {t("productDetail.viewSellerProfile")}
                     </Text>
                   </Pressable>
                 </View>
@@ -705,15 +711,13 @@ export function ProductDetailScreen() {
 
               {!canManage ? (
                 <Text style={styles.marketplaceNote}>
-                  Het platform faciliteert betaling en orderinformatie. De verkoper is
-                  verantwoordelijk voor juistheid, verpakking en verzending. Controleer
-                  listing en verkoper vóór aankoop.
+                  {t("productDetail.marketplaceNote")}
                 </Text>
               ) : null}
 
               {usesVariantCheckout && variants.length > 0 ? (
                 <View style={styles.section}>
-                  <Text style={styles.sectionLabel}>Kies je maat</Text>
+                  <Text style={styles.sectionLabel}>{t("productDetail.chooseSize")}</Text>
                   <View style={styles.sizeRow}>
                     {variants.map((variant) => {
                       const selected = selectedVariantId === variant.id;
@@ -735,7 +739,9 @@ export function ProductDetailScreen() {
                           }}
                           disabled={out}
                           accessibilityRole="button"
-                          accessibilityLabel={`Maat ${variant.optionValue}`}
+                          accessibilityLabel={t("productDetail.sizeAccessibility", {
+                            size: variant.optionValue,
+                          })}
                         >
                           <Text
                             style={[
@@ -748,7 +754,7 @@ export function ProductDetailScreen() {
                             {variant.optionValue}
                           </Text>
                           {out ? (
-                            <Text style={styles.sizeOutLabel}>Uitverkocht</Text>
+                            <Text style={styles.sizeOutLabel}>{t("shop.outOfStock")}</Text>
                           ) : null}
                         </Pressable>
                       );
@@ -756,14 +762,16 @@ export function ProductDetailScreen() {
                   </View>
                   {selectedVariant && selectedVariant.stock > 0 ? (
                     <Text style={styles.sizeStockHint}>
-                      Nog {selectedVariant.stock} beschikbaar in maat{" "}
-                      {selectedVariant.optionValue}
+                      {t("productDetail.sizeStockHint", {
+                        count: selectedVariant.stock,
+                        size: selectedVariant.optionValue,
+                      })}
                     </Text>
                   ) : null}
                 </View>
               ) : product.sizes.length > 0 && !usesVariantCheckout ? (
                 <View style={styles.section}>
-                  <Text style={styles.sectionLabel}>Kies je maat</Text>
+                  <Text style={styles.sectionLabel}>{t("productDetail.chooseSize")}</Text>
                   <View style={styles.sizeRow}>
                     {product.sizes.map((size) => {
                       const selected = selectedSize === size;
@@ -773,7 +781,7 @@ export function ProductDetailScreen() {
                           style={[styles.sizeChip, selected && styles.sizeChipSelected]}
                           onPress={() => setSelectedSize(size)}
                           accessibilityRole="button"
-                          accessibilityLabel={`Maat ${size}`}
+                          accessibilityLabel={t("productDetail.sizeAccessibility", { size })}
                         >
                           <Text
                             style={[
@@ -792,16 +800,16 @@ export function ProductDetailScreen() {
 
               {product.description?.trim() ? (
                 <View style={styles.section}>
-                  <Text style={styles.sectionLabel}>Beschrijving</Text>
+                  <Text style={styles.sectionLabel}>{t("productDetail.description")}</Text>
                   <Text style={styles.description}>{product.description.trim()}</Text>
                 </View>
               ) : null}
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Video's met dit product</Text>
+                <Text style={styles.sectionTitle}>{t("productDetail.videosWithProduct")}</Text>
                 {relatedPosts.length === 0 ? (
                   <Text style={styles.mutedText}>
-                    Er zijn nog geen reels gekoppeld aan dit product.
+                    {t("productDetail.noRelatedReels")}
                   </Text>
                 ) : (
                   <FlatList
@@ -823,7 +831,7 @@ export function ProductDetailScreen() {
                         ]}
                         onPress={() => openRelatedPost(item)}
                         accessibilityRole="button"
-                        accessibilityLabel="Open reel"
+                        accessibilityLabel={t("productDetail.openReel")}
                       >
                         {item.thumbnailUrl || item.imageUrl ? (
                           <ProductListingImage
@@ -852,9 +860,9 @@ export function ProductDetailScreen() {
                     onPress={onEdit}
                     disabled={busy}
                     accessibilityRole="button"
-                    accessibilityLabel="Product bewerken"
+                    accessibilityLabel={t("productDetail.editProduct")}
                   >
-                    <Text style={styles.managePrimaryText}>Bewerken</Text>
+                    <Text style={styles.managePrimaryText}>{t("common.edit")}</Text>
                   </Pressable>
                   <Pressable
                     style={styles.manageSecondary}
@@ -862,11 +870,13 @@ export function ProductDetailScreen() {
                     disabled={busy}
                     accessibilityRole="button"
                     accessibilityLabel={
-                      product.isActive ? "Product deactiveren" : "Product activeren"
+                      product.isActive
+                        ? t("productDetail.deactivateProduct")
+                        : t("productDetail.activateProduct")
                     }
                   >
                     <Text style={styles.manageSecondaryText}>
-                      {product.isActive ? "Deactiveren" : "Activeren"}
+                      {product.isActive ? t("productDetail.deactivate") : t("productDetail.activate")}
                     </Text>
                   </Pressable>
                   <Pressable
@@ -874,9 +884,9 @@ export function ProductDetailScreen() {
                     onPress={onDelete}
                     disabled={busy}
                     accessibilityRole="button"
-                    accessibilityLabel="Product verwijderen"
+                    accessibilityLabel={t("productDetail.deleteTitle")}
                   >
-                    <Text style={styles.manageDangerText}>Verwijderen</Text>
+                    <Text style={styles.manageDangerText}>{t("common.delete")}</Text>
                   </Pressable>
                 </View>
               ) : null}
@@ -890,14 +900,16 @@ export function ProductDetailScreen() {
                   style={styles.saveBtn}
                   onPress={onToggleSave}
                   accessibilityRole="button"
-                  accessibilityLabel={isSaved ? "Verwijder uit bewaard" : "Bewaar product"}
+                  accessibilityLabel={
+                    isSaved ? t("productDetail.removeFromSaved") : t("productDetail.saveProduct")
+                  }
                 >
                   <Ionicons
                     name={isSaved ? "bookmark" : "bookmark-outline"}
                     size={22}
                     color={theme.text}
                   />
-                  <Text style={styles.saveBtnText}>Bewaar</Text>
+                  <Text style={styles.saveBtnText}>{t("productDetail.save")}</Text>
                 </Pressable>
                   <Pressable
                   style={[
@@ -910,17 +922,17 @@ export function ProductDetailScreen() {
                   accessibilityLabel={
                     sellerSalesActive
                       ? buyBlockedBySize
-                        ? "Kies eerst een maat"
-                        : "Koop nu"
-                      : "Kopen niet beschikbaar"
+                        ? t("productDetail.chooseSizeFirst")
+                        : t("productDetail.buyNow")
+                      : t("productDetail.buyUnavailable")
                   }
                 >
                   <Text style={styles.buyBtnText}>
                     {!sellerSalesActive
-                      ? "Nog niet te koop"
+                      ? t("productDetail.notForSaleYet")
                       : buyBlockedBySize
-                        ? "Kies eerst een maat"
-                        : "Koop nu"}
+                        ? t("productDetail.chooseSizeFirst")
+                        : t("productDetail.buyNow")}
                   </Text>
                 </Pressable>
               </View>
@@ -937,8 +949,8 @@ export function ProductDetailScreen() {
             onClose={() => setReportVisible(false)}
             onSubmit={(reason) => void onSubmitProductReport(reason)}
             busy={reportBusy}
-            title="Rapporteer product"
-            subtitle="Je melding is anoniem voor de verkoper."
+            title={t("productDetail.reportProduct")}
+            subtitle={t("productDetail.reportSubtitle")}
             reasons={PRODUCT_REPORT_REASONS}
           />
         </>
@@ -1427,5 +1439,6 @@ function createStyles(theme: AppTheme) {
     fontSize: 17,
     fontWeight: "900",
   },
-  });
+});
 }
+

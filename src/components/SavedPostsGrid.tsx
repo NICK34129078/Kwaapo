@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Image,
@@ -9,9 +12,6 @@ import {
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { fetchSavedPostsByUserId } from "../services/savedPostsService";
 import type { UserVideoPost } from "../types/userVideoPost";
 
@@ -34,6 +34,7 @@ export function SavedPostsGrid({
 }: Props) {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
   const [posts, setPosts] = useState<UserVideoPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -152,60 +153,61 @@ export function SavedPostsGrid({
 
 function createStyles(theme: AppTheme) {
   return StyleSheet.create({
-    grid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-    },
-    loadingWrap: {
-      paddingVertical: 32,
-      alignItems: "center",
-    },
-    cell: {
-      width: "33.33%",
-    },
-    thumbWithOverlay: {
-      width: "100%",
-      position: "relative",
-      aspectRatio: 0.78,
-    },
-    thumb: {
-      width: "100%",
-      aspectRatio: 0.78,
-      backgroundColor: theme.bgElevated,
-    },
-    thumbFallback: {
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    playIconOverlay: {
-      position: "absolute",
-      right: 4,
-      bottom: 4,
-    },
-    badge: {
-      position: "absolute",
-      right: 4,
-      bottom: 4,
-      backgroundColor: "rgba(0,0,0,0.45)",
-      borderRadius: 6,
-      padding: 3,
-    },
-    emptyWrap: {
-      paddingVertical: 48,
-      paddingHorizontal: 24,
-      alignItems: "center",
-      gap: 8,
-    },
-    emptyTitle: {
-      color: theme.text,
-      fontSize: 16,
-      fontWeight: "800",
-    },
-    emptyText: {
-      color: theme.textMuted,
-      fontSize: 14,
-      lineHeight: 20,
-      textAlign: "center",
-    },
-  });
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  loadingWrap: {
+    paddingVertical: 32,
+    alignItems: "center",
+  },
+  cell: {
+    width: "33.33%",
+  },
+  thumbWithOverlay: {
+    width: "100%",
+    position: "relative",
+    aspectRatio: 0.78,
+  },
+  thumb: {
+    width: "100%",
+    aspectRatio: 0.78,
+    backgroundColor: theme.bgElevated,
+  },
+  thumbFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  playIconOverlay: {
+    position: "absolute",
+    right: 4,
+    bottom: 4,
+  },
+  badge: {
+    position: "absolute",
+    right: 4,
+    bottom: 4,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    borderRadius: 6,
+    padding: 3,
+  },
+  emptyWrap: {
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    gap: 8,
+  },
+  emptyTitle: {
+    color: theme.text,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  emptyText: {
+    color: theme.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+  },
+});
 }
+

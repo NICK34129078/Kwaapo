@@ -1,5 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useFocusEffect, useIsFocused } from "@react-navigation/native";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
+import { useFocusEffect, useIsFocused, useRoute } from "@react-navigation/native";
 import type { ViewToken } from "react-native";
 import {
   ActivityIndicator,
@@ -25,10 +35,7 @@ import {
   type FeedPost,
 } from "../data/placeholder";
 import type { UserVideoPost } from "../types/userVideoPost";
-import type { AppTheme } from "../constants/themeTokens";
 import { useAuth } from "../context/AuthContext";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
 import { isPersistablePostId } from "../services/postLikesService";
@@ -46,6 +53,10 @@ const INITIAL_H = Dimensions.get("window").height;
 const VISIBLE_PCT = 70;
 const SCROLL_THROTTLE = 16;
 
+type ReelsRouteParams = {
+  feedRefreshNonce?: number;
+};
+
 type ViewableInfo = {
   viewableItems: Array<ViewToken<FeedPost>>;
   changed: Array<ViewToken<FeedPost>>;
@@ -58,15 +69,12 @@ type AggregatedPlaybackMetrics = {
 };
 
 function ReelsFeedTopBar() {
+  const styles = useThemedStyles(createStyles);
+
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const { user } = useAuth();
   const { openAuthPrompt } = useAuthPrompt();
-  const styles = useThemedStyles(createStyles);
-
-  if (user) {
-    return null;
-  }
 
   if (!isFocused || user) {
     return null;
@@ -127,6 +135,7 @@ function pickActiveViewable(
 
 function ReelNextPreloader({ videoUrl }: { videoUrl: string | undefined | null }) {
   const styles = useThemedStyles(createStyles);
+
   if (!videoUrl || Platform.OS === "web") {
     return null;
   }
@@ -153,7 +162,9 @@ function FeedListFooter({
   endReached: boolean;
 }) {
   const { theme } = useTheme();
+
   const styles = useThemedStyles(createStyles);
+
   if (loading) {
     return (
       <View style={styles.footerWrap}>
@@ -174,6 +185,7 @@ function FeedListFooter({
 export function ReelsScreen() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const {
     globalFeedPosts,
     refreshGlobalFeed,
@@ -190,14 +202,19 @@ export function ReelsScreen() {
   const { interactionRevision } = useLikes();
   const { user } = useAuth();
   const navigation = useNavigation<any>();
+  const route = useRoute();
+  const feedRefreshNonce = (route.params as ReelsRouteParams | undefined)
+    ?.feedRefreshNonce;
   const { refresh: refreshSellerFulfillment } = useSellerFulfillment();
+  const listRef = useRef<FlatList<FeedPost>>(null);
   const [pageH, setPageH] = useState(INITIAL_H);
   const [activeReelId, setActiveReelId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const isFocused = useIsFocused();
-  const listRef = useRef<FlatList<FeedPost>>(null);
-  const wasFocusedBeforeTabPressRef = useRef(false);
-  const pendingHomeReselectRef = useRef(false);
+  const isHomeRefreshingRef = useRef(false);
+  const lastHandledRefreshNonceRef = useRef<number | undefined>(undefined);
+  const feedWindowRef = useRef({ firstId: "", length: 0 });
+  const prevPageHRef = useRef(pageH);
 
   useFocusEffect(
     useCallback(() => {
@@ -330,11 +347,75 @@ export function ReelsScreen() {
     });
   }, []);
 
+  const scrollFeedToOffset = useCallback(
+    (index: number, animated: boolean) => {
+      if (!listRef.current || index < 0 || pageH <= 0) {
+        return;
+      }
+      listRef.current.scrollToOffset({
+        offset: index * pageH,
+        animated,
+      });
+    },
+    [pageH]
+  );
+
+  const handleHomeRefresh = useCallback(async () => {
+    if (isHomeRefreshingRef.current) {
+      return;
+    }
+    isHomeRefreshingRef.current = true;
+    scrollFeedToOffset(0, true);
+    setRefreshing(true);
+    try {
+      await refreshGlobalFeed({ force: true });
+      setActiveReelId(null);
+      requestAnimationFrame(() => {
+        scrollFeedToOffset(0, false);
+      });
+    } finally {
+      setRefreshing(false);
+      isHomeRefreshingRef.current = false;
+    }
+  }, [refreshGlobalFeed, scrollFeedToOffset]);
+
   useFocusEffect(
     useCallback(() => {
-      void refreshGlobalFeed();
-    }, [refreshGlobalFeed])
+      if (
+        feedRefreshNonce != null &&
+        feedRefreshNonce !== lastHandledRefreshNonceRef.current
+      ) {
+        lastHandledRefreshNonceRef.current = feedRefreshNonce;
+        void handleHomeRefresh();
+        return;
+      }
+      if (globalFeedPosts.length === 0) {
+        void refreshGlobalFeed();
+      }
+    }, [
+      feedRefreshNonce,
+      handleHomeRefresh,
+      refreshGlobalFeed,
+      globalFeedPosts.length,
+    ])
   );
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("tabPress", () => {
+      if (!isFocused) {
+        return;
+      }
+      void handleHomeRefresh();
+    });
+    return unsubscribe;
+  }, [navigation, handleHomeRefresh, isFocused]);
+
+  const onRetryFeed = useCallback(() => {
+    setRefreshing(true);
+    void refreshGlobalFeed({ force: true }).finally(() => {
+      setRefreshing(false);
+    });
+  }, [refreshGlobalFeed]);
 
   const onPullRefresh = useCallback(() => {
     setRefreshing(true);
@@ -342,45 +423,6 @@ export function ReelsScreen() {
       setRefreshing(false);
     });
   }, [refreshGlobalFeed]);
-
-  const onHomeTabReselect = useCallback(() => {
-    pendingHomeReselectRef.current = true;
-    finalizeActiveView();
-    listRef.current?.scrollToOffset({ offset: 0, animated: true });
-    onPullRefresh();
-  }, [finalizeActiveView, onPullRefresh]);
-
-  useFocusEffect(
-    useCallback(() => {
-      wasFocusedBeforeTabPressRef.current = true;
-      return () => {
-        wasFocusedBeforeTabPressRef.current = false;
-      };
-    }, [])
-  );
-
-  useEffect(() => {
-    const unsubscribe = navigation.addListener("tabPress", () => {
-      if (wasFocusedBeforeTabPressRef.current) {
-        onHomeTabReselect();
-      }
-    });
-    return unsubscribe;
-  }, [navigation, onHomeTabReselect]);
-
-  useEffect(() => {
-    if (!pendingHomeReselectRef.current || refreshing) {
-      return;
-    }
-    if (finalFeedData.length === 0) {
-      pendingHomeReselectRef.current = false;
-      setActiveReelId(null);
-      return;
-    }
-    pendingHomeReselectRef.current = false;
-    setActiveReelId(finalFeedData[0]!.id);
-    listRef.current?.scrollToOffset({ offset: 0, animated: false });
-  }, [finalFeedData, refreshing]);
 
   useEffect(() => {
     if (isFocused) {
@@ -469,6 +511,30 @@ export function ReelsScreen() {
     [finalFeedData, activeReelId]
   );
 
+  useLayoutEffect(() => {
+    const firstId = finalFeedData[0]?.id ?? "";
+    const length = finalFeedData.length;
+    const prev = feedWindowRef.current;
+    const trimmedFromTop =
+      length < prev.length && firstId !== "" && firstId !== prev.firstId;
+
+    feedWindowRef.current = { firstId, length };
+
+    if (!trimmedFromTop || activeIndex < 0) {
+      return;
+    }
+    scrollFeedToOffset(activeIndex, false);
+  }, [finalFeedData, activeIndex, scrollFeedToOffset]);
+
+  useLayoutEffect(() => {
+    if (prevPageHRef.current === pageH || activeIndex < 0) {
+      prevPageHRef.current = pageH;
+      return;
+    }
+    prevPageHRef.current = pageH;
+    scrollFeedToOffset(activeIndex, false);
+  }, [pageH, activeIndex, scrollFeedToOffset]);
+
   useEffect(() => {
     if (!isFocused) {
       return;
@@ -499,6 +565,9 @@ export function ReelsScreen() {
     if (!isFocused || finalFeedData.length <= REELS_WINDOW.MAX) {
       return;
     }
+    if (isLoadingMoreFeed || globalFeedLoading) {
+      return;
+    }
     trimFeedWindow(activeReelId);
   }, [
     activeReelId,
@@ -506,6 +575,7 @@ export function ReelsScreen() {
     finalFeedData.length,
     isFocused,
     isLoadingMoreFeed,
+    globalFeedLoading,
     trimFeedWindow,
   ]);
 
@@ -585,6 +655,15 @@ export function ReelsScreen() {
     [pageH]
   );
 
+  const onScrollToIndexFailed = useCallback(
+    (info: { index: number }) => {
+      setTimeout(() => {
+        scrollFeedToOffset(info.index, false);
+      }, 80);
+    },
+    [scrollFeedToOffset]
+  );
+
   const listFooter = useMemo(
     () => (
       <FeedListFooter
@@ -595,14 +674,14 @@ export function ReelsScreen() {
     [isLoadingMoreFeed, feedEndReached]
   );
 
-  const showInitialLoading =
+  const showBlockingLoader =
     globalFeedLoading && finalFeedData.length === 0 && !refreshing;
 
   return (
     <View style={styles.root} onLayout={onRootLayout}>
       <ReelsFeedTopBar />
       <ReelNextPreloader videoUrl={nextVideoForPreload} />
-      {showInitialLoading ? (
+      {showBlockingLoader ? (
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={theme.accent} />
         </View>
@@ -611,7 +690,7 @@ export function ReelsScreen() {
           <Text style={styles.errorText}>{globalFeedError}</Text>
           <Pressable
             style={styles.retryBtn}
-            onPress={() => void refreshGlobalFeed({ force: true })}
+            onPress={onRetryFeed}
             accessibilityRole="button"
             accessibilityLabel="Opnieuw proberen"
           >
@@ -646,13 +725,9 @@ export function ReelsScreen() {
           initialNumToRender={2}
           maxToRenderPerBatch={2}
           windowSize={5}
-          maintainVisibleContentPosition={
-            Platform.OS === "ios" || Platform.OS === "android"
-              ? { minIndexForVisible: 0, autoscrollToTopThreshold: 10 }
-              : undefined
-          }
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
+          onScrollToIndexFailed={onScrollToIndexFailed}
           removeClippedSubviews={false}
           bounces={false}
           overScrollMode="never"
@@ -729,6 +804,9 @@ function createStyles(theme: AppTheme) {
     paddingBottom: 6,
     pointerEvents: "box-none",
   },
+  feedTopBarSide: {
+    flex: 1,
+  },
   feedTopBarAuth: {
     flexDirection: "row",
     alignItems: "center",
@@ -741,7 +819,7 @@ function createStyles(theme: AppTheme) {
     paddingHorizontal: 4,
   },
   feedTopBarAuthTxt: {
-    color: theme.onMediaText,
+    color: theme.text,
     fontSize: 15,
     fontWeight: "700",
     textShadowColor: "rgba(0,0,0,0.55)",
@@ -759,5 +837,6 @@ function createStyles(theme: AppTheme) {
     opacity: 0,
     zIndex: -1,
   },
-  });
+});
 }
+

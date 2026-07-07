@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Alert,
@@ -15,9 +18,6 @@ import {
 import { useNavigation, useRoute, useFocusEffect, usePreventRemove } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { ProductListingImage } from "../components/ProductListingImage";
 import { createOrderFromProduct } from "../services/ordersService";
 import { payOrderWithStripe } from "../services/checkoutFlowService";
@@ -60,6 +60,7 @@ function FormField({
 }) {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   return (
     <View style={styles.field}>
       <Text style={styles.label}>
@@ -83,6 +84,7 @@ function FormField({
 export function CheckoutInfoScreen() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
@@ -782,5 +784,6 @@ function createStyles(theme: AppTheme) {
     fontSize: 14,
     fontWeight: "800",
   },
-  });
+});
 }
+

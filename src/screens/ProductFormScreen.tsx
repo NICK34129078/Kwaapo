@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 
 import {
 
@@ -32,9 +35,6 @@ import * as ImagePicker from "expo-image-picker";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 
 import {
 
@@ -169,7 +169,6 @@ function buildFormSteps(mainCategory: ShopMainCategoryCode | null): FormStepId[]
 
 
 function stepToCategorySection(step: FormStepId): ProductCategorySection | null {
-
   if (step === "category") {
 
     return "main";
@@ -210,6 +209,7 @@ function SimpleStockStepper({
 
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const stockNum = Math.max(0, parseInt(stockText, 10) || 0);
 
   return (
@@ -279,9 +279,10 @@ function SimpleStockStepper({
 
 
 export function ProductFormScreen() {
-
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
+
   const navigation = useNavigation<any>();
 
   const route = useRoute<any>();
@@ -991,8 +992,7 @@ export function ProductFormScreen() {
                     text: "Seller-voorwaarden",
 
                     onPress: () =>
-
-                      navigation.navigate("SellerTerms", { requireAcceptance: true }),
+                      navigation.navigate("SellerOnboarding", { focusStep: 3 }),
 
                   },
 
@@ -2660,7 +2660,8 @@ function createStyles(theme: AppTheme) {
 
   },
 
-  });
+});
 }
+
 
 

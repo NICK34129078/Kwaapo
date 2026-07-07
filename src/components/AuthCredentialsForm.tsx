@@ -12,9 +12,9 @@ import { useAuth } from "../context/AuthContext";
 import { PASSWORD_RESET_REDIRECT_URL, logPasswordResetRedirectUrl } from "../constants/authLinks";
 import { supabase } from "../lib/supabase";
 import { spacing } from "../constants/theme";
-import type { AppTheme } from "../constants/themeTokens";
 import { useTheme } from "../context/ThemeContext";
 import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 
 type PendingAction = "none" | "login" | "register" | "reset";
 const USERNAME_MAX_LENGTH = 30;
@@ -30,6 +30,7 @@ function isValidEmailFormat(email: string): boolean {
 export function AuthCredentialsForm() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const { signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -202,7 +203,7 @@ export function AuthCredentialsForm() {
       <TextInput
         style={styles.input}
         placeholder="E-mail"
-        placeholderTextColor={theme.placeholder}
+        placeholderTextColor={theme.textMuted}
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="email-address"
@@ -213,7 +214,7 @@ export function AuthCredentialsForm() {
       <TextInput
         style={styles.input}
         placeholder="Wachtwoord"
-        placeholderTextColor={theme.placeholder}
+        placeholderTextColor={theme.textMuted}
         secureTextEntry
         value={password}
         onChangeText={setPassword}
@@ -222,7 +223,7 @@ export function AuthCredentialsForm() {
       <TextInput
         style={styles.input}
         placeholder="Accountnaam"
-        placeholderTextColor={theme.placeholder}
+        placeholderTextColor={theme.textMuted}
         autoCapitalize="none"
         autoCorrect={false}
         value={username}
@@ -285,7 +286,8 @@ export function AuthCredentialsForm() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   input: {
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.border,
@@ -357,3 +359,5 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 });
+}
+

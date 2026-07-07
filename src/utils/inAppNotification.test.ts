@@ -16,6 +16,8 @@ import {
   type InAppNotificationPayload,
 } from "./inAppNotification";
 
+import { initI18n } from "../i18n/index";
+
 function assert(condition: boolean, message: string): void {
   if (!condition) {
     throw new Error(message);
@@ -39,6 +41,7 @@ function makePayload(
 }
 
 export function runInAppNotificationTests(): void {
+  initI18n("nl-NL");
   const first = makePayload({ id: "a" });
   const second = makePayload({ id: "b", audience: "buyer", notificationType: "order_shipped" });
 
@@ -121,8 +124,7 @@ export function runInAppNotificationTests(): void {
     "buyer shipped toast body"
   );
   assert(
-    buyerOrderShippedToastBody(null, null) ===
-      "Je bestelling is verzonden door de verkoper.",
+    buyerOrderShippedToastBody(null, null).includes("verzonden"),
     "buyer shipped toast body fallbacks"
   );
 

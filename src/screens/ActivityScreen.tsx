@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -11,46 +11,36 @@ import {
 } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-import type { AppTheme } from "../constants/themeTokens";
+import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { useTheme } from "../context/ThemeContext";
 import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import { AvatarImage } from "../components/AvatarImage";
+import { ActivitySectionTabs } from "../components/ActivitySectionTabs";
+import { SellerActionRequiredCard } from "../components/SellerActionRequiredCard";
 import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
-import { useActivityNotificationsOptional } from "../context/ActivityNotificationsContext";
-import { supabase } from "../lib/supabase";
-import { fetchProfileById } from "../services/profileService";
-import { fetchUserPosts } from "../services/postsService";
-import { fetchSellerOrders } from "../services/ordersService";
-import { SellerActionRequiredCard } from "../components/SellerActionRequiredCard";
+import { useNotificationCenter } from "../context/NotificationCenterContext";
 import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
-import { orderNeedsSellerAction } from "../utils/sellerFulfillment";
+import {
+  acceptFollowRequest,
+  declineFollowRequest,
+  subscribeFollowRequestInserts,
+  subscribeOutgoingFollowRequestAccepted,
+} from "../services/followRequestService";
+import {
+  fetchSocialActivityFeed,
+} from "../services/activityFeedService";
+import { fetchActivityReadKeys } from "../services/activityReadService";
+import {
+  fetchOrderNotificationFeed,
+  type OrderNotificationItem,
+} from "../services/orderNotificationFeedService";
+import type { ActivityFeedItem, ActivitySection } from "../types/activity";
+import { getReadableErrorMessage } from "../utils/getReadableErrorMessage";
 
-type ProfileRow = {
-  id: string;
-  username: string | null;
-  display_name: string | null;
-  avatar_url: string | null;
-};
-
-type ActivityKind = "follow" | "like" | "comment" | "order";
-
-export type ActivityFeedItem = {
-  kind: ActivityKind;
-  created_at: string;
-  actorId: string;
-  profile: ProfileRow;
-  postId?: string;
-  postThumbnailUrl?: string;
-  /** Alleen bij comment */
-  commentBody?: string;
-  /** Alleen bij order (verkoper) */
-  orderId?: string;
-  orderProductName?: string;
-  orderAmountLabel?: string;
-  orderNeedsAction?: boolean;
-};
+export type { ActivityFeedItem } from "../types/activity";
 
 function truncateCommentPreview(body: string, maxLen = 80): string {
   const trimmed = body.trim();
@@ -58,24 +48,6 @@ function truncateCommentPreview(body: string, maxLen = 80): string {
     return trimmed;
   }
   return `${trimmed.slice(0, maxLen).trimEnd()}…`;
-}
-
-async function fetchOwnPostIds(userId: string): Promise<string[]> {
-  const { data, error } = await supabase
-    .from("posts")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("is_deleted", false);
-
-  if (error) {
-    throw error;
-  }
-
-  return [
-    ...new Set(
-      ((data ?? []) as { id: string }[]).map((p) => p.id).filter(Boolean)
-    ),
-  ];
 }
 
 function formatRelativeTimeNl(iso: string): string {
@@ -100,500 +72,437 @@ function formatRelativeTimeNl(iso: string): string {
   return `${days} d`;
 }
 
-const ID_BATCH = 80;
-
-async function fetchProfilesByIds(ids: string[]): Promise<Map<string, ProfileRow>> {
-  const unique = [...new Set(ids.filter((id) => id.length > 0))];
-  const map = new Map<string, ProfileRow>();
-  if (unique.length === 0) {
-    return map;
+async function applySocialTabViewed(
+  social: ActivityFeedItem[],
+  markAll: (keys: string[]) => Promise<void>
+): Promise<ActivityFeedItem[]> {
+  const unreadKeys = social.filter((item) => item.isUnread).map((item) => item.activityKey);
+  if (unreadKeys.length === 0) {
+    return social;
   }
-
-  for (let i = 0; i < unique.length; i += ID_BATCH) {
-    const slice = unique.slice(i, i + ID_BATCH);
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, username, display_name, avatar_url")
-      .in("id", slice);
-
-    if (error) {
-      throw error;
-    }
-    for (const p of (data ?? []) as ProfileRow[]) {
-      map.set(p.id, p);
-    }
-  }
-  return map;
-}
-
-/** Volgers: wie mij volgt (geen zelf-follow). */
-async function fetchFollowActivities(
-  userId: string
-): Promise<Omit<ActivityFeedItem, "profile">[]> {
-  const { data, error } = await supabase
-    .from("follows")
-    .select("follower_id, created_at")
-    .eq("following_id", userId)
-    .neq("follower_id", userId)
-    .order("created_at", { ascending: false })
-    .limit(80);
-
-  if (error) {
-    throw error;
-  }
-
-  const rows = (data ?? []) as { follower_id: string; created_at: string }[];
-  return rows.map((r) => ({
-    kind: "follow" as const,
-    created_at: r.created_at,
-    actorId: r.follower_id,
-  }));
-}
-
-/**
- * Likes op eigen posts die in `public.posts` staan.
- * Eigen likes (user_id = ik) worden uitgesloten.
- */
-async function fetchLikeActivities(
-  userId: string
-): Promise<Omit<ActivityFeedItem, "profile">[]> {
-  const postIds = await fetchOwnPostIds(userId);
-  if (postIds.length === 0) {
-    return [];
-  }
-
-  type LikeRow = { post_id: string; user_id: string; created_at: string };
-  const collected: LikeRow[] = [];
-
-  for (let i = 0; i < postIds.length; i += ID_BATCH) {
-    const slice = postIds.slice(i, i + ID_BATCH);
-    const { data, error } = await supabase
-      .from("post_likes")
-      .select("post_id, user_id, created_at")
-      .in("post_id", slice)
-      .neq("user_id", userId);
-
-    if (error) {
-      throw error;
-    }
-    for (const row of (data ?? []) as LikeRow[]) {
-      if (row.user_id !== userId) {
-        collected.push(row);
-      }
-    }
-  }
-
-  collected.sort(
-    (a, b) =>
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
-
-  const top = collected.slice(0, 100);
-
-  return top.map((r) => ({
-    kind: "like" as const,
-    created_at: r.created_at,
-    actorId: r.user_id,
-    postId: r.post_id,
-  }));
-}
-
-/**
- * Reacties op eigen posts; eigen comments uitgesloten.
- */
-async function fetchCommentActivities(
-  userId: string
-): Promise<Omit<ActivityFeedItem, "profile">[]> {
-  try {
-    const postIds = await fetchOwnPostIds(userId);
-    if (postIds.length === 0) {
-      return [];
-    }
-
-    type CommentRow = {
-      id: string;
-      post_id: string;
-      user_id: string;
-      body: string;
-      created_at: string;
-    };
-    const collected: CommentRow[] = [];
-
-    for (let i = 0; i < postIds.length; i += ID_BATCH) {
-      const slice = postIds.slice(i, i + ID_BATCH);
-      const { data, error } = await supabase
-        .from("post_comments")
-        .select("id, post_id, user_id, body, created_at")
-        .in("post_id", slice)
-        .eq("is_deleted", false)
-        .neq("user_id", userId);
-
-      if (error) {
-        throw error;
-      }
-
-      for (const row of (data ?? []) as CommentRow[]) {
-        if (row.user_id !== userId) {
-          collected.push(row);
-        }
-      }
-    }
-
-    collected.sort(
-      (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-
-    return collected.slice(0, 50).map((r) => ({
-      kind: "comment" as const,
-      created_at: r.created_at,
-      actorId: r.user_id,
-      postId: r.post_id,
-      commentBody: r.body,
-    }));
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn("[Activity] comments fetch failed:", msg);
-    return [];
-  }
-}
-
-async function fetchPostThumbnailsByIds(
-  postIds: string[]
-): Promise<Map<string, string>> {
-  const unique = [...new Set(postIds.filter((id) => id.length > 0))];
-  const map = new Map<string, string>();
-  if (unique.length === 0) {
-    return map;
-  }
-
-  for (let i = 0; i < unique.length; i += ID_BATCH) {
-    const slice = unique.slice(i, i + ID_BATCH);
-    const { data, error } = await supabase
-      .from("posts")
-      .select("id, thumbnail_url")
-      .in("id", slice)
-      .eq("is_deleted", false);
-
-    if (error) {
-      throw error;
-    }
-
-    for (const row of (data ?? []) as {
-      id: string;
-      thumbnail_url: string | null;
-    }[]) {
-      const url = row.thumbnail_url?.trim();
-      if (url && url.length > 0) {
-        map.set(row.id, url);
-      }
-    }
-  }
-
-  return map;
-}
-
-async function fetchSellerOrderActivityParts(
-  userId: string
-): Promise<Omit<ActivityFeedItem, "profile">[]> {
-  try {
-    const profile = await fetchProfileById(userId);
-    if (profile?.accountType !== "business") {
-      return [];
-    }
-
-    const rows = await fetchSellerOrders();
-    return rows
-      .filter((row) => row.order.paymentStatus === "paid")
-      .slice(0, 30)
-      .map((row) => {
-        const first = row.items[0];
-        return {
-          kind: "order" as const,
-          created_at: row.order.createdAt,
-          actorId: row.order.buyerId,
-          orderId: row.order.id,
-          orderProductName: first?.product?.name ?? "Product",
-          postThumbnailUrl: first?.product?.images[0],
-          orderNeedsAction: orderNeedsSellerAction(row.order, {
-            fulfillmentStatus: row.fulfillment.fulfillmentStatus,
-          }),
-        };
-      });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn("[Activity] seller orders fetch failed:", msg);
-    return [];
-  }
-}
-
-async function fetchActivityFeed(userId: string): Promise<ActivityFeedItem[]> {
-  const [followParts, likeParts, commentParts, orderParts] = await Promise.all([
-    fetchFollowActivities(userId),
-    fetchLikeActivities(userId),
-    fetchCommentActivities(userId),
-    fetchSellerOrderActivityParts(userId),
-  ]);
-
-  const raw = [...followParts, ...likeParts, ...commentParts, ...orderParts];
-  const actorIds = raw.map((r) => r.actorId);
-  const thumbPostIds = raw
-    .filter((r) => r.kind === "like" || r.kind === "comment")
-    .map((r) => r.postId)
-    .filter((id): id is string => typeof id === "string" && id.length > 0);
-
-  const [profiles, postThumbnails] = await Promise.all([
-    fetchProfilesByIds(actorIds),
-    fetchPostThumbnailsByIds(thumbPostIds),
-  ]);
-
-  const items: ActivityFeedItem[] = [];
-  for (const part of raw) {
-    const profile = profiles.get(part.actorId);
-    if (!profile) {
-      continue;
-    }
-    const thumb =
-      (part.kind === "like" || part.kind === "comment") && part.postId
-        ? postThumbnails.get(part.postId)
-        : undefined;
-    items.push({
-      ...part,
-      profile,
-      ...(thumb ? { postThumbnailUrl: thumb } : {}),
-    });
-  }
-
-  items.sort((a, b) => {
-    const aPriority =
-      a.kind === "order" && a.orderNeedsAction ? 0 : a.kind === "order" ? 1 : 2;
-    const bPriority =
-      b.kind === "order" && b.orderNeedsAction ? 0 : b.kind === "order" ? 1 : 2;
-    if (aPriority !== bPriority) {
-      return aPriority - bPriority;
-    }
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-  });
-
-  return items;
+  await markAll(unreadKeys);
+  return social.map((item) => ({ ...item, isUnread: false }));
 }
 
 export function ActivityScreen() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+  const { t } = useTranslation();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { openAuthPrompt } = useAuthPrompt();
-  const activityNotifications = useActivityNotificationsOptional();
-  const { actionCount, isBusinessSeller } = useSellerFulfillment();
+  const { actionCount } = useSellerFulfillment();
+  const {
+    activityUnreadCount,
+    ordersUnreadCount,
+    isBusinessSeller,
+    refresh: refreshCounts,
+    markAllSocialActivityAsRead,
+    markOrderNotificationRead,
+  } = useNotificationCenter();
 
-  const [items, setItems] = useState<ActivityFeedItem[]>([]);
+  const [activeSection, setActiveSection] = useState<ActivitySection>("activity");
+  const activeSectionRef = useRef<ActivitySection>("activity");
+  const markingSocialRef = useRef(false);
+  const [socialItems, setSocialItems] = useState<ActivityFeedItem[]>([]);
+  const [orderItems, setOrderItems] = useState<OrderNotificationItem[]>([]);
   const [loading, setLoading] = useState(() => !!user?.id);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [requestBusy, setRequestBusy] = useState<Record<string, boolean>>({});
 
-  const load = useCallback(async () => {
-    if (!user?.id) {
-      setItems([]);
-      setLoading(false);
+  useEffect(() => {
+    activeSectionRef.current = activeSection;
+  }, [activeSection]);
+
+  const load = useCallback(
+    async (options?: { section?: ActivitySection; markSocialViewed?: boolean }) => {
+      if (!user?.id) {
+        setSocialItems([]);
+        setOrderItems([]);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+
+      const section = options?.section ?? activeSectionRef.current;
+      const shouldMarkSocialViewed =
+        options?.markSocialViewed ?? section === "activity";
+
       setError(null);
-      return;
-    }
+      try {
+        const readKeys = await fetchActivityReadKeys();
+        let social = await fetchSocialActivityFeed(user.id, readKeys);
+        const orders = isBusinessSeller
+          ? await fetchOrderNotificationFeed()
+          : [];
 
-    setError(null);
-    try {
-      const next = await fetchActivityFeed(user.id);
-      setItems(next);
-    } catch (e: unknown) {
-      const msg =
-        e instanceof Error ? e.message : "Kon activiteit niet laden.";
-      setError(msg);
-      setItems([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [user?.id]);
+        if (shouldMarkSocialViewed && !markingSocialRef.current) {
+          const hasUnread = social.some((item) => item.isUnread);
+          if (hasUnread) {
+            markingSocialRef.current = true;
+            try {
+              social = await applySocialTabViewed(social, markAllSocialActivityAsRead);
+            } finally {
+              markingSocialRef.current = false;
+            }
+          }
+        }
+
+        setSocialItems(social);
+        setOrderItems(orders);
+        await refreshCounts();
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : t("activityCenter.loadFailed");
+        setError(msg);
+        setSocialItems([]);
+        setOrderItems([]);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [isBusinessSeller, markAllSocialActivityAsRead, refreshCounts, t, user?.id]
+  );
+
+  const handleSectionChange = useCallback(
+    (section: ActivitySection) => {
+      setActiveSection(section);
+      activeSectionRef.current = section;
+      if (section === "activity" && user?.id) {
+        void load({ section: "activity", markSocialViewed: true });
+      }
+    },
+    [load, user?.id]
+  );
 
   useEffect(() => {
     if (!user?.id) {
       setLoading(false);
-      setItems([]);
       return;
     }
     setLoading(true);
     void load();
-  }, [user?.id, load]);
+  }, [load, user?.id]);
 
   useFocusEffect(
     useCallback(() => {
-      void activityNotifications?.markActivitySeen();
-    }, [activityNotifications])
+      if (user?.id) {
+        void load({
+          section: activeSectionRef.current,
+          markSocialViewed: activeSectionRef.current === "activity",
+        });
+      }
+    }, [load, user?.id])
   );
+
+  useEffect(() => {
+    if (!user?.id) {
+      return;
+    }
+    const unsubIncoming = subscribeFollowRequestInserts(user.id, () => {
+      void load();
+    });
+    const unsubAccepted = subscribeOutgoingFollowRequestAccepted(user.id, () => {
+      void load();
+    });
+    return () => {
+      unsubIncoming();
+      unsubAccepted();
+    };
+  }, [load, user?.id]);
 
   const onRefresh = useCallback(() => {
     if (!user?.id) {
       return;
     }
     setRefreshing(true);
-    void load();
-  }, [user?.id, load]);
+    void load({
+      section: activeSectionRef.current,
+      markSocialViewed: activeSectionRef.current === "activity",
+    });
+  }, [load, user?.id]);
 
-  const openOwnPostReel = useCallback(
-    async (postId: string) => {
-      if (!user?.id || postId.length === 0) {
-        return;
-      }
-      try {
-        const posts = (await fetchUserPosts(user.id, "own_profile")) ?? [];
-        if (!posts.some((p) => p.id === postId)) {
-          return;
-        }
-        navigation.navigate("ProfileReels", {
-          profileId: user.id,
-          initialPostId: postId,
-          posts,
-          isOwnProfile: true,
-        });
-      } catch {
-        /* postlijst niet beschikbaar */
-      }
+  const handleSocialPress = useCallback(
+    (item: ActivityFeedItem) => {
+      navigation.navigate("PublicProfile", { profileId: item.actorId });
     },
-    [navigation, user?.id]
+    [navigation]
   );
 
-  const bottomPad = 100 + Math.max(insets.bottom, 0);
+  const handleAcceptFollowRequest = useCallback(
+    async (item: ActivityFeedItem) => {
+      const requestId = item.followRequestId;
+      if (!requestId) {
+        return;
+      }
+      setRequestBusy((prev) => ({ ...prev, [requestId]: true }));
+      try {
+        const ok = await acceptFollowRequest(requestId);
+        if (ok) {
+          setSocialItems((prev) =>
+            prev.filter((row) => row.followRequestId !== requestId)
+          );
+          void refreshCounts();
+        }
+      } catch (e) {
+        setError(getReadableErrorMessage(e, t("followRequest.error")));
+      } finally {
+        setRequestBusy((prev) => {
+          const next = { ...prev };
+          delete next[requestId];
+          return next;
+        });
+      }
+    },
+    [refreshCounts, t]
+  );
 
-  const renderItem = useCallback(
+  const handleDeclineFollowRequest = useCallback(
+    async (item: ActivityFeedItem) => {
+      const requestId = item.followRequestId;
+      if (!requestId) {
+        return;
+      }
+      setRequestBusy((prev) => ({ ...prev, [requestId]: true }));
+      try {
+        const ok = await declineFollowRequest(requestId);
+        if (ok) {
+          setSocialItems((prev) =>
+            prev.filter((row) => row.followRequestId !== requestId)
+          );
+          void refreshCounts();
+        }
+      } catch (e) {
+        setError(getReadableErrorMessage(e, t("followRequest.error")));
+      } finally {
+        setRequestBusy((prev) => {
+          const next = { ...prev };
+          delete next[requestId];
+          return next;
+        });
+      }
+    },
+    [refreshCounts, t]
+  );
+
+  const handleOrderPress = useCallback(
+    (item: OrderNotificationItem) => {
+      if (item.isUnread) {
+        void markOrderNotificationRead(item.notification.id);
+        setOrderItems((prev) =>
+          prev.map((row) =>
+            row.notification.id === item.notification.id
+              ? { ...row, isUnread: false }
+              : row
+          )
+        );
+      }
+      navigation.navigate("OrderDetail", { orderId: item.notification.orderId });
+    },
+    [markOrderNotificationRead, navigation]
+  );
+
+  const renderSocialItem = useCallback(
     ({ item }: { item: ActivityFeedItem }) => {
       const uname = item.profile.username?.trim() || "gebruiker";
       const display = item.profile.display_name?.trim();
       const timeLabel = formatRelativeTimeNl(item.created_at);
+      const handle = uname.startsWith("@") ? uname : `@${uname}`;
       const actionLabel =
-        item.kind === "follow"
-          ? "volgt je nu"
-          : item.kind === "like"
-            ? "vindt je post leuk"
-            : item.kind === "order"
-              ? item.orderNeedsAction
-                ? "Betaalde bestelling — actie vereist"
-                : "Bestelling bijgewerkt"
-              : "reageerde op je post";
+        item.kind === "follow_request"
+          ? t("followRequest.wantsToFollow", { handle })
+          : item.kind === "follow_request_accepted"
+            ? t("followRequest.acceptedBy", { username: uname })
+            : item.kind === "follow"
+              ? t("activityCenter.followedYou")
+              : item.kind === "like"
+                ? t("activityCenter.likedPost")
+                : t("activityCenter.commentedPost");
       const commentPreview =
         item.kind === "comment" && item.commentBody
           ? `“${truncateCommentPreview(item.commentBody)}”`
           : null;
+      const requestId = item.followRequestId;
+      const isRequestBusy = requestId ? !!requestBusy[requestId] : false;
 
-      const onRowPress = () => {
-        if (item.kind === "order" && item.orderId) {
-          navigation.navigate("OrderDetail", { orderId: item.orderId });
-          return;
-        }
-        navigation.navigate("PublicProfile", {
-          profileId: item.actorId,
-        });
-      };
+      if (item.kind === "follow_request" && requestId) {
+        return (
+          <View style={[styles.row, item.isUnread && styles.rowUnread]}>
+            <Pressable
+              style={styles.followRequestMain}
+              onPress={() => handleSocialPress(item)}
+              accessibilityRole="button"
+            >
+              <AvatarImage uri={item.profile.avatar_url} style={styles.avatar} />
+              <View style={styles.rowMain}>
+                {display ? (
+                  <Text style={styles.displayNamePrimary} numberOfLines={1}>
+                    {display}
+                  </Text>
+                ) : null}
+                <Text style={styles.usernameMuted} numberOfLines={1}>
+                  {handle}
+                </Text>
+                <Text style={styles.action}>{actionLabel}</Text>
+                {timeLabel ? <Text style={styles.timeInline}>{timeLabel}</Text> : null}
+              </View>
+            </Pressable>
+            <View style={styles.followRequestActions}>
+              <Pressable
+                style={[styles.acceptBtn, isRequestBusy && styles.acceptBtnDisabled]}
+                onPress={() => void handleAcceptFollowRequest(item)}
+                disabled={isRequestBusy}
+              >
+                {isRequestBusy ? (
+                  <ActivityIndicator size="small" color={theme.bg} />
+                ) : (
+                  <Text style={styles.acceptBtnText}>{t("followRequest.accept")}</Text>
+                )}
+              </Pressable>
+              <Pressable
+                style={styles.declineBtn}
+                onPress={() => void handleDeclineFollowRequest(item)}
+                disabled={isRequestBusy}
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={18} color={theme.textMuted} />
+              </Pressable>
+            </View>
+          </View>
+        );
+      }
 
-      return (
-        <View
-          style={[
-            styles.row,
-            item.kind === "order" && item.orderNeedsAction
-              ? styles.rowActionRequired
-              : null,
-          ]}
-        >
+      if (item.kind === "follow_request_accepted") {
+        return (
           <Pressable
-            style={styles.rowBodyHit}
-            onPress={onRowPress}
-            accessibilityRole="button"
-            accessibilityLabel={
-              item.kind === "order" ? "Open bestelling" : `Profiel ${uname}`
-            }
+            style={[styles.row, item.isUnread && styles.rowUnread]}
+            onPress={() => handleSocialPress(item)}
           >
             <AvatarImage uri={item.profile.avatar_url} style={styles.avatar} />
-
             <View style={styles.rowMain}>
-              <View style={styles.rowTop}>
-                <Text style={styles.username} numberOfLines={1}>
-                  @{uname}
-                </Text>
-                {timeLabel ? (
-                  <Text style={styles.time}>{timeLabel}</Text>
-                ) : null}
-              </View>
               {display ? (
-                <Text style={styles.displayName} numberOfLines={1}>
+                <Text style={styles.displayNamePrimary} numberOfLines={1}>
                   {display}
                 </Text>
-              ) : null}
+              ) : (
+                <Text style={styles.usernameMuted} numberOfLines={1}>
+                  {handle}
+                </Text>
+              )}
               <Text style={styles.action}>{actionLabel}</Text>
-              {commentPreview ? (
-                <Text style={styles.commentPreview} numberOfLines={2}>
-                  {commentPreview}
-                </Text>
-              ) : null}
-              {item.kind === "order" && item.orderProductName ? (
-                <Text style={styles.commentPreview} numberOfLines={2}>
-                  {item.orderProductName}
-                </Text>
-              ) : null}
+              {timeLabel ? <Text style={styles.timeInline}>{timeLabel}</Text> : null}
+            </View>
+            <View style={styles.acceptedIconWrap}>
+              <Ionicons name="checkmark-circle" size={22} color={theme.accent} />
             </View>
           </Pressable>
+        );
+      }
 
-          {(item.kind === "like" || item.kind === "comment") &&
-          item.postId &&
-          item.postThumbnailUrl ? (
-            <Pressable
-              onPress={() => void openOwnPostReel(item.postId!)}
-              style={({ pressed }) => [
-                styles.postThumbHit,
-                pressed && styles.postThumbHitPressed,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Bekijk je post"
-            >
-              <Image
-                source={{ uri: item.postThumbnailUrl }}
-                style={styles.postThumb}
-              />
-            </Pressable>
-          ) : item.kind === "order" && item.postThumbnailUrl ? (
-            <Image
-              source={{ uri: item.postThumbnailUrl }}
-              style={styles.postThumb}
-            />
+      return (
+        <Pressable
+          style={[styles.row, item.isUnread && styles.rowUnread]}
+          onPress={() => handleSocialPress(item)}
+        >
+          <AvatarImage uri={item.profile.avatar_url} style={styles.avatar} />
+          <View style={styles.rowMain}>
+            <View style={styles.rowTop}>
+              <Text style={styles.username} numberOfLines={1}>
+                @{uname}
+              </Text>
+              {timeLabel ? <Text style={styles.time}>{timeLabel}</Text> : null}
+            </View>
+            {display ? (
+              <Text style={styles.displayName} numberOfLines={1}>
+                {display}
+              </Text>
+            ) : null}
+            <Text style={styles.action}>{actionLabel}</Text>
+            {commentPreview ? (
+              <Text style={styles.commentPreview} numberOfLines={2}>
+                {commentPreview}
+              </Text>
+            ) : null}
+          </View>
+          {(item.kind === "like" || item.kind === "comment") && item.postThumbnailUrl ? (
+            <Image source={{ uri: item.postThumbnailUrl }} style={styles.postThumb} />
           ) : null}
-        </View>
+        </Pressable>
       );
     },
-    [navigation, openOwnPostReel]
+    [
+      handleAcceptFollowRequest,
+      handleDeclineFollowRequest,
+      handleSocialPress,
+      requestBusy,
+      styles,
+      t,
+      theme,
+    ]
   );
 
-  const keyExtractor = useCallback((item: ActivityFeedItem) => {
-    return `${item.kind}-${item.actorId}-${item.created_at}-${
-      item.postId ?? item.orderId ?? ""
-    }-${item.commentBody?.slice(0, 24) ?? ""}`;
-  }, []);
+  const renderOrderItem = useCallback(
+    ({ item }: { item: OrderNotificationItem }) => {
+      const timeLabel = formatRelativeTimeNl(item.notification.createdAt);
+      return (
+        <Pressable
+          style={[styles.orderRow, item.isUnread && styles.rowUnread]}
+          onPress={() => handleOrderPress(item)}
+        >
+          {item.productThumbnailUrl ? (
+            <Image source={{ uri: item.productThumbnailUrl }} style={styles.orderThumb} />
+          ) : (
+            <View style={styles.orderThumbFallback}>
+              <Ionicons name="cube-outline" size={20} color={theme.textMuted} />
+            </View>
+          )}
+          <View style={styles.rowMain}>
+            <Text style={styles.orderTitle} numberOfLines={1}>
+              {item.title}
+            </Text>
+            <Text style={styles.orderSubtitle} numberOfLines={2}>
+              {item.subtitle}
+            </Text>
+            {item.buyerName ? (
+              <Text style={styles.orderMeta} numberOfLines={1}>
+                {item.buyerName}
+              </Text>
+            ) : null}
+            {timeLabel ? <Text style={styles.timeInline}>{timeLabel}</Text> : null}
+          </View>
+          {item.needsAction ? (
+            <View style={styles.actionChip}>
+              <Ionicons name="time-outline" size={14} color={theme.accent} />
+            </View>
+          ) : item.isHandled ? (
+            <View style={styles.handledIconWrap}>
+              <Ionicons name="checkmark-circle" size={22} color="#34C759" />
+            </View>
+          ) : null}
+        </Pressable>
+      );
+    },
+    [handleOrderPress, styles, theme]
+  );
+
+  const bottomPad = 100 + Math.max(insets.bottom, 0);
+  const showOrdersTab = isBusinessSeller;
 
   if (!user) {
     return (
       <View style={[styles.root, { paddingTop: insets.top + 16 }]}>
-        <Text style={styles.screenTitle}>Activiteit</Text>
+        <Text style={styles.screenTitle}>{t("activityCenter.title")}</Text>
         <View style={[styles.guestBox, { paddingBottom: bottomPad }]}>
-          <Text style={styles.guestText}>
-            Log in om meldingen over volgers en likes te zien.
-          </Text>
+          <Text style={styles.guestText}>{t("activityCenter.guestBody")}</Text>
           <Pressable
             style={styles.guestBtn}
             onPress={() =>
-              openAuthPrompt({ message: "Log in om activiteit te bekijken." })
+              openAuthPrompt({ message: t("activityCenter.guestLoginPrompt") })
             }
-            accessibilityRole="button"
-            accessibilityLabel="Inloggen"
           >
-            <Text style={styles.guestBtnText}>Inloggen</Text>
+            <Text style={styles.guestBtnText}>{t("auth.login")}</Text>
           </Pressable>
         </View>
       </View>
@@ -602,17 +511,25 @@ export function ActivityScreen() {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 16 }]}>
-      <Text style={styles.screenTitle}>Activiteit</Text>
+      <Text style={styles.screenTitle}>{t("activityCenter.title")}</Text>
+
+      <ActivitySectionTabs
+        active={activeSection}
+        onChange={handleSectionChange}
+        activityUnreadCount={activityUnreadCount}
+        ordersUnreadCount={ordersUnreadCount}
+        showOrdersTab={showOrdersTab}
+      />
 
       {loading && !refreshing ? (
         <View style={[styles.centerState, { paddingBottom: bottomPad }]}>
           <ActivityIndicator size="small" color={theme.accent} />
         </View>
-      ) : (
+      ) : activeSection === "orders" ? (
         <FlatList
-          data={items}
-          keyExtractor={keyExtractor}
-          renderItem={renderItem}
+          data={orderItems}
+          keyExtractor={(item) => `order-${item.notification.id}`}
+          renderItem={renderOrderItem}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -621,10 +538,7 @@ export function ActivityScreen() {
               colors={[theme.accent]}
             />
           }
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: bottomPad },
-          ]}
+          contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad }]}
           ListHeaderComponent={
             isBusinessSeller && actionCount > 0 ? (
               <SellerActionRequiredCard
@@ -639,11 +553,45 @@ export function ActivityScreen() {
             ) : null
           }
           ListEmptyComponent={
-            <View style={styles.centerState}>
+            <View style={styles.emptyWrap}>
+              <Ionicons name="cube-outline" size={32} color={theme.textMuted} />
               {error ? (
                 <Text style={styles.errorText}>{error}</Text>
               ) : (
-                <Text style={styles.emptyText}>Nog geen activiteit</Text>
+                <>
+                  <Text style={styles.emptyTitle}>{t("activityCenter.emptyOrdersTitle")}</Text>
+                  <Text style={styles.emptyBody}>{t("activityCenter.emptyOrdersBody")}</Text>
+                </>
+              )}
+            </View>
+          }
+        />
+      ) : (
+        <FlatList
+          data={socialItems}
+          keyExtractor={(item) => `${item.kind}-${item.activityKey}`}
+          renderItem={renderSocialItem}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.accent}
+              colors={[theme.accent]}
+            />
+          }
+          contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad }]}
+          ListEmptyComponent={
+            <View style={styles.emptyWrap}>
+              <Ionicons name="heart-outline" size={32} color={theme.textMuted} />
+              {error ? (
+                <Text style={styles.errorText}>{error}</Text>
+              ) : (
+                <>
+                  <Text style={styles.emptyTitle}>
+                    {t("activityCenter.emptyActivityTitle")}
+                  </Text>
+                  <Text style={styles.emptyBody}>{t("activityCenter.emptyActivityBody")}</Text>
+                </>
               )}
             </View>
           }
@@ -655,147 +603,242 @@ export function ActivityScreen() {
 
 function createStyles(theme: AppTheme) {
   return StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: theme.bg,
-    paddingHorizontal: 16,
-  },
-  screenTitle: {
-    color: theme.text,
-    fontSize: 24,
-    fontWeight: "700",
-    marginBottom: 12,
-  },
-  listContent: {
-    flexGrow: 1,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: theme.border,
-  },
-  rowActionRequired: {
-    backgroundColor: theme.accentSoft,
-    borderLeftWidth: 3,
-    borderLeftColor: theme.accent,
-    paddingLeft: 9,
-  },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: theme.bgElevated,
-  },
-  avatarFallback: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: theme.bgElevated,
-    borderWidth: 1,
-    borderColor: theme.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarFallbackText: {
-    color: theme.textMuted,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  rowMain: {
-    flex: 1,
-    minWidth: 0,
-  },
-  rowBodyHit: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  rowTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  username: {
-    flex: 1,
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  time: {
-    color: theme.textMuted,
-    fontSize: 13,
-  },
-  displayName: {
-    color: theme.textMuted,
-    fontSize: 14,
-    marginTop: 2,
-  },
-  action: {
-    color: theme.textMuted,
-    fontSize: 13,
-    marginTop: 4,
-  },
-  commentPreview: {
-    color: theme.text,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 4,
-  },
-  postThumbHit: {
-    borderRadius: 6,
-  },
-  postThumb: {
-    width: 44,
-    height: 44,
-    borderRadius: 6,
-    backgroundColor: theme.bgElevated,
-  },
-  postThumbHitPressed: {
-    opacity: 0.82,
-  },
-  centerState: {
-    paddingVertical: 32,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyText: {
-    color: theme.textMuted,
-    fontSize: 15,
-  },
-  errorText: {
-    color: theme.textMuted,
-    fontSize: 14,
-    textAlign: "center",
-    paddingHorizontal: 12,
-  },
-  guestBox: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 8,
-  },
-  guestText: {
-    color: theme.textMuted,
-    fontSize: 15,
-    textAlign: "center",
-    marginBottom: 16,
-  },
-  guestBtn: {
-    backgroundColor: theme.accent,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  guestBtnText: {
-    color: "#0B0B0B",
-    fontSize: 16,
-    fontWeight: "700",
-  },
+    root: {
+      flex: 1,
+      backgroundColor: theme.bg,
+      paddingHorizontal: 16,
+    },
+    screenTitle: {
+      color: theme.text,
+      fontSize: 24,
+      fontWeight: "700",
+      marginBottom: 12,
+    },
+    listContent: {
+      flexGrow: 1,
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.border,
+    },
+    rowUnread: {
+      backgroundColor: theme.accentSoft,
+    },
+    orderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingVertical: 14,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.border,
+    },
+    avatar: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      backgroundColor: theme.bgElevated,
+    },
+    rowMain: {
+      flex: 1,
+      minWidth: 0,
+    },
+    rowTop: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+    },
+    username: {
+      flex: 1,
+      color: theme.text,
+      fontSize: 16,
+      fontWeight: "600",
+    },
+    time: {
+      color: theme.textMuted,
+      fontSize: 13,
+    },
+    displayName: {
+      color: theme.textMuted,
+      fontSize: 14,
+      marginTop: 2,
+    },
+    action: {
+      color: theme.textMuted,
+      fontSize: 13,
+      marginTop: 4,
+    },
+    commentPreview: {
+      color: theme.text,
+      fontSize: 13,
+      lineHeight: 18,
+      marginTop: 4,
+    },
+    postThumb: {
+      width: 44,
+      height: 44,
+      borderRadius: 6,
+      backgroundColor: theme.bgElevated,
+    },
+    orderThumb: {
+      width: 48,
+      height: 48,
+      borderRadius: 8,
+      backgroundColor: theme.bgElevated,
+    },
+    orderThumbFallback: {
+      width: 48,
+      height: 48,
+      borderRadius: 8,
+      backgroundColor: theme.bgElevated,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+    },
+    orderTitle: {
+      color: theme.text,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+    orderSubtitle: {
+      color: theme.textMuted,
+      fontSize: 13,
+      lineHeight: 18,
+      marginTop: 3,
+    },
+    orderMeta: {
+      color: theme.textMuted,
+      fontSize: 12,
+      marginTop: 4,
+    },
+    actionChip: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      backgroundColor: theme.accentSoft,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    handledIconWrap: {
+      width: 30,
+      height: 30,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    followRequestMain: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      minWidth: 0,
+    },
+    followRequestActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      marginLeft: 8,
+    },
+    acceptBtn: {
+      minHeight: 34,
+      paddingHorizontal: 14,
+      borderRadius: 10,
+      backgroundColor: theme.accent,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    acceptBtnDisabled: {
+      opacity: 0.75,
+    },
+    acceptBtnText: {
+      color: theme.bg,
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    declineBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    acceptedIconWrap: {
+      width: 32,
+      height: 32,
+      alignItems: "center",
+      justifyContent: "center",
+      marginLeft: 4,
+    },
+    displayNamePrimary: {
+      color: theme.text,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+    usernameMuted: {
+      color: theme.textMuted,
+      fontSize: 13,
+      marginTop: 1,
+    },
+    timeInline: {
+      color: theme.textMuted,
+      fontSize: 12,
+      marginTop: 4,
+    },
+    centerState: {
+      paddingVertical: 32,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    emptyWrap: {
+      paddingVertical: 40,
+      alignItems: "center",
+      gap: 10,
+      paddingHorizontal: 20,
+    },
+    emptyTitle: {
+      color: theme.text,
+      fontSize: 16,
+      fontWeight: "700",
+      textAlign: "center",
+    },
+    emptyBody: {
+      color: theme.textMuted,
+      fontSize: 14,
+      lineHeight: 20,
+      textAlign: "center",
+    },
+    errorText: {
+      color: theme.textMuted,
+      fontSize: 14,
+      textAlign: "center",
+      paddingHorizontal: 12,
+    },
+    guestBox: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      paddingHorizontal: 8,
+    },
+    guestText: {
+      color: theme.textMuted,
+      fontSize: 15,
+      textAlign: "center",
+      marginBottom: 16,
+    },
+    guestBtn: {
+      backgroundColor: theme.accent,
+      paddingHorizontal: 24,
+      paddingVertical: 12,
+      borderRadius: 12,
+    },
+    guestBtnText: {
+      color: "#0B0B0B",
+      fontSize: 16,
+      fontWeight: "700",
+    },
   });
 }

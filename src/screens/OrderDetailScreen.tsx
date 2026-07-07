@@ -1,9 +1,9 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Alert,
   Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,10 +14,9 @@ import {
 import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
+import { theme } from "../constants/theme";
 import { AvatarImage } from "../components/AvatarImage";
+import { ShipConfirmModal } from "../components/ShipConfirmModal";
 import {
   fetchBuyerOrderById,
   fetchSellerOrderById,
@@ -39,15 +38,14 @@ import {
 import { orderNeedsSellerAction } from "../utils/sellerFulfillment";
 import { logBuyerShipmentToast } from "../constants/buyerShipmentToastDebug";
 import type { BuyerOrder } from "../types/order";
+import type { PaymentStatus, ShippingStatus } from "../types/order";
 import { PLATFORM_FEE_PERCENT_LABEL } from "../constants/platformFee";
 import { formatPriceEur } from "../utils/formatPrice";
 import {
   buyerDisplayName,
   formatOrderItemSizeLabel,
   formatOrderShortAddress,
-  paymentStatusLabel,
   sellerDisplayName,
-  shippingStatusLabel,
 } from "../utils/orderDashboard";
 import {
   buyerPaymentHeadline,
@@ -59,12 +57,12 @@ import { formatSellerShipUpdateError } from "../utils/orderShipError";
 
 type OrderDetailMode = "buyer" | "seller" | null;
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, locale: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) {
     return "";
   }
-  return d.toLocaleDateString("nl-NL", {
+  return d.toLocaleDateString(locale, {
     day: "numeric",
     month: "long",
     hour: "2-digit",
@@ -73,8 +71,7 @@ function formatDate(iso: string): string {
 }
 
 export function OrderDetailScreen() {
-  const { theme } = useTheme();
-  const styles = useThemedStyles(createStyles);
+  const { t, i18n } = useTranslation();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
@@ -95,6 +92,38 @@ export function OrderDetailScreen() {
   );
   const [trackingCode, setTrackingCode] = useState("");
   const { refresh: refreshSellerFulfillment, reportShippingStarted, reportShippingConfirmed, reportShippingFailed } = useSellerFulfillment();
+
+  const paymentStatusLabel = useCallback(
+    (status: PaymentStatus) => {
+      switch (status) {
+        case "unpaid":
+          return t("orders.paymentUnpaid");
+        case "paid":
+          return t("orders.paymentPaid");
+        case "failed":
+          return t("orders.paymentFailed");
+        case "refunded":
+          return t("orders.paymentRefunded");
+      }
+    },
+    [t]
+  );
+
+  const shippingStatusLabel = useCallback(
+    (status: ShippingStatus) => {
+      switch (status) {
+        case "not_shipped":
+          return t("orders.shippingNotShipped");
+        case "shipped":
+          return t("orders.shippingShipped");
+        case "delivered":
+          return t("orders.shippingDelivered");
+        default:
+          return t("orders.shippingNotShipped");
+      }
+    },
+    [t]
+  );
 
   const load = useCallback(async () => {
     if (!orderId) {
@@ -211,7 +240,7 @@ export function OrderDetailScreen() {
         updated.shippingStatus !== "shipped" &&
         updated.shippingStatus !== "delivered"
       ) {
-        throw new Error("Verzending kon niet worden bevestigd in de database.");
+        throw new Error(t("orders.shipDbFailed"));
       }
       setSellerOrder((prev) => (prev ? { ...prev, order: updated } : prev));
       void markSellerNotificationsHandledForOrder(order.id);
@@ -228,7 +257,7 @@ export function OrderDetailScreen() {
     } catch (e) {
       reportShippingFailed(order.id);
       const msg = formatSellerShipUpdateError(e);
-      Alert.alert("Verzending mislukt", msg);
+      Alert.alert(t("orders.shipFailed"), msg);
     } finally {
       setShipBusy(false);
     }
@@ -240,6 +269,7 @@ export function OrderDetailScreen() {
     reportShippingFailed,
     reportShippingStarted,
     trackingCode,
+    t,
   ]);
 
   const onConfirmShipPress = useCallback(() => {
@@ -268,9 +298,8 @@ export function OrderDetailScreen() {
       }
       if (payment.reason === "pending") {
         Alert.alert(
-          "Betaling wordt verwerkt",
-          payment.message ??
-            "Je betaling kan nog worden bevestigd. Controleer deze bestelling over een moment."
+          t("orders.paymentProcessing"),
+          payment.message ?? t("orders.paymentProcessingHint")
         );
         void load();
         return;
@@ -281,15 +310,17 @@ export function OrderDetailScreen() {
         productId: firstItem?.productId,
       });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Betaling starten mislukt.";
-      Alert.alert("Fout", msg);
+      const msg = e instanceof Error ? e.message : t("orders.paymentStartFailed");
+      Alert.alert(t("alerts.error"), msg);
     } finally {
       setPayBusy(false);
     }
-  }, [firstItem?.productId, load, mode, navigation, order]);
+  }, [firstItem?.productId, load, mode, navigation, order, t]);
 
   const screenTitle =
-    mode === "buyer" ? "Mijn bestelling" : mode === "seller" ? "Bestelling" : "Bestelling";
+    mode === "buyer"
+      ? t("orders.myOrder")
+      : t("orders.orderTitle");
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
@@ -299,7 +330,7 @@ export function OrderDetailScreen() {
           style={styles.backBtn}
           hitSlop={10}
           accessibilityRole="button"
-          accessibilityLabel="Terug"
+          accessibilityLabel={t("common.back")}
         >
           <Ionicons name="chevron-back" size={26} color={theme.text} />
         </Pressable>
@@ -313,7 +344,7 @@ export function OrderDetailScreen() {
         </View>
       ) : !order || !mode ? (
         <View style={styles.centerState}>
-          <Text style={styles.emptyText}>Bestelling niet gevonden.</Text>
+          <Text style={styles.emptyText}>{t("orders.orderNotFound")}</Text>
         </View>
       ) : (
         <ScrollView
@@ -324,17 +355,17 @@ export function OrderDetailScreen() {
           <View style={styles.heroCard}>
             <Text style={styles.kicker}>
               {mode === "buyer"
-                ? "Jouw bestelling"
+                ? t("orders.yourOrder")
                 : needsPayment
-                  ? "Nieuwe bestelling"
+                  ? t("orders.newOrderKicker")
                   : readyToShip
-                    ? "Klaar om te verzenden"
+                    ? t("orders.readyToShipKicker")
                     : isShipped
-                      ? "Verzonden"
-                      : "Bestelling"}
+                      ? t("orders.shippedKicker")
+                      : t("orders.orderTitle")}
             </Text>
             <Text style={styles.orderNumber}>#{order.id.slice(0, 8)}</Text>
-            <Text style={styles.dateText}>{formatDate(order.createdAt)}</Text>
+            <Text style={styles.dateText}>{formatDate(order.createdAt, i18n.language)}</Text>
             <View style={styles.statusRow}>
               <View
                 style={[
@@ -383,7 +414,7 @@ export function OrderDetailScreen() {
                 </Text>
                 {fulfillmentDisplay.showSupportHint ? (
                   <Text style={styles.fulfillmentSupport}>
-                    Neem contact op via support als je vragen hebt over deze bestelling.
+                    {t("orders.supportHint")}
                   </Text>
                 ) : null}
               </View>
@@ -391,7 +422,7 @@ export function OrderDetailScreen() {
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Product</Text>
+            <Text style={styles.sectionTitle}>{t("common.product")}</Text>
             <View style={styles.productHeroRow}>
               {firstItem?.product?.images[0] ? (
                 <Image
@@ -405,12 +436,12 @@ export function OrderDetailScreen() {
               )}
               <View style={styles.productMain}>
                 <Text style={styles.productName} numberOfLines={2}>
-                  {firstItem?.product?.name ?? "Product"}
+                  {firstItem?.product?.name ?? t("common.product")}
                 </Text>
                 <Text style={styles.productMeta}>
-                  Aantal {firstItem?.quantity ?? 1}
+                  {t("orders.quantity")} {firstItem?.quantity ?? 1}
                   {formatOrderItemSizeLabel(firstItem)
-                    ? ` · Maat ${formatOrderItemSizeLabel(firstItem)}`
+                    ? ` · ${t("orders.sizeLabel", { size: formatOrderItemSizeLabel(firstItem) })}`
                     : ""}
                 </Text>
                 <Text style={styles.productPriceLarge}>
@@ -423,7 +454,7 @@ export function OrderDetailScreen() {
           {mode === "buyer" && buyerOrder ? (
             <>
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Verkoper</Text>
+                <Text style={styles.sectionTitle}>{t("orders.sellerSection")}</Text>
                 <View style={styles.buyerRow}>
                   <AvatarImage
                     uri={buyerOrder.seller?.avatarUrl}
@@ -443,17 +474,17 @@ export function OrderDetailScreen() {
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Verzendadres</Text>
+                <Text style={styles.sectionTitle}>{t("orders.shippingAddress")}</Text>
                 <Text style={styles.addressLine}>{formatOrderShortAddress(order)}</Text>
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Betaling</Text>
+                <Text style={styles.sectionTitle}>{t("orders.paymentSection")}</Text>
                 <Text style={styles.productMeta}>
                   {buyerPaymentHeadline(order.paymentStatus, fulfillment) ??
                     paymentStatusLabel(order.paymentStatus)}
                   {order.paidAt
-                    ? ` — betaald op ${formatDate(order.paidAt)}`
+                    ? t("orders.paidOn", { date: formatDate(order.paidAt, i18n.language) })
                     : ""}
                 </Text>
                 {fulfillmentDisplay ? (
@@ -467,12 +498,12 @@ export function OrderDetailScreen() {
                     onPress={() => void onPayOrder()}
                     disabled={payBusy}
                     accessibilityRole="button"
-                    accessibilityLabel="Opnieuw betalen"
+                    accessibilityLabel={t("orders.payAgain")}
                   >
                     {payBusy ? (
                       <ActivityIndicator size="small" color={theme.bg} />
                     ) : (
-                      <Text style={styles.primaryBtnText}>Opnieuw betalen</Text>
+                      <Text style={styles.primaryBtnText}>{t("orders.payAgain")}</Text>
                     )}
                   </Pressable>
                 ) : null}
@@ -484,18 +515,18 @@ export function OrderDetailScreen() {
                   buyerShippingSectionY.current = event.nativeEvent.layout.y;
                 }}
               >
-                <Text style={styles.sectionTitle}>Verzending</Text>
+                <Text style={styles.sectionTitle}>{t("orders.shippingSection")}</Text>
                 <Text style={styles.productMeta}>
                   {shippingStatusLabel(order.shippingStatus)}
                 </Text>
                 {order.trackingCode ? (
                   <Text style={[styles.productMeta, styles.trackingCode]}>
-                    Tracking: {order.trackingCode}
+                    {t("orders.trackingLabel", { code: order.trackingCode })}
                   </Text>
                 ) : null}
                 {order.shippedAt ? (
                   <Text style={styles.productMeta}>
-                    Verzonden op {formatDate(order.shippedAt)}
+                    {t("orders.shippedOn", { date: formatDate(order.shippedAt, i18n.language) })}
                   </Text>
                 ) : null}
               </View>
@@ -511,7 +542,7 @@ export function OrderDetailScreen() {
                 />
               ) : null}
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Koper</Text>
+                <Text style={styles.sectionTitle}>{t("orders.buyerSection")}</Text>
                 <View style={styles.buyerRow}>
                   <AvatarImage
                     uri={sellerOrder.buyer?.avatarUrl}
@@ -522,17 +553,17 @@ export function OrderDetailScreen() {
                       {order.buyerFullName || buyerDisplayName(sellerOrder)}
                     </Text>
                     <Text style={styles.productMeta}>
-                      {order.buyerEmail || "Geen email"}
+                      {order.buyerEmail || t("orders.noEmail")}
                     </Text>
                     <Text style={styles.productMeta}>
-                      {order.shippingPhone || "Geen telefoon"}
+                      {order.shippingPhone || t("orders.noPhone")}
                     </Text>
                   </View>
                 </View>
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Verzendadres</Text>
+                <Text style={styles.sectionTitle}>{t("orders.shippingAddress")}</Text>
                 <Text style={styles.addressLine}>
                   {order.shippingStreet || "-"} {order.shippingHouseNumber || ""}
                 </Text>
@@ -543,21 +574,20 @@ export function OrderDetailScreen() {
                 <View style={styles.instructionBox}>
                   <Ionicons name="cube-outline" size={18} color={theme.accent} />
                   <Text style={styles.instructionText}>
-                    Verzend dit pakket naar bovenstaand adres. Werk de status bij zodra
-                    het pakket is verzonden.
+                    {t("orders.shipInstruction")}
                   </Text>
                 </View>
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Betaling</Text>
+                <Text style={styles.sectionTitle}>{t("orders.paymentSection")}</Text>
                 <Text style={styles.productMeta}>
                   {buyerPaymentHeadline(order.paymentStatus, fulfillment) ??
                     paymentStatusLabel(order.paymentStatus)}
                   {needsPayment
-                    ? " — wacht op betaling van de koper."
+                    ? t("orders.waitingBuyerPayment")
                     : order.paidAt
-                      ? ` — betaald op ${formatDate(order.paidAt)}`
+                      ? t("orders.paidOn", { date: formatDate(order.paidAt, i18n.language) })
                       : ""}
                 </Text>
                 {fulfillmentDisplay ? (
@@ -568,27 +598,29 @@ export function OrderDetailScreen() {
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Verzending</Text>
+                <Text style={styles.sectionTitle}>{t("orders.shippingSection")}</Text>
                 {order.trackingCode ? (
-                  <Text style={styles.productMeta}>Tracking: {order.trackingCode}</Text>
+                  <Text style={styles.productMeta}>
+                    {t("orders.trackingLabel", { code: order.trackingCode })}
+                  </Text>
                 ) : null}
                 {order.shippedAt ? (
                   <Text style={styles.productMeta}>
-                    Verzonden op {formatDate(order.shippedAt)}
+                    {t("orders.shippedOn", { date: formatDate(order.shippedAt, i18n.language) })}
                   </Text>
                 ) : null}
                 {!isShipped ? (
                   <>
                     {!readyToShip ? (
                       <Text style={styles.productMeta}>
-                        Wacht tot de betaling is voltooid voordat je verzendt.
+                        {t("orders.waitPaymentBeforeShip")}
                       </Text>
                     ) : null}
                     <TextInput
                       ref={trackingInputRef}
                       value={trackingCode}
                       onChangeText={setTrackingCode}
-                      placeholder="Trackingcode (optioneel)"
+                      placeholder={t("orders.trackingPlaceholder")}
                       placeholderTextColor={theme.textMuted}
                       style={styles.input}
                       autoCapitalize="characters"
@@ -602,40 +634,40 @@ export function OrderDetailScreen() {
                       onPress={onConfirmShipPress}
                       disabled={shipBusy || !readyToShip || !checklistComplete}
                       accessibilityRole="button"
-                      accessibilityLabel="Markeer als verzonden"
+                      accessibilityLabel={t("orders.markAsShipped")}
                     >
                       {shipBusy ? (
                         <ActivityIndicator size="small" color={theme.bg} />
                       ) : (
-                        <Text style={styles.primaryBtnText}>Markeer als verzonden</Text>
+                        <Text style={styles.primaryBtnText}>{t("orders.markAsShipped")}</Text>
                       )}
                     </Pressable>
                   </>
                 ) : (
                   <Text style={styles.productMeta}>
-                    Deze bestelling is al gemarkeerd als verzonden.
+                    {t("orders.alreadyMarkedShipped")}
                   </Text>
                 )}
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Bedragen</Text>
+                <Text style={styles.sectionTitle}>{t("orders.amounts")}</Text>
                 <View style={styles.amountRow}>
-                  <Text style={styles.amountLabel}>Subtotaal</Text>
+                  <Text style={styles.amountLabel}>{t("orders.subtotal")}</Text>
                   <Text style={styles.amountValue}>
                     {formatPriceEur(order.subtotalAmount)}
                   </Text>
                 </View>
                 <View style={styles.amountRow}>
                   <Text style={styles.amountLabel}>
-                Platform fee ({PLATFORM_FEE_PERCENT_LABEL})
+                {t("orders.platformFee", { percent: PLATFORM_FEE_PERCENT_LABEL })}
               </Text>
                   <Text style={styles.amountValue}>
                     {formatPriceEur(order.platformFeeAmount)}
                   </Text>
                 </View>
                 <View style={styles.amountRow}>
-                  <Text style={styles.amountLabel}>Voor verkoper</Text>
+                  <Text style={styles.amountLabel}>{t("orders.forSeller")}</Text>
                   <Text style={styles.amountValueAccent}>
                     {formatPriceEur(order.sellerAmount)}
                   </Text>
@@ -646,56 +678,18 @@ export function OrderDetailScreen() {
         </ScrollView>
       )}
 
-      <Modal
+      <ShipConfirmModal
         visible={shipConfirmVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShipConfirmVisible(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Pakket daadwerkelijk verzonden?</Text>
-            <Text style={styles.modalBody}>
-              Bevestig alleen wanneer je het juiste product hebt verpakt en dit naar het
-              juiste afleveradres hebt afgegeven of verstuurd. Na bevestiging wordt deze
-              bestelling gemarkeerd als verzonden.
-              {trackingCode.trim()
-                ? `\n\nTracking: ${trackingCode.trim()}`
-                : ""}
-            </Text>
-            <View style={styles.modalActions}>
-              <Pressable
-                style={styles.modalSecondaryBtn}
-                onPress={() => setShipConfirmVisible(false)}
-                disabled={shipBusy}
-                accessibilityRole="button"
-                accessibilityLabel="Annuleren"
-              >
-                <Text style={styles.modalSecondaryBtnText}>Terug</Text>
-              </Pressable>
-              <Pressable
-                style={styles.modalPrimaryBtn}
-                onPress={() => void markAsShipped()}
-                disabled={shipBusy}
-                accessibilityRole="button"
-                accessibilityLabel="Bevestig verzending"
-              >
-                {shipBusy ? (
-                  <ActivityIndicator size="small" color={theme.bg} />
-                ) : (
-                  <Text style={styles.modalPrimaryBtnText}>Ja, ik heb het verzonden</Text>
-                )}
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        busy={shipBusy}
+        trackingCode={trackingCode}
+        onCancel={() => setShipConfirmVisible(false)}
+        onConfirm={() => void markAsShipped()}
+      />
     </View>
   );
 }
 
-function createStyles(theme: AppTheme) {
-  return StyleSheet.create({
+const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -978,65 +972,4 @@ function createStyles(theme: AppTheme) {
   buyerPayBtn: {
     marginTop: 12,
   },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  modalCard: {
-    width: "100%",
-    maxWidth: 360,
-    borderRadius: 16,
-    padding: 18,
-    backgroundColor: theme.bgElevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-  },
-  modalTitle: {
-    color: theme.text,
-    fontSize: 18,
-    fontWeight: "900",
-    marginBottom: 8,
-  },
-  modalBody: {
-    color: theme.textMuted,
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  modalActions: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  modalSecondaryBtn: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.bg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-  },
-  modalSecondaryBtnText: {
-    color: theme.text,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  modalPrimaryBtn: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.accent,
-  },
-  modalPrimaryBtnText: {
-    color: theme.bg,
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  });
-}
+});

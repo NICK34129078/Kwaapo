@@ -65,6 +65,38 @@ export async function countUnreadSellerNotifications(): Promise<number> {
   const { count, error } = await supabase
     .from("seller_notifications")
     .select("id", { count: "exact", head: true })
+    .is("read_at", null);
+
+  if (error) {
+    console.warn("[sellerNotificationService] unread count failed", error.message);
+    return 0;
+  }
+
+  return count ?? 0;
+}
+
+export async function fetchSellerNotificationsForActivity(
+  limit = 50
+): Promise<SellerNotification[]> {
+  const { data, error } = await supabase
+    .from("seller_notifications")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.warn("[sellerNotificationService] fetch activity list failed", error.message);
+    return [];
+  }
+
+  return (data as SellerNotificationRow[]).map(mapRow);
+}
+
+/** Legacy: unread new_paid_order only (toast queue helpers). */
+export async function countUnreadNewPaidSellerNotifications(): Promise<number> {
+  const { count, error } = await supabase
+    .from("seller_notifications")
+    .select("id", { count: "exact", head: true })
     .is("read_at", null)
     .eq("notification_type", "new_paid_order");
 

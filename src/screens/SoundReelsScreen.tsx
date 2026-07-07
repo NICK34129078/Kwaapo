@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Dimensions,
@@ -18,7 +21,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FeedItem } from "../components/FeedItem";
 import { useLikes } from "../context/LikesContext";
-import { theme } from "../constants/theme";
 import type { UserVideoPost } from "../types/userVideoPost";
 import { fetchMusicTrackById } from "../services/musicTracksService";
 import { fetchPostsByAudioTrackId } from "../services/postsService";
@@ -53,6 +55,9 @@ function pickActiveViewable(
 }
 
 export function SoundReelsScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
@@ -332,7 +337,8 @@ export function SoundReelsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -446,3 +452,5 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 });
+}
+

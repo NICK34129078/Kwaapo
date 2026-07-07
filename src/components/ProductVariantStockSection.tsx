@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Alert,
@@ -10,9 +13,6 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { productMayUsePerSizeStock } from "../constants/productSizePresets";
 import type { Product } from "../types/product";
 import type { ProductVariant } from "../types/productVariant";
@@ -44,6 +44,7 @@ export function ProductVariantStockSection({
 }: Props) {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const [variants, setVariants] = useState<ProductVariant[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -553,5 +554,6 @@ function createStyles(theme: AppTheme) {
     backgroundColor: theme.accent,
   },
   modalBtnPrimaryText: { color: theme.bg, fontWeight: "800", fontSize: 15 },
-  });
+});
 }
+

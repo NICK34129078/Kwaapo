@@ -26,7 +26,7 @@ import {
   Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import { ResizeMode, Video } from "expo-av";
@@ -43,9 +43,7 @@ import {
 import { isPersistablePostId } from "../services/postLikesService";
 import { useCloudImageCarouselUpload } from "../hooks/useCloudImageCarouselUpload";
 import { useCloudVideoUpload } from "../hooks/useCloudVideoUpload";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
+import { theme } from "../constants/theme";
 import { useAuth } from "../context/AuthContext";
 import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
@@ -85,9 +83,23 @@ import {
   AUDIO_VOLUME_NORMAL,
 } from "../components/AudioPickerCard";
 import { UploadProductPickerPanel } from "../components/UploadProductPickerPanel";
+import { PressableScale } from "../components/PressableScale";
 import { SpotifySoundPickerPanel } from "../components/SpotifySoundPickerPanel";
 import type { SpotifyTrackResult } from "../services/spotifyService";
 import { SETTINGS_LEGAL_LINKS, SUPPORT_EMAIL } from "../constants/appPolicies";
+import { getPolicyLinkLabel } from "../i18n/policyLabels";
+import { useTranslation } from "react-i18next";
+import { useLanguage } from "../context/LanguageContext";
+import { PrivateProfileEmptyState } from "../components/PrivateProfileEmptyState";
+import { UnfollowConfirmModal } from "../components/UnfollowConfirmModal";
+import { PrivateAccountSettingsRow } from "../components/PrivateAccountSettingsRow";
+import {
+  cancelFollowRequest,
+  getOutgoingFollowRequestStatus,
+  sendFollowRequest,
+  subscribeOutgoingFollowRequestChanges,
+} from "../services/followRequestService";
+import { useChevronForward } from "../hooks/useRtlLayout";
 
 const GAP = 2;
 type ProfileRow = {
@@ -96,6 +108,7 @@ type ProfileRow = {
   display_name: string | null;
   bio: string | null;
   account_type: string | null;
+  is_private: boolean | null;
 };
 
 type FollowListMode = "followers" | "following";
@@ -110,10 +123,9 @@ type FollowListProfile = {
 };
 
 function GuestProfileScreen() {
-  const { theme } = useTheme();
-  const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { openAuthPrompt } = useAuthPrompt();
+  const { t } = useTranslation();
 
   return (
     <ScrollView
@@ -135,33 +147,29 @@ function GuestProfileScreen() {
           size={72}
           color={theme.textMuted}
         />
-        <Text style={styles.guestTitle}>Jouw profiel</Text>
-        <Text style={styles.guestSubtitle}>
-          Log in om videos te uploaden, je profiel aan te passen en instellingen te
-          openen.
-        </Text>
+        <Text style={styles.guestTitle}>{t("profile.yourProfile")}</Text>
+        <Text style={styles.guestSubtitle}>{t("profile.guestSubtitle")}</Text>
         <Pressable
           style={styles.guestBtnPrimary}
           onPress={() =>
-            openAuthPrompt({ message: "Log hieronder in om verder te gaan." })
+            openAuthPrompt({ message: t("profile.guestLoginPrompt") })
           }
           accessibilityRole="button"
-          accessibilityLabel="Inloggen"
+          accessibilityLabel={t("profile.login")}
         >
-          <Text style={styles.guestBtnPrimaryText}>Inloggen</Text>
+          <Text style={styles.guestBtnPrimaryText}>{t("profile.login")}</Text>
         </Pressable>
         <Pressable
           style={styles.guestBtnOutline}
           onPress={() =>
             openAuthPrompt({
-              message:
-                "Maak een gratis account om te uploaden, liken en reageren.",
+              message: t("profile.guestRegisterPrompt"),
             })
           }
           accessibilityRole="button"
-          accessibilityLabel="Account maken"
+          accessibilityLabel={t("profile.createAccount")}
         >
-          <Text style={styles.guestBtnOutlineText}>Account maken</Text>
+          <Text style={styles.guestBtnOutlineText}>{t("profile.createAccount")}</Text>
         </Pressable>
       </View>
     </ScrollView>
@@ -173,10 +181,11 @@ function ProfileAuthenticatedScreen({
 }: {
   profileId?: string;
 }) {
-  const { theme } = useTheme();
-  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
+  const { nativeLabel: currentLanguageLabel } = useLanguage();
+  const chevronIcon = useChevronForward();
   const { openAuthPrompt } = useAuthPrompt();
   const { width, height: windowHeight } = useWindowDimensions();
   const settingsSheetMaxHeight = Math.round(windowHeight * 0.88);
@@ -211,7 +220,9 @@ function ProfileAuthenticatedScreen({
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [followRequestPending, setFollowRequestPending] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
+  const [unfollowConfirmVisible, setUnfollowConfirmVisible] = useState(false);
   const [followListVisible, setFollowListVisible] = useState(false);
   const [followListMode, setFollowListMode] = useState<FollowListMode>("followers");
   const [followListLoading, setFollowListLoading] = useState(false);
@@ -227,9 +238,12 @@ function ProfileAuthenticatedScreen({
   const [profileBio, setProfileBio] = useState<string>("");
   const [profileAccountType, setProfileAccountType] =
     useState<AccountType>("consumer");
+  const [profileIsPrivate, setProfileIsPrivate] = useState(false);
   const [profileContentTab, setProfileContentTab] =
     useState<ProfileContentTab>("posts");
   const isBusinessProfile = profileAccountType === "business";
+  const canViewProfileContent =
+    isOwnProfile || !profileIsPrivate || isFollowing;
   const sellerOrderBadgeCount =
     isOwnProfile && isBusinessProfile ? openSellerOrderCount : 0;
 
@@ -626,11 +640,12 @@ function ProfileAuthenticatedScreen({
       setProfileDisplayName("");
       setProfileBio("");
       setProfileAccountType("consumer");
+      setProfileIsPrivate(false);
       return;
     }
     const { data, error } = await supabase
       .from("profiles")
-      .select("avatar_url, username, display_name, bio, account_type")
+      .select("avatar_url, username, display_name, bio, account_type, is_private")
       .eq("id", targetProfileId)
       .maybeSingle<ProfileRow>();
     if (error) {
@@ -644,6 +659,7 @@ function ProfileAuthenticatedScreen({
     setProfileDisplayName((data?.display_name ?? "").trim());
     setProfileBio((data?.bio ?? "").trim());
     setProfileAccountType(normalizeAccountType(data?.account_type));
+    setProfileIsPrivate(data?.is_private === true);
   }, [targetProfileId]);
 
   const {
@@ -672,9 +688,18 @@ function ProfileAuthenticatedScreen({
     void loadProfile();
   }, [loadProfile]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (isOwnProfile && targetProfileId) {
+        void loadProfile();
+      }
+    }, [isOwnProfile, loadProfile, targetProfileId])
+  );
+
   useEffect(() => {
     setProfileContentTab("posts");
     setAvatarViewerVisible(false);
+    setUnfollowConfirmVisible(false);
   }, [targetProfileId]);
 
   useEffect(() => {
@@ -684,6 +709,26 @@ function ProfileAuthenticatedScreen({
     console.log("Supabase URL:", process.env.EXPO_PUBLIC_SUPABASE_URL);
   }, [targetProfileId]);
 
+  const loadOtherProfileUploads = useCallback(async () => {
+    if (!targetProfileId || isOwnProfile || !canViewProfileContent) {
+      setOtherProfileUploads([]);
+      setOtherUploadsLoading(false);
+      return;
+    }
+    setOtherUploadsLoading(true);
+    try {
+      const rows = await fetchUserPosts(targetProfileId, "global");
+      setOtherProfileUploads(rows ?? []);
+    } catch (e) {
+      if (__DEV__) {
+        console.warn("[Profile] load other profile uploads error:", e);
+      }
+      setOtherProfileUploads([]);
+    } finally {
+      setOtherUploadsLoading(false);
+    }
+  }, [canViewProfileContent, isOwnProfile, targetProfileId]);
+
   useEffect(() => {
     if (isOwnProfile || !targetProfileId) {
       setOtherProfileUploads([]);
@@ -692,9 +737,15 @@ function ProfileAuthenticatedScreen({
     }
 
     let cancelled = false;
-    setOtherUploadsLoading(true);
-
     void (async () => {
+      if (!canViewProfileContent) {
+        if (!cancelled) {
+          setOtherProfileUploads([]);
+          setOtherUploadsLoading(false);
+        }
+        return;
+      }
+      setOtherUploadsLoading(true);
       try {
         const rows = await fetchUserPosts(targetProfileId, "global");
         if (!cancelled) {
@@ -717,13 +768,14 @@ function ProfileAuthenticatedScreen({
     return () => {
       cancelled = true;
     };
-  }, [isOwnProfile, targetProfileId]);
+  }, [canViewProfileContent, isOwnProfile, targetProfileId]);
 
   const loadFollowMeta = useCallback(async () => {
     if (!targetProfileId) {
       setFollowersCount(0);
       setFollowingCount(0);
       setIsFollowing(false);
+      setFollowRequestPending(false);
       return;
     }
 
@@ -747,6 +799,7 @@ function ProfileAuthenticatedScreen({
 
     if (isOwnProfile || !user?.id) {
       setIsFollowing(false);
+      setFollowRequestPending(false);
       return;
     }
 
@@ -758,13 +811,46 @@ function ProfileAuthenticatedScreen({
       .maybeSingle();
 
     if (!error) {
-      setIsFollowing(!!data);
+      const following = !!data;
+      setIsFollowing(following);
+      if (following) {
+        setFollowRequestPending(false);
+        return;
+      }
     }
-  }, [isOwnProfile, targetProfileId, user?.id]);
+
+    if (profileIsPrivate) {
+      try {
+        const status = await getOutgoingFollowRequestStatus(targetProfileId);
+        setFollowRequestPending(status === "pending");
+      } catch {
+        setFollowRequestPending(false);
+      }
+    } else {
+      setFollowRequestPending(false);
+    }
+  }, [isOwnProfile, profileIsPrivate, targetProfileId, user?.id]);
 
   useEffect(() => {
     void loadFollowMeta();
   }, [loadFollowMeta]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!isOwnProfile && targetProfileId) {
+        void loadFollowMeta();
+      }
+    }, [isOwnProfile, loadFollowMeta, targetProfileId])
+  );
+
+  useEffect(() => {
+    if (!user?.id || !targetProfileId || isOwnProfile || !profileIsPrivate) {
+      return;
+    }
+    return subscribeOutgoingFollowRequestChanges(user.id, targetProfileId, () => {
+      void loadFollowMeta();
+    });
+  }, [isOwnProfile, loadFollowMeta, profileIsPrivate, targetProfileId, user?.id]);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -804,15 +890,15 @@ function ProfileAuthenticatedScreen({
   }, [signOut]);
 
   const confirmLogout = useCallback(() => {
-    Alert.alert("Uitloggen?", "Weet je zeker dat je wilt uitloggen?", [
-      { text: "Annuleren", style: "cancel" },
+    Alert.alert(t("settings.logoutTitle"), t("settings.logoutMessage"), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Uitloggen",
+        text: t("settings.logout"),
         style: "destructive",
         onPress: () => void handleLogout(),
       },
     ]);
-  }, [handleLogout]);
+  }, [handleLogout, t]);
 
   const confirmDeleteCloudVideo = useCallback(
     (p: UserVideoPost) => {
@@ -844,6 +930,32 @@ function ProfileAuthenticatedScreen({
     [deleteUserVideoPost, isOwnProfile]
   );
 
+  const performUnfollow = useCallback(async () => {
+    if (!targetProfileId || !user?.id) {
+      return;
+    }
+    setFollowBusy(true);
+    try {
+      const { error } = await supabase
+        .from("follows")
+        .delete()
+        .eq("follower_id", user.id)
+        .eq("following_id", targetProfileId);
+      if (error) {
+        throw error;
+      }
+      setIsFollowing(false);
+      setFollowRequestPending(false);
+      setFollowersCount((prev) => Math.max(0, prev - 1));
+      setUnfollowConfirmVisible(false);
+    } catch (e) {
+      const msg = getReadableErrorMessage(e, t("followRequest.error"));
+      Alert.alert(t("alerts.error"), msg);
+    } finally {
+      setFollowBusy(false);
+    }
+  }, [t, targetProfileId, user?.id]);
+
   const onToggleFollow = useCallback(async () => {
     if (!targetProfileId || isOwnProfile) {
       return;
@@ -852,19 +964,29 @@ function ProfileAuthenticatedScreen({
       openAuthPrompt({ message: "Log in om dit profiel te volgen." });
       return;
     }
+    if (isFollowing) {
+      setUnfollowConfirmVisible(true);
+      return;
+    }
     setFollowBusy(true);
     try {
-      if (isFollowing) {
-        const { error } = await supabase
-          .from("follows")
-          .delete()
-          .eq("follower_id", user.id)
-          .eq("following_id", targetProfileId);
-        if (error) {
-          throw error;
+      const { data: privacyRow } = await supabase
+        .from("profiles")
+        .select("is_private")
+        .eq("id", targetProfileId)
+        .maybeSingle();
+      const recipientIsPrivate = privacyRow?.is_private === true;
+      if (recipientIsPrivate !== profileIsPrivate) {
+        setProfileIsPrivate(recipientIsPrivate);
+      }
+      if (recipientIsPrivate) {
+        if (followRequestPending) {
+          await cancelFollowRequest(targetProfileId);
+          setFollowRequestPending(false);
+        } else {
+          await sendFollowRequest(targetProfileId);
+          setFollowRequestPending(true);
         }
-        setIsFollowing(false);
-        setFollowersCount((prev) => Math.max(0, prev - 1));
       } else {
         const { error } = await supabase.from("follows").insert({
           follower_id: user.id,
@@ -881,12 +1003,21 @@ function ProfileAuthenticatedScreen({
         setFollowersCount((prev) => prev + 1);
       }
     } catch (e) {
-      const msg = getReadableErrorMessage(e, "Volgen mislukt.");
+      const msg = getReadableErrorMessage(e, t("followRequest.error"));
       Alert.alert("Fout", msg);
     } finally {
       setFollowBusy(false);
     }
-  }, [isFollowing, isOwnProfile, openAuthPrompt, targetProfileId, user?.id]);
+  }, [
+    followRequestPending,
+    isFollowing,
+    isOwnProfile,
+    openAuthPrompt,
+    profileIsPrivate,
+    t,
+    targetProfileId,
+    user?.id,
+  ]);
 
   const loadFollowList = useCallback(
     async (mode: FollowListMode) => {
@@ -990,7 +1121,7 @@ function ProfileAuthenticatedScreen({
         return;
       }
       if (policyId === "seller") {
-        navigation.navigate("SellerTerms");
+        navigation.navigate("PolicyDocument", { policyId: "seller" });
         return;
       }
       navigation.navigate("PolicyDocument", { policyId });
@@ -1006,7 +1137,7 @@ function ProfileAuthenticatedScreen({
           pointerEvents="none"
         >
           <ActivityIndicator size="small" color={theme.text} />
-          <Text style={styles.uploadProgressText}>Uploaden...</Text>
+          <Text style={styles.uploadProgressText}>{t("profile.uploading")}</Text>
         </View>
       ) : null}
 
@@ -1020,7 +1151,7 @@ function ProfileAuthenticatedScreen({
               style={styles.iconButton}
               onPress={() => setSettingsVisible(true)}
               accessibilityRole="button"
-              accessibilityLabel="Open settings"
+              accessibilityLabel={t("profile.settings")}
             >
               <Ionicons name="settings-outline" size={22} color={theme.text} />
               {sellerOrderBadgeCount > 0 ? (
@@ -1079,6 +1210,12 @@ function ProfileAuthenticatedScreen({
           <Text style={styles.name}>
             {profileUsername.length > 0 ? `@${profileUsername}` : "@gebruiker"}
           </Text>
+          {profileIsPrivate && !isOwnProfile ? (
+            <View style={styles.privateBadgeRow}>
+              <Ionicons name="lock-closed" size={13} color={theme.textMuted} />
+              <Text style={styles.privateBadgeText}>{t("privacy.privateBadge")}</Text>
+            </View>
+          ) : null}
           {isOwnProfile && profileUsername.length === 0 ? (
             <Text style={styles.usernamePrompt}>
               Kies een accountnaam via profiel bewerken zodat anderen je kunnen
@@ -1096,31 +1233,44 @@ function ProfileAuthenticatedScreen({
           </Text>
           {isOwnProfile ? (
             <View style={styles.statsRow}>
-              <View style={styles.statsRowSide} />
-              <View style={styles.statsGroup}>
-                <Pressable
-                  style={styles.stat}
-                  onPress={() => openFollowList("followers")}
-                  accessibilityRole="button"
-                  accessibilityLabel="Bekijk volgers"
-                >
-                  <Text style={styles.statNum}>{followersCount}</Text>
-                  <Text style={styles.statLabel}>volgers</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.stat}
-                  onPress={() => openFollowList("following")}
-                  accessibilityRole="button"
-                  accessibilityLabel="Bekijk volgend"
-                >
-                  <Text style={styles.statNum}>{followingCount}</Text>
-                  <Text style={styles.statLabel}>volgend</Text>
-                </Pressable>
-              </View>
-              <View style={styles.statsRowSide}>
-                {profileContentTab === "posts" ? (
+              <View style={styles.statsRowInner}>
+                <View style={styles.statsPair}>
                   <Pressable
-                    style={styles.statsUploadButton}
+                    style={styles.stat}
+                    onPress={() => openFollowList("followers")}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("profile.viewFollowers")}
+                  >
+                    <Text
+                      style={styles.statNum}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.75}
+                    >
+                      {followersCount}
+                    </Text>
+                    <Text style={styles.statLabel}>{t("profile.followers")}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.stat}
+                    onPress={() => openFollowList("following")}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("profile.viewFollowing")}
+                  >
+                    <Text
+                      style={styles.statNum}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.75}
+                    >
+                      {followingCount}
+                    </Text>
+                    <Text style={styles.statLabel}>{t("profile.following")}</Text>
+                  </Pressable>
+                </View>
+                {profileContentTab === "posts" ? (
+                  <PressableScale
+                    style={styles.statsUploadAction}
                     onPress={() => {
                       if (isUploadBusy) return;
                       resetUploadDrafts();
@@ -1128,14 +1278,17 @@ function ProfileAuthenticatedScreen({
                     }}
                     disabled={isUploadBusy}
                     accessibilityRole="button"
-                    accessibilityLabel="Video uploaden"
+                    accessibilityLabel="Video of foto uploaden"
                   >
                     {isUploadBusy ? (
                       <ActivityIndicator size="small" color={theme.accent} />
                     ) : (
-                      <Ionicons name="add" size={26} color={theme.accent} />
+                      <>
+                        <Ionicons name="add" size={17} color={theme.accent} />
+                        <Text style={styles.statsUploadActionText}>{t("profile.upload")}</Text>
+                      </>
                     )}
-                  </Pressable>
+                  </PressableScale>
                 ) : null}
               </View>
             </View>
@@ -1152,7 +1305,7 @@ function ProfileAuthenticatedScreen({
                 accessibilityLabel="Bekijk volgers"
               >
                 <Text style={styles.statNum}>{followersCount}</Text>
-                <Text style={styles.statLabel}>volgers</Text>
+                <Text style={styles.statLabel}>{t("profile.followers")}</Text>
               </Pressable>
               <Pressable
                 style={styles.stat}
@@ -1161,36 +1314,76 @@ function ProfileAuthenticatedScreen({
                 accessibilityLabel="Bekijk volgend"
               >
                 <Text style={styles.statNum}>{followingCount}</Text>
-                <Text style={styles.statLabel}>volgend</Text>
+                <Text style={styles.statLabel}>{t("profile.following")}</Text>
               </Pressable>
             </View>
           )}
           {!isOwnProfile ? (
             <Pressable
-              style={[styles.followProfileBtn, followBusy && styles.followProfileBtnDisabled]}
+              style={[
+                styles.followProfileBtn,
+                followRequestPending && !isFollowing
+                  ? styles.followProfileBtnPending
+                  : null,
+                followBusy && styles.followProfileBtnDisabled,
+              ]}
               onPress={() => void onToggleFollow()}
               disabled={followBusy}
               accessibilityRole="button"
-              accessibilityLabel={isFollowing ? "Ontvolgen" : "Volgen"}
+              accessibilityLabel={
+                isFollowing
+                  ? t("profile.unfollow")
+                  : followRequestPending
+                    ? t("followRequest.requestSent")
+                    : t("profile.follow")
+              }
             >
               {followBusy ? (
-                <ActivityIndicator size="small" color={theme.bg} />
+                <ActivityIndicator
+                  size="small"
+                  color={followRequestPending && !isFollowing ? theme.textMuted : theme.bg}
+                />
               ) : (
-                <Text style={styles.followProfileBtnText}>
-                  {isFollowing ? "Volgend" : "Volgen"}
-                </Text>
+                <View style={styles.followProfileBtnInner}>
+                  {followRequestPending && !isFollowing ? (
+                    <Ionicons
+                      name="time-outline"
+                      size={16}
+                      color={theme.textMuted}
+                      style={styles.followProfileBtnIcon}
+                    />
+                  ) : null}
+                  <Text
+                    style={[
+                      styles.followProfileBtnText,
+                      followRequestPending && !isFollowing
+                        ? styles.followProfileBtnTextPending
+                        : null,
+                    ]}
+                  >
+                    {isFollowing
+                      ? t("profile.followingBtn")
+                      : followRequestPending
+                        ? t("followRequest.requestSent")
+                        : t("profile.follow")}
+                  </Text>
+                </View>
               )}
             </Pressable>
           ) : null}
         </View>
 
-        <ProfileContentTabs
-          active={profileContentTab}
-          onChange={setProfileContentTab}
-          tabs={profileTabs}
-        />
+        {canViewProfileContent ? (
+          <ProfileContentTabs
+            active={profileContentTab}
+            onChange={setProfileContentTab}
+            tabs={profileTabs}
+          />
+        ) : null}
 
-        {profileContentTab === "shop" && isBusinessProfile && targetProfileId ? (
+        {!canViewProfileContent ? (
+          <PrivateProfileEmptyState username={profileUsername} />
+        ) : profileContentTab === "shop" && isBusinessProfile && targetProfileId ? (
           <ProfileShopGrid
             ownerId={targetProfileId}
             cellSize={cellSize}
@@ -1313,7 +1506,7 @@ function ProfileAuthenticatedScreen({
               ]}
             >
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Instellingen</Text>
+                <Text style={styles.modalTitle}>{t("settings.title")}</Text>
                 <Pressable
                   style={styles.iconButton}
                   onPress={() => setSettingsVisible(false)}
@@ -1335,7 +1528,7 @@ function ProfileAuthenticatedScreen({
                 bounces
               >
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Mijn account</Text>
+              <Text style={styles.sectionTitle}>{t("settings.myAccount")}</Text>
               <Pressable
                 style={styles.rowButton}
                 onPress={() => {
@@ -1343,8 +1536,8 @@ function ProfileAuthenticatedScreen({
                   navigation.navigate("MyOrders");
                 }}
               >
-                <Text style={styles.rowLabel}>Mijn bestellingen</Text>
-                <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                <Text style={styles.rowLabel}>{t("settings.myOrders")}</Text>
+                <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
               </Pressable>
               <Pressable
                 style={styles.rowButton}
@@ -1353,22 +1546,40 @@ function ProfileAuthenticatedScreen({
                   setEditProfileVisible(true);
                 }}
               >
-                <Text style={styles.rowLabel}>Account settings</Text>
-                <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                <Text style={styles.rowLabel}>{t("profile.editProfile")}</Text>
+                <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
               </Pressable>
+              <PrivateAccountSettingsRow
+                active={settingsVisible}
+                onPrivacyChange={setProfileIsPrivate}
+              />
               <Pressable
                 style={styles.rowButton}
-                onPress={() => openPolicy("account_deletion")}
+                onPress={confirmLogout}
+                disabled={logoutBusy}
+                accessibilityRole="button"
+                accessibilityLabel={t("settings.logout")}
               >
-                <Text style={[styles.rowLabel, styles.dangerLabel]}>
-                  Account verwijderen
-                </Text>
-                <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                <View style={styles.rowButtonMain}>
+                  <Text style={[styles.rowLabel, styles.dangerLabel]}>{t("settings.logout")}</Text>
+                  <Text style={styles.logoutSubLabel}>{t("settings.logoutSubtitle")}</Text>
+                </View>
+                <View style={styles.rowButtonTrailing}>
+                  {logoutBusy ? (
+                    <ActivityIndicator size="small" color="#ff8a84" />
+                  ) : (
+                    <Ionicons
+                      name={chevronIcon}
+                      size={18}
+                      color={theme.textMuted}
+                    />
+                  )}
+                </View>
               </Pressable>
             </View>
 
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Verkopen</Text>
+              <Text style={styles.sectionTitle}>{t("settings.sell")}</Text>
               {isBusinessProfile ? (
                 <>
                   {sellerOrderBadgeCount > 0 ? (
@@ -1378,21 +1589,20 @@ function ProfileAuthenticatedScreen({
                       accessibilityRole="button"
                       accessibilityLabel={
                         sellerOrderBadgeCount === 1
-                          ? "Nieuwe bestelling afhandelen"
-                          : "Nieuwe bestellingen afhandelen"
+                          ? t("settings.newOrderAction_one")
+                          : t("settings.newOrderAction_other")
                       }
                     >
                       <View style={styles.rowButtonMain}>
                         <Text style={styles.rowLabel}>
                           {sellerOrderBadgeCount === 1
-                            ? "Nieuwe bestelling"
-                            : "Nieuwe bestellingen"}
+                            ? t("settings.newOrder")
+                            : t("settings.newOrders")}
                         </Text>
                         <Text style={styles.rowSubLabel}>
-                          Je hebt {sellerOrderBadgeCount}{" "}
-                          {sellerOrderBadgeCount === 1
-                            ? "bestelling klaar om af te handelen."
-                            : "bestellingen klaar om af te handelen."}
+                          {t("settings.newOrdersSubtitle", {
+                            count: sellerOrderBadgeCount,
+                          })}
                         </Text>
                       </View>
                       <View style={styles.rowButtonTrailing}>
@@ -1403,7 +1613,7 @@ function ProfileAuthenticatedScreen({
                           borderColor={theme.bgElevated}
                         />
                         <Ionicons
-                          name="chevron-forward"
+                          name={chevronIcon}
                           size={18}
                           color={theme.textMuted}
                         />
@@ -1414,21 +1624,11 @@ function ProfileAuthenticatedScreen({
                     style={styles.rowButton}
                     onPress={() => {
                       setSettingsVisible(false);
-                      navigation.navigate("SellerTerms");
-                    }}
-                  >
-                    <Text style={styles.rowLabel}>Seller-voorwaarden</Text>
-                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
-                  </Pressable>
-                  <Pressable
-                    style={styles.rowButton}
-                    onPress={() => {
-                      setSettingsVisible(false);
                       navigation.navigate("SellerOnboarding");
                     }}
                   >
-                    <Text style={styles.rowLabel}>Verkoopaccount</Text>
-                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                    <Text style={styles.rowLabel}>{t("settings.sellAccount")}</Text>
+                    <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
                   </Pressable>
                   <Pressable
                     style={styles.rowButton}
@@ -1437,8 +1637,8 @@ function ProfileAuthenticatedScreen({
                       navigation.navigate("CreatorStats");
                     }}
                   >
-                    <Text style={styles.rowLabel}>Shop statistieken</Text>
-                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                    <Text style={styles.rowLabel}>{t("settings.shopStats")}</Text>
+                    <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
                   </Pressable>
                 </>
               ) : (
@@ -1446,14 +1646,14 @@ function ProfileAuthenticatedScreen({
                   style={styles.rowButton}
                   onPress={onMakeBusinessAccount}
                 >
-                  <Text style={styles.rowLabel}>Word verkoper</Text>
-                  <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                  <Text style={styles.rowLabel}>{t("settings.becomeSeller")}</Text>
+                  <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
                 </Pressable>
               )}
             </View>
 
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Juridisch & privacy</Text>
+              <Text style={styles.sectionTitle}>{t("settings.legalPrivacy")}</Text>
               {SETTINGS_LEGAL_LINKS.filter((l) => l.policyId !== "account_deletion").map(
                 (link) => (
                   <Pressable
@@ -1461,9 +1661,11 @@ function ProfileAuthenticatedScreen({
                     style={styles.rowButton}
                     onPress={() => openPolicy(link.policyId)}
                   >
-                    <Text style={styles.rowLabel}>{link.label}</Text>
+                    <Text style={styles.rowLabel}>
+                      {getPolicyLinkLabel(link.policyId)}
+                    </Text>
                     <Ionicons
-                      name="chevron-forward"
+                      name={chevronIcon}
                       size={18}
                       color={theme.textMuted}
                     />
@@ -1473,45 +1675,85 @@ function ProfileAuthenticatedScreen({
             </View>
 
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Support</Text>
+              <Text style={styles.sectionTitle}>{t("settings.support")}</Text>
               <Pressable style={styles.rowButton} onPress={openSupportEmail}>
-                <Text style={styles.rowLabel}>Contact & support</Text>
-                <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                <Text style={styles.rowLabel}>{t("settings.contactSupport")}</Text>
+                <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
               </Pressable>
               <Pressable
                 style={styles.rowButton}
                 onPress={() => openPolicy("contact")}
               >
-                <Text style={styles.rowLabel}>Privacyverzoeken</Text>
-                <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                <Text style={styles.rowLabel}>{t("settings.privacyRequests")}</Text>
+                <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
               </Pressable>
             </View>
 
-            <View style={styles.logoutSection}>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>{t("settings.privacySafety")}</Text>
               <Pressable
                 style={styles.rowButton}
-                onPress={confirmLogout}
-                disabled={logoutBusy}
+                onPress={() => {
+                  setSettingsVisible(false);
+                  navigation.navigate("BlockedUsers");
+                }}
                 accessibilityRole="button"
-                accessibilityLabel="Uitloggen"
+                accessibilityLabel={t("settings.blockedUsers")}
               >
                 <View style={styles.rowButtonMain}>
-                  <Text style={[styles.rowLabel, styles.dangerLabel]}>Uitloggen</Text>
-                  <Text style={styles.logoutSubLabel}>Meld je af bij je account</Text>
+                  <Text style={styles.rowLabel}>{t("settings.blockedUsers")}</Text>
+                  <Text style={styles.logoutSubLabel}>
+                    {t("settings.blockedUsersSubtitle")}
+                  </Text>
+                </View>
+                <Ionicons
+                  name={chevronIcon}
+                  size={18}
+                  color={theme.textMuted}
+                />
+              </Pressable>
+              <Pressable
+                style={styles.rowButton}
+                onPress={() => {
+                  setSettingsVisible(false);
+                  navigation.navigate("LanguageSettings");
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={t("settings.language")}
+              >
+                <View style={styles.rowButtonMain}>
+                  <Text style={styles.rowLabel}>{t("settings.language")}</Text>
+                  <Text style={styles.logoutSubLabel}>{currentLanguageLabel}</Text>
                 </View>
                 <View style={styles.rowButtonTrailing}>
-                  {logoutBusy ? (
-                    <ActivityIndicator size="small" color="#ff8a84" />
-                  ) : (
-                    <Ionicons
-                      name="chevron-forward"
-                      size={18}
-                      color={theme.textMuted}
-                    />
-                  )}
+                  <Text style={styles.rowTrailingValue}>{currentLanguageLabel}</Text>
+                  <Ionicons
+                    name={chevronIcon}
+                    size={18}
+                    color={theme.textMuted}
+                  />
                 </View>
               </Pressable>
-              </ScrollView>
+            </View>
+
+            <View style={styles.accountDangerSection}>
+              <Text style={styles.sectionTitle}>{t("settings.accountSection")}</Text>
+              <Pressable
+                style={styles.rowButton}
+                onPress={() => openPolicy("account_deletion")}
+                accessibilityRole="button"
+                accessibilityLabel={t("settings.deleteAccount")}
+              >
+                <View style={styles.rowButtonMain}>
+                  <Text style={[styles.rowLabel, styles.dangerLabel]}>
+                    {t("settings.deleteAccount")}
+                  </Text>
+                  <Text style={styles.logoutSubLabel}>
+                    {t("settings.deleteAccountSubtitle")}
+                  </Text>
+                </View>
+                <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
+              </Pressable>
             </View>
               </ScrollView>
             </View>
@@ -1573,7 +1815,7 @@ function ProfileAuthenticatedScreen({
                 ]}
                 collapsable={false}
               >
-                <Text style={styles.uploadSheetTitle}>Uploaden</Text>
+                <Text style={styles.uploadSheetTitle}>{t("upload.title")}</Text>
                 <ScrollView
                   style={styles.uploadSheetScroll}
                   contentContainerStyle={styles.uploadSheetScrollContent}
@@ -1662,7 +1904,7 @@ function ProfileAuthenticatedScreen({
                 <TextInput
                   style={[styles.uploadSheetInput, styles.uploadSheetCaptionInput]}
                   placeholder="Vertel iets over je outfit..."
-                  placeholderTextColor={theme.placeholder}
+                  placeholderTextColor={theme.textMuted}
                   value={captionDraft}
                   onChangeText={setCaptionDraft}
                   maxLength={150}
@@ -1681,7 +1923,7 @@ function ProfileAuthenticatedScreen({
                 <TextInput
                   style={[styles.uploadSheetInput, styles.uploadSheetHashtagInput]}
                   placeholder="#oldmoney #zomervibe #classy"
-                  placeholderTextColor={theme.placeholder}
+                  placeholderTextColor={theme.textMuted}
                   value={hashtagsDraft}
                   onChangeText={setHashtagsDraft}
                   autoCorrect={false}
@@ -1879,7 +2121,9 @@ function ProfileAuthenticatedScreen({
           <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
-                {followListMode === "followers" ? "Volgers" : "Volgend"}
+                {followListMode === "followers"
+                  ? t("profile.followersTitle")
+                  : t("profile.followingTitle")}
               </Text>
               <Pressable
                 style={styles.iconButton}
@@ -1936,6 +2180,18 @@ function ProfileAuthenticatedScreen({
           </View>
         </View>
       </Modal>
+
+      <UnfollowConfirmModal
+        visible={unfollowConfirmVisible}
+        username={profileUsername}
+        busy={followBusy}
+        onCancel={() => {
+          if (!followBusy) {
+            setUnfollowConfirmVisible(false);
+          }
+        }}
+        onConfirm={() => void performUnfollow()}
+      />
     </>
   );
 }
@@ -1953,8 +2209,7 @@ export function ProfileScreen({ profileId: profileIdProp }: { profileId?: string
   return <ProfileAuthenticatedScreen profileId={routeProfileId} />;
 }
 
-function createStyles(theme: AppTheme) {
-  return StyleSheet.create({
+const styles = StyleSheet.create({
   scroll: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -2089,6 +2344,18 @@ function createStyles(theme: AppTheme) {
     fontWeight: "800",
     letterSpacing: 0.3,
   },
+  privateBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    marginTop: 6,
+  },
+  privateBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.textMuted,
+  },
   usernamePrompt: {
     marginTop: 6,
     color: theme.textMuted,
@@ -2098,46 +2365,55 @@ function createStyles(theme: AppTheme) {
     lineHeight: 18,
   },
   bio: {
-    marginTop: 8,
+    marginTop: 6,
     color: theme.textMuted,
     fontSize: 14,
     textAlign: "center",
     lineHeight: 20,
     maxWidth: 280,
   },
-  statsRow: {
-    marginTop: 18,
-    width: "100%",
-    alignItems: "center",
-  },
-  statsRow: {
+  stats: {
     flexDirection: "row",
-    alignItems: "center",
     marginTop: 22,
+    gap: 28,
+    alignItems: "center",
+  },
+  statsRow: {
+    marginTop: 14,
     width: "100%",
-    paddingHorizontal: 4,
-  },
-  statsRowSide: {
-    width: 48,
     alignItems: "center",
-    justifyContent: "center",
+    paddingHorizontal: 8,
   },
-  statsGroup: {
-    flex: 1,
+  statsRowInner: {
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
-    gap: 36,
+    justifyContent: "center",
+    gap: 22,
+    maxWidth: "100%",
   },
-  statsUploadButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  statsPair: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: theme.accentBorderMuted,
-    backgroundColor: theme.accentFaint,
+    gap: 32,
+  },
+  statsUploadAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 44,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.accentBorder,
+  },
+  statsUploadActionText: {
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: "600",
+    letterSpacing: 0.1,
   },
   stat: {
     alignItems: "center",
@@ -2145,15 +2421,18 @@ function createStyles(theme: AppTheme) {
   },
   statNum: {
     color: theme.text,
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "800",
-    lineHeight: 22,
+    textAlign: "center",
+    minWidth: 28,
+    maxWidth: 72,
   },
   statLabel: {
     marginTop: 2,
-    color: theme.textMuted,
-    fontSize: 12,
-    fontWeight: "600",
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 11,
+    fontWeight: "500",
+    textAlign: "center",
   },
   followProfileBtn: {
     marginTop: 12,
@@ -2165,13 +2444,31 @@ function createStyles(theme: AppTheme) {
     justifyContent: "center",
     backgroundColor: theme.accent,
   },
+  followProfileBtnPending: {
+    backgroundColor: theme.bgElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
   followProfileBtnDisabled: {
     opacity: 0.75,
+  },
+  followProfileBtnInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  followProfileBtnIcon: {
+    marginTop: 1,
   },
   followProfileBtnText: {
     color: theme.bg,
     fontSize: 15,
     fontWeight: "800",
+  },
+  followProfileBtnTextPending: {
+    color: theme.textMuted,
+    fontWeight: "700",
   },
   grid: {
     flexDirection: "row",
@@ -2326,15 +2623,6 @@ function createStyles(theme: AppTheme) {
   modalScrollContent: {
     flexGrow: 1,
   },
-  settingsModalSheet: {
-    width: "100%",
-  },
-  settingsModalScroll: {
-    flexShrink: 1,
-  },
-  settingsModalScrollContent: {
-    flexGrow: 1,
-  },
   modalHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -2399,6 +2687,11 @@ function createStyles(theme: AppTheme) {
     color: theme.accent,
     fontSize: 12,
     fontWeight: "700",
+  },
+  rowTrailingValue: {
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: "500",
   },
   settingsIconBadge: {
     position: "absolute",
@@ -2525,11 +2818,11 @@ function createStyles(theme: AppTheme) {
     alignItems: "center",
     justifyContent: "center",
   },
-  logoutSection: {
+  accountDangerSection: {
     backgroundColor: theme.bgElevated,
     borderRadius: 14,
     paddingVertical: 4,
-    marginTop: 20,
+    marginTop: 28,
     marginBottom: 8,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(255,59,48,0.35)",
@@ -2885,7 +3178,7 @@ function createStyles(theme: AppTheme) {
     opacity: 0.6,
   },
   uploadSheetBtnPrimaryText: {
-    color: theme.accentText,
+    color: "#0B0B0B",
     fontSize: 16,
     fontWeight: "700",
   },
@@ -2901,5 +3194,4 @@ function createStyles(theme: AppTheme) {
     alignSelf: "center",
     marginBottom: 4,
   },
-  });
-}
+});

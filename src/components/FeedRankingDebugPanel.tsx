@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { FeedPost } from "../data/placeholder";
-import { theme } from "../constants/theme";
 
 type Props = {
   item: FeedPost | null;
@@ -30,6 +32,8 @@ function readNumber(value: unknown): number | null {
 }
 
 export function FeedRankingDebugPanel({ item }: Props) {
+  const styles = useThemedStyles(createStyles);
+
   const [expanded, setExpanded] = useState(false);
 
   const lines = useMemo(() => {
@@ -130,7 +134,8 @@ export function FeedRankingDebugPanel({ item }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   wrap: {
     position: "absolute",
     left: 8,
@@ -163,3 +168,5 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
 });
+}
+

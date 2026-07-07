@@ -10,6 +10,12 @@ export type RankedFeedFetchResult = {
   lastError: string | null;
 };
 
+export type RankedFeedFetchOptions = {
+  isLoggedIn?: boolean;
+  /** When true, personalized RPC may return posts viewed in the last 7 days (refresh). */
+  allowRecentlyViewed?: boolean;
+};
+
 const MAX_RPC_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 450;
 
@@ -33,7 +39,8 @@ function stampFeedSource(
 
 async function fetchPersonalizedWithRetries(
   limit: number,
-  exclude: string[]
+  exclude: string[],
+  options?: { allowRecentlyViewed?: boolean }
 ): Promise<{ posts: UserVideoPost[]; lastError: string | null }> {
   let lastError: string | null = null;
   for (let attempt = 0; attempt < MAX_RPC_ATTEMPTS; attempt++) {
@@ -41,10 +48,8 @@ async function fetchPersonalizedWithRetries(
       await sleep(RETRY_DELAY_MS * attempt);
     }
     try {
-      const posts = await fetchPersonalizedFeed(limit, exclude);
-      if (posts.length > 0) {
-        return { posts, lastError: null };
-      }
+      const posts = await fetchPersonalizedFeed(limit, exclude, options);
+      return { posts, lastError: null };
     } catch (e) {
       lastError = e instanceof Error ? e.message : "Personalized feed mislukt";
     }
@@ -63,9 +68,7 @@ async function fetchExploreWithRetries(
     }
     try {
       const posts = await fetchExploreFeed(limit, exclude);
-      if (posts.length > 0) {
-        return { posts, lastError: null };
-      }
+      return { posts, lastError: null };
     } catch (e) {
       lastError = e instanceof Error ? e.message : "Explore feed mislukt";
     }
@@ -80,13 +83,21 @@ async function fetchExploreWithRetries(
 export async function fetchRankedFeedViaRpc(
   limit: number,
   exclude: string[],
-  options?: { isLoggedIn?: boolean }
+  options?: RankedFeedFetchOptions
 ): Promise<RankedFeedFetchResult> {
   const isLoggedIn = options?.isLoggedIn === true;
+  const personalizedOptions =
+    options?.allowRecentlyViewed === true
+      ? { allowRecentlyViewed: true as const }
+      : undefined;
   let lastError: string | null = null;
 
   if (isLoggedIn) {
-    const personalized = await fetchPersonalizedWithRetries(limit, exclude);
+    const personalized = await fetchPersonalizedWithRetries(
+      limit,
+      exclude,
+      personalizedOptions
+    );
     if (personalized.posts.length > 0) {
       return {
         posts: stampFeedSource(personalized.posts, "personalized"),

@@ -1,4 +1,7 @@
 import React from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   Pressable,
   StyleSheet,
@@ -9,9 +12,6 @@ import {
   type ViewStyle,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 
 const GRID_GAP = 10;
 const GRID_COLUMNS = 2;
@@ -43,7 +43,9 @@ export function ChoiceCard({
   width: widthProp,
 }: ChoiceCardProps) {
   const { theme } = useTheme();
+
   const styles = useThemedStyles(createStyles);
+
   const computedWidth = useChoiceCardWidth();
   const cardWidth = widthProp ?? computedWidth;
 
@@ -83,58 +85,60 @@ type ChoiceCardGridProps = {
 /** Wrap-grid met vaste 2-koloms spacing — kaarten groeien niet full-width. */
 export function ChoiceCardGrid({ children, style }: ChoiceCardGridProps) {
   const styles = useThemedStyles(createStyles);
+
   return <View style={[styles.grid, style]}>{children}</View>;
 }
 
 function createStyles(theme: AppTheme) {
   return StyleSheet.create({
-    grid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: GRID_GAP,
-      alignItems: "flex-start",
-    },
-    card: {
-      paddingHorizontal: 12,
-      paddingVertical: 14,
-      borderRadius: 16,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.border,
-      backgroundColor: "rgba(255,255,255,0.04)",
-      minHeight: 52,
-      alignItems: "center",
-      justifyContent: "center",
-      flexGrow: 0,
-      flexShrink: 0,
-    },
-    cardMain: {
-      minHeight: 60,
-      paddingVertical: 16,
-    },
-    cardSelected: {
-      backgroundColor: theme.accentSoft,
-      borderColor: theme.accentBorderMuted,
-    },
-    cardText: {
-      color: theme.textMuted,
-      fontSize: 14,
-      fontWeight: "700",
-      lineHeight: 19,
-      textAlign: "center",
-    },
-    cardTextSelected: {
-      color: theme.accent,
-    },
-    checkBadge: {
-      position: "absolute",
-      top: 8,
-      right: 8,
-      width: 18,
-      height: 18,
-      borderRadius: 9,
-      backgroundColor: theme.accent,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-  });
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: GRID_GAP,
+    alignItems: "flex-start",
+  },
+  card: {
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    minHeight: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  cardMain: {
+    minHeight: 60,
+    paddingVertical: 16,
+  },
+  cardSelected: {
+    backgroundColor: theme.accentSoft,
+    borderColor: theme.accentBorderMuted,
+  },
+  cardText: {
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  cardTextSelected: {
+    color: theme.accent,
+  },
+  checkBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: theme.accent,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
 }
+

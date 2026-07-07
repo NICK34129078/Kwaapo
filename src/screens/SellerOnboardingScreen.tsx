@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Alert,
@@ -11,12 +14,9 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import {
   refreshStripeConnectStatus,
   startStripeConnectOnboarding,
@@ -33,7 +33,15 @@ import {
   sellerPayoutStatusLabel,
   updateMyBusinessInfo,
 } from "../services/sellerOnboardingService";
+import { SellerTermsAcceptancePanel } from "../components/SellerTermsAcceptancePanel";
+import {
+  acceptCurrentSellerTerms,
+  fetchMySellerTermsAcceptance,
+  hasAcceptedCurrentSellerTerms,
+} from "../services/sellerTermsService";
 import type { BusinessInfoPayload, SellerOnboarding, SellerType } from "../types/sellerOnboarding";
+
+type OnboardingStep = 1 | 2 | 3 | 4;
 
 function FormField({
   label,
@@ -56,6 +64,7 @@ function FormField({
 }) {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   return (
     <View style={styles.field}>
       <Text style={styles.label}>
@@ -79,12 +88,18 @@ function FormField({
 export function SellerOnboardingScreen() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
   const insets = useSafeAreaInsets();
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const focusStep = route.params?.focusStep as OnboardingStep | undefined;
+  const [step, setStep] = useState<OnboardingStep>(1);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [onboarding, setOnboarding] = useState<SellerOnboarding | null>(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [termsChecked, setTermsChecked] = useState(false);
+  const [termsError, setTermsError] = useState<string | null>(null);
 
   const [sellerType, setSellerType] = useState<SellerType>("business");
   const [businessName, setBusinessName] = useState("");
@@ -99,7 +114,13 @@ export function SellerOnboardingScreen() {
   const [businessHouseNumber, setBusinessHouseNumber] = useState("");
 
   const load = useCallback(async () => {
-    const row = await fetchMySellerOnboarding();
+    const [row, acceptance] = await Promise.all([
+      fetchMySellerOnboarding(),
+      fetchMySellerTermsAcceptance(),
+    ]);
+    const accepted = hasAcceptedCurrentSellerTerms(acceptance);
+    setTermsAccepted(accepted);
+    setTermsChecked(accepted);
     setOnboarding(row);
     if (row) {
       setSellerType(row.sellerType ?? "business");
@@ -113,9 +134,10 @@ export function SellerOnboardingScreen() {
       setBusinessPostalCode(row.businessPostalCode ?? "");
       setBusinessStreet(row.businessStreet ?? "");
       setBusinessHouseNumber(row.businessHouseNumber ?? "");
-      setStep(resolveSellerOnboardingStep(row));
+      const resumeStep = resolveSellerOnboardingStep(row, { termsAccepted: accepted });
+      setStep(focusStep && focusStep >= resumeStep ? focusStep : resumeStep);
     }
-  }, []);
+  }, [focusStep]);
 
   useFocusEffect(
     useCallback(() => {
@@ -168,7 +190,7 @@ export function SellerOnboardingScreen() {
   ]);
 
   const onContinueFromStep1 = useCallback(async () => {
-    const resumeStep = resolveSellerOnboardingStep(onboarding);
+    const resumeStep = resolveSellerOnboardingStep(onboarding, { termsAccepted });
     if (resumeStep >= 2) {
       setStep(resumeStep);
       return;
@@ -178,14 +200,14 @@ export function SellerOnboardingScreen() {
     try {
       const updated = await updateMyBusinessInfo(buildPayload());
       setOnboarding(updated);
-      setStep(resolveSellerOnboardingStep(updated));
+      setStep(resolveSellerOnboardingStep(updated, { termsAccepted }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Opslaan mislukt.";
       Alert.alert("Fout", msg);
     } finally {
       setSubmitting(false);
     }
-  }, [buildPayload, onboarding]);
+  }, [buildPayload, onboarding, termsAccepted]);
 
   const refreshOnboardingFromServer = useCallback(async () => {
     const row = await fetchMySellerOnboarding();
@@ -221,7 +243,7 @@ export function SellerOnboardingScreen() {
       const row = await refreshOnboardingFromServer();
       if (result.ok) {
         if (hasCompletedStripePayoutSetup(row)) {
-          setStep(3);
+          setStep(resolveSellerOnboardingStep(row, { termsAccepted }));
         }
         if (isStripePayoutFullyActive(row)) {
           Alert.alert("Uitbetalingen actief", "Je Stripe-uitbetalingen zijn ingesteld.");
@@ -235,7 +257,30 @@ export function SellerOnboardingScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [refreshOnboardingFromServer, stripePayoutsActive]);
+  }, [refreshOnboardingFromServer, stripePayoutsActive, termsAccepted]);
+
+  const onAcceptTermsAndContinue = useCallback(async () => {
+    if (termsAccepted) {
+      setStep(4);
+      return;
+    }
+    if (!termsChecked) {
+      return;
+    }
+    setSubmitting(true);
+    setTermsError(null);
+    try {
+      await acceptCurrentSellerTerms();
+      setTermsAccepted(true);
+      setStep(4);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Acceptatie mislukt.";
+      setTermsError(msg);
+      Alert.alert("Fout", msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [termsAccepted, termsChecked]);
 
   const onSubmitForReview = useCallback(async () => {
     setSubmitting(true);
@@ -280,22 +325,25 @@ export function SellerOnboardingScreen() {
     }
   }, [refreshOnboardingFromServer]);
 
-  const onboardingComplete = isSellerFullyReadyForLiveSales(onboarding);
+  const onboardingComplete =
+    isSellerFullyReadyForLiveSales(onboarding) && termsAccepted;
   const showWizard = !onboardingComplete;
-  const resumeStep = resolveSellerOnboardingStep(onboarding);
-
-  useEffect(() => {
-    if (step === 2 && showWizard) {
-      void refreshOnboardingFromServer().catch(() => undefined);
-    }
-  }, [refreshOnboardingFromServer, showWizard, step]);
+  const resumeStep = resolveSellerOnboardingStep(onboarding, { termsAccepted });
 
   const stepTitle =
     step === 1
       ? "Bedrijfsgegevens"
       : step === 2
         ? "Uitbetalingen instellen"
-        : "Controle & indienen";
+        : step === 3
+          ? "Seller-voorwaarden"
+          : "Controle & indienen";
+
+  useEffect(() => {
+    if (step === 2 && showWizard) {
+      void refreshOnboardingFromServer().catch(() => undefined);
+    }
+  }, [refreshOnboardingFromServer, showWizard, step]);
 
   return (
     <KeyboardAvoidingView
@@ -322,8 +370,10 @@ export function SellerOnboardingScreen() {
         <View style={[styles.stepDot, step >= 2 && styles.stepDotActive]} />
         <View style={[styles.stepLine, step >= 3 && styles.stepLineActive]} />
         <View style={[styles.stepDot, step >= 3 && styles.stepDotActive]} />
+        <View style={[styles.stepLine, step >= 4 && styles.stepLineActive]} />
+        <View style={[styles.stepDot, step >= 4 && styles.stepDotActive]} />
       </View>
-      <Text style={styles.stepLabel}>Stap {step} van 3 — {stepTitle}</Text>
+      <Text style={styles.stepLabel}>Stap {step} van 4 — {stepTitle}</Text>
 
       {loading ? (
         <View style={styles.centerState}>
@@ -442,7 +492,7 @@ export function SellerOnboardingScreen() {
                 </Text>
               ) : stripePayoutsActive ? (
                 <Text style={styles.helperBlock}>
-                  Uitbetalingen actief. Je kunt doorgaan naar controle en indienen.
+                  Uitbetalingen actief. Ga verder naar de seller-voorwaarden.
                 </Text>
               ) : (
                 <Text style={styles.helperBlock}>
@@ -487,10 +537,22 @@ export function SellerOnboardingScreen() {
 
           {step === 3 && showWizard ? (
             <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Seller-voorwaarden</Text>
+              <SellerTermsAcceptancePanel
+                checked={termsChecked}
+                onCheckedChange={setTermsChecked}
+                alreadyAccepted={termsAccepted}
+              />
+              {termsError ? <Text style={styles.termsError}>{termsError}</Text> : null}
+            </View>
+          ) : null}
+
+          {step === 4 && showWizard ? (
+            <View style={styles.section}>
               <Text style={styles.sectionTitle}>Controle</Text>
               <Text style={styles.reviewHint}>
                 Controleer je gegevens. Je verkoopaccount wordt automatisch actief
-                zodra KVK en Stripe volledig zijn afgerond.
+                zodra KVK, Stripe en de seller-voorwaarden volledig zijn afgerond.
               </Text>
               <View style={styles.reviewRow}>
                 <Text style={styles.reviewLabel}>Type</Text>
@@ -519,6 +581,12 @@ export function SellerOnboardingScreen() {
               <View style={styles.reviewRow}>
                 <Text style={styles.reviewLabel}>Uitbetalingen</Text>
                 <Text style={styles.reviewValue}>{stripePayoutLabel}</Text>
+              </View>
+              <View style={styles.reviewRow}>
+                <Text style={styles.reviewLabel}>Seller-voorwaarden</Text>
+                <Text style={styles.reviewValue}>
+                  {termsAccepted ? "Geaccepteerd" : "Nog niet geaccepteerd"}
+                </Text>
               </View>
             </View>
           ) : null}
@@ -568,11 +636,13 @@ export function SellerOnboardingScreen() {
                 <ActivityIndicator size="small" color={theme.bg} />
               ) : (
                 <Text style={styles.primaryBtnText}>
-                  {resumeStep >= 3
+                  {resumeStep >= 4
                     ? "Ga verder naar controle"
-                    : resumeStep === 2
-                      ? "Ga verder naar uitbetalingen"
-                      : "Opslaan en verder"}
+                    : resumeStep === 3
+                      ? "Ga verder naar voorwaarden"
+                      : resumeStep === 2
+                        ? "Ga verder naar uitbetalingen"
+                        : "Opslaan en verder"}
                 </Text>
               )}
             </Pressable>
@@ -607,9 +677,9 @@ export function SellerOnboardingScreen() {
                   onPress={() => setStep(3)}
                   disabled={submitting}
                   accessibilityRole="button"
-                  accessibilityLabel="Ga verder naar controle"
+                  accessibilityLabel="Ga verder naar voorwaarden"
                 >
-                  <Text style={styles.secondaryBtnText}>Ga verder naar controle</Text>
+                  <Text style={styles.secondaryBtnText}>Ga verder naar voorwaarden</Text>
                 </Pressable>
               ) : null}
             </>
@@ -618,7 +688,40 @@ export function SellerOnboardingScreen() {
             <>
               <Pressable
                 style={styles.secondaryBtn}
-                onPress={() => setStep(stripeDone ? 2 : 1)}
+                onPress={() => setStep(2)}
+                disabled={submitting}
+                accessibilityRole="button"
+                accessibilityLabel="Terug"
+              >
+                <Text style={styles.secondaryBtnText}>Terug</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.primaryBtn,
+                  (submitting || (!termsAccepted && !termsChecked)) && styles.btnDisabled,
+                ]}
+                onPress={() => void onAcceptTermsAndContinue()}
+                disabled={submitting || (!termsAccepted && !termsChecked)}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  termsAccepted ? "Ga verder naar controle" : "Akkoord en verder"
+                }
+              >
+                {submitting ? (
+                  <ActivityIndicator size="small" color={theme.bg} />
+                ) : (
+                  <Text style={styles.primaryBtnText}>
+                    {termsAccepted ? "Ga verder naar controle" : "Akkoord en verder"}
+                  </Text>
+                )}
+              </Pressable>
+            </>
+          ) : null}
+          {step === 4 ? (
+            <>
+              <Pressable
+                style={styles.secondaryBtn}
+                onPress={() => setStep(3)}
                 disabled={submitting}
                 accessibilityRole="button"
                 accessibilityLabel="Terug"
@@ -628,7 +731,7 @@ export function SellerOnboardingScreen() {
               <Pressable
                 style={[styles.primaryBtn, submitting && styles.btnDisabled]}
                 onPress={() => void onSubmitForReview()}
-                disabled={submitting || !stripeDone}
+                disabled={submitting || !stripeDone || !termsAccepted}
                 accessibilityRole="button"
                 accessibilityLabel="Status controleren en activeren"
               >
@@ -809,6 +912,12 @@ function createStyles(theme: AppTheme) {
     marginBottom: 14,
     lineHeight: 19,
   },
+  termsError: {
+    color: "#FF6B6B",
+    fontSize: 13,
+    marginTop: 10,
+    lineHeight: 18,
+  },
   reviewHintAccent: {
     color: theme.accent,
     fontWeight: "800",
@@ -895,5 +1004,6 @@ function createStyles(theme: AppTheme) {
   btnDisabled: {
     opacity: 0.6,
   },
-  });
+});
 }
+

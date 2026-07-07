@@ -1,9 +1,9 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import type { AppTheme } from "../constants/themeTokens";
 import { useTheme } from "../context/ThemeContext";
 import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 export type SellerShipChecklistState = {
   productChecked: boolean;
@@ -57,74 +57,9 @@ export function isSellerShipChecklistComplete(
   );
 }
 
-function createStyles(theme: AppTheme) {
-  return StyleSheet.create({
-    wrap: {
-      borderRadius: 16,
-      padding: 16,
-      backgroundColor: theme.accentSoft,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.accentBorderStrong,
-      marginBottom: 14,
-      gap: 8,
-    },
-    title: {
-      color: theme.accent,
-      fontSize: 12,
-      fontWeight: "900",
-      letterSpacing: 0.5,
-      textTransform: "uppercase",
-    },
-    intro: {
-      color: theme.text,
-      fontSize: 14,
-      lineHeight: 20,
-      fontWeight: "600",
-    },
-    sectionLabel: {
-      color: theme.textMuted,
-      fontSize: 13,
-      fontWeight: "700",
-      marginTop: 4,
-    },
-    row: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: 10,
-      paddingVertical: 4,
-    },
-    box: {
-      width: 22,
-      height: 22,
-      borderRadius: 6,
-      borderWidth: 2,
-      borderColor: theme.accentBorder,
-      alignItems: "center",
-      justifyContent: "center",
-      marginTop: 1,
-      backgroundColor: theme.bg,
-    },
-    boxChecked: {
-      backgroundColor: theme.accent,
-      borderColor: theme.accent,
-    },
-    rowLabel: {
-      flex: 1,
-      color: theme.text,
-      fontSize: 14,
-      lineHeight: 20,
-    },
-    trackingHint: {
-      color: theme.textMuted,
-      fontSize: 12,
-      lineHeight: 17,
-      marginTop: 4,
-    },
-  });
-}
-
 export function SellerShipChecklist({ value, onChange }: SellerShipChecklistProps) {
   const { theme } = useTheme();
+
   const styles = useThemedStyles(createStyles);
 
   return (
@@ -161,3 +96,70 @@ export function SellerShipChecklist({ value, onChange }: SellerShipChecklistProp
     </View>
   );
 }
+
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+  wrap: {
+    borderRadius: 16,
+    padding: 16,
+    backgroundColor: theme.accentSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.accentBorderStrong,
+    marginBottom: 14,
+    gap: 8,
+  },
+  title: {
+    color: theme.accent,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  intro: {
+    color: theme.text,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "600",
+  },
+  sectionLabel: {
+    color: theme.textMuted,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingVertical: 4,
+  },
+  box: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: theme.accentBorder,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+    backgroundColor: theme.bg,
+  },
+  boxChecked: {
+    backgroundColor: theme.accent,
+    borderColor: theme.accent,
+  },
+  rowLabel: {
+    flex: 1,
+    color: theme.text,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  trackingHint: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4,
+  },
+});
+}
+

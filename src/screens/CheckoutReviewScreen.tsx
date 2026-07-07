@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Alert,
@@ -12,9 +15,6 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import { ProductListingImage } from "../components/ProductListingImage";
 import { AvatarImage } from "../components/AvatarImage";
 import {
@@ -35,6 +35,7 @@ import { isProductPurchasable, productUsesVariantCheckout } from "../utils/produ
 export function CheckoutReviewScreen() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
@@ -481,5 +482,6 @@ function createStyles(theme: AppTheme) {
     marginTop: 8,
     lineHeight: 17,
   },
-  });
+});
 }
+

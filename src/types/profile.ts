@@ -7,6 +7,7 @@ export type Profile = {
   avatarUrl: string | null;
   bio: string | null;
   accountType: AccountType;
+  isPrivate: boolean;
 };
 
 export type ProfileRow = {
@@ -16,6 +17,7 @@ export type ProfileRow = {
   avatar_url: string | null;
   bio: string | null;
   account_type: string | null;
+  is_private?: boolean | null;
 };
 
 export function normalizeAccountType(
@@ -35,5 +37,6 @@ export function mapProfileRow(row: ProfileRow): Profile {
     avatarUrl: row.avatar_url,
     bio: row.bio,
     accountType: normalizeAccountType(row.account_type),
+    isPrivate: row.is_private === true,
   };
 }

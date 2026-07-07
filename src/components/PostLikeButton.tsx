@@ -1,4 +1,7 @@
 import React, { useCallback } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   Pressable,
   StyleSheet,
@@ -7,13 +10,11 @@ import {
   type ViewStyle,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { AppTheme } from "../constants/themeTokens";
+
 import { formatLikesForDisplay } from "../data/placeholder";
 import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { useReelLike } from "../context/LikesContext";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 
 type Props = {
   postId: string;
@@ -22,24 +23,6 @@ type Props = {
   iconSize?: number;
 };
 
-function createStyles(theme: AppTheme) {
-  return StyleSheet.create({
-    wrap: {
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 2,
-      minWidth: 44,
-      minHeight: 44,
-    },
-    count: {
-      color: theme.onMediaText,
-      fontSize: 11,
-      fontWeight: "600",
-      letterSpacing: 0.15,
-    },
-  });
-}
-
 export function PostLikeButton({
   postId,
   defaultLikesCount,
@@ -47,7 +30,9 @@ export function PostLikeButton({
   iconSize = 26,
 }: Props) {
   const { theme } = useTheme();
+
   const styles = useThemedStyles(createStyles);
+
   const { user } = useAuth();
   const { openAuthPrompt } = useAuthPrompt();
   const { likesCount, isLikedByCurrentUser, onToggleLike } = useReelLike(
@@ -78,9 +63,28 @@ export function PostLikeButton({
       <Ionicons
         name={isLikedByCurrentUser ? "heart" : "heart-outline"}
         size={iconSize}
-        color={isLikedByCurrentUser ? "#ff375f" : theme.onMediaIcon}
+        color={isLikedByCurrentUser ? "#ff375f" : theme.text}
       />
       <Text style={styles.count}>{formatLikesForDisplay(likesCount)}</Text>
     </Pressable>
   );
 }
+
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+  wrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    minWidth: 44,
+    minHeight: 44,
+  },
+  count: {
+    color: theme.text,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.15,
+  },
+});
+}
+

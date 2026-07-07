@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Alert,
@@ -10,9 +13,6 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import {
   addProductStock,
   fetchProductStockHistory,
@@ -46,6 +46,7 @@ export function ProductStockSection({
 }: Props) {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const [displayStock, setDisplayStock] = useState(stock);
   const [history, setHistory] = useState<ProductStockAdjustment[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -480,5 +481,6 @@ function createStyles(theme: AppTheme) {
     fontSize: 15,
     fontWeight: "800",
   },
-  });
+});
 }
+

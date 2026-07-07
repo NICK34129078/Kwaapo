@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   Dimensions,
@@ -12,9 +15,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FeedItem } from "../components/FeedItem";
-import type { AppTheme } from "../constants/themeTokens";
-import { useTheme } from "../context/ThemeContext";
-import { useThemedStyles } from "../hooks/useThemedStyles";
 import type { FeedPost } from "../data/placeholder";
 import { fetchPostById } from "../services/postsService";
 import { buildPublicPostShareUrl } from "../services/sharePostService";
@@ -28,6 +28,7 @@ export type SharedPostRouteParams = {
 export function SharedPostScreen() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
@@ -168,5 +169,6 @@ function createStyles(theme: AppTheme) {
     color: theme.text,
     fontWeight: "600",
   },
-  });
+});
 }
+

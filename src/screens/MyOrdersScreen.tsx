@@ -1,10 +1,13 @@
 import React, { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -12,8 +15,8 @@ import {
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { theme } from "../constants/theme";
 import { BuyerOrderCard } from "../components/BuyerOrderCard";
+import { OrderFilterChips } from "../components/orders/OrderFilterChips";
 import {
   BUYER_ORDERS_PAGE_SIZE,
   fetchBuyerOrdersPage,
@@ -25,9 +28,19 @@ import {
   type BuyerOrderFilter,
 } from "../utils/orderDashboard";
 
+const BUYER_FILTER_LABEL_KEYS: Record<BuyerOrderFilter, string> = {
+  all: "orders.filterAll",
+  unpaid: "orders.filterUnpaid",
+  waiting_ship: "orders.filterWaitingShip",
+  shipped: "orders.filterShipped",
+  completed: "orders.filterCompleted",
+};
+
 export function MyOrdersScreen() {
+  const { t } = useTranslation();
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const [orders, setOrders] = useState<BuyerOrder[]>([]);
@@ -60,10 +73,10 @@ export function MyOrdersScreen() {
         .catch(() => {
           setOrders([]);
           setHasMore(false);
-          setError("Bestellingen laden mislukt. Trek naar beneden om opnieuw te proberen.");
+          setError(t("orders.loadFailedPullRefresh"));
         })
         .finally(() => setLoading(false));
-    }, [loadInitial])
+    }, [loadInitial, t])
   );
 
   const onRefresh = useCallback(async () => {
@@ -72,11 +85,11 @@ export function MyOrdersScreen() {
     try {
       await loadInitial();
     } catch {
-      setError("Bestellingen laden mislukt. Trek naar beneden om opnieuw te proberen.");
+      setError(t("orders.loadFailedPullRefresh"));
     } finally {
       setRefreshing(false);
     }
-  }, [loadInitial]);
+  }, [loadInitial, t]);
 
   const onLoadMore = useCallback(async () => {
     if (loading || refreshing || loadingMore || !hasMore) {
@@ -86,11 +99,11 @@ export function MyOrdersScreen() {
     try {
       await loadPage(orders.length, false);
     } catch {
-      setError("Meer bestellingen laden mislukt.");
+      setError(t("orders.loadMoreFailed"));
     } finally {
       setLoadingMore(false);
     }
-  }, [hasMore, loadPage, loading, loadingMore, orders.length, refreshing]);
+  }, [hasMore, loadPage, loading, loadingMore, orders.length, refreshing, t]);
 
   const filteredOrders = useMemo(
     () => orders.filter((row) => matchesBuyerOrderFilter(row.order, filter)),
@@ -101,6 +114,15 @@ export function MyOrdersScreen() {
     !loading && !error && filter === "all" && orders.length === 0;
   const showFilterEmptyState =
     !loading && !error && !showShopEmptyState && filteredOrders.length === 0;
+
+  const filterItems = useMemo(
+    () =>
+      BUYER_ORDER_FILTERS.map((chip) => ({
+        id: chip.id,
+        label: t(BUYER_FILTER_LABEL_KEYS[chip.id]),
+      })),
+    [t]
+  );
 
   const openOrderDetail = useCallback(
     (orderId: string) => {
@@ -142,88 +164,64 @@ export function MyOrdersScreen() {
           style={styles.backBtn}
           hitSlop={10}
           accessibilityRole="button"
-          accessibilityLabel="Terug"
+          accessibilityLabel={t("common.back")}
         >
-          <Ionicons name="chevron-back" size={26} color={theme.text} />
+          <Ionicons name="chevron-back" size={24} color={theme.text} />
         </Pressable>
-        <Text style={styles.screenTitle}>Mijn bestellingen</Text>
+        <Text style={styles.screenTitle}>{t("orders.myOrders")}</Text>
         <View style={styles.topBarSide} />
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterRow}
-      >
-        {BUYER_ORDER_FILTERS.map((chip) => {
-          const selected = filter === chip.id;
-          return (
-            <Pressable
-              key={chip.id}
-              style={[styles.filterChip, selected && styles.filterChipActive]}
-              onPress={() => setFilter(chip.id)}
-              accessibilityRole="button"
-              accessibilityLabel={chip.label}
-            >
-              <Text
-                style={[
-                  styles.filterChipText,
-                  selected && styles.filterChipTextActive,
-                ]}
-              >
-                {chip.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      <View style={styles.filterWrap}>
+        <OrderFilterChips
+          items={filterItems}
+          selected={filter}
+          onSelect={setFilter}
+        />
+      </View>
 
       {loading && !refreshing ? (
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={theme.accent} />
-          <Text style={styles.stateHint}>Bestellingen laden…</Text>
+          <Text style={styles.stateHint}>{t("orders.loadingOrders")}</Text>
         </View>
       ) : error && orders.length === 0 ? (
         <View style={styles.centerState}>
           <Ionicons name="cloud-offline-outline" size={40} color={theme.textMuted} />
-          <Text style={styles.emptyTitle}>Laden mislukt</Text>
+          <Text style={styles.emptyTitle}>{t("orders.loadFailedTitle")}</Text>
           <Text style={styles.emptyText}>{error}</Text>
           <Pressable
             style={styles.primaryBtn}
             onPress={() => void onRefresh()}
             accessibilityRole="button"
-            accessibilityLabel="Opnieuw proberen"
+            accessibilityLabel={t("common.retry")}
           >
-            <Text style={styles.primaryBtnText}>Opnieuw proberen</Text>
+            <Text style={styles.primaryBtnText}>{t("common.retry")}</Text>
           </Pressable>
         </View>
       ) : showShopEmptyState ? (
         <View style={styles.centerState}>
           <Ionicons name="bag-outline" size={40} color={theme.textMuted} />
-          <Text style={styles.emptyTitle}>Nog geen bestellingen</Text>
-          <Text style={styles.emptyText}>
-            Alles wat je koopt op Kwaapo vind je hier terug.
-          </Text>
+          <Text style={styles.emptyTitle}>{t("orders.noOrdersYet")}</Text>
+          <Text style={styles.emptyText}>{t("orders.noOrdersHint")}</Text>
           <Pressable
             style={styles.primaryBtn}
             onPress={openShop}
             accessibilityRole="button"
-            accessibilityLabel="Ontdek de shop"
+            accessibilityLabel={t("orders.exploreShop")}
           >
-            <Text style={styles.primaryBtnText}>Ontdek de shop</Text>
+            <Text style={styles.primaryBtnText}>{t("orders.exploreShop")}</Text>
           </Pressable>
         </View>
       ) : showFilterEmptyState ? (
         <View style={styles.centerState}>
           <Ionicons name="funnel-outline" size={40} color={theme.textMuted} />
-          <Text style={styles.emptyTitle}>Geen resultaten</Text>
-          <Text style={styles.emptyText}>
-            Geen bestellingen in dit filter. Probeer een ander filter of laad meer
-            bestellingen.
-          </Text>
+          <Text style={styles.emptyTitle}>{t("orders.noResults")}</Text>
+          <Text style={styles.emptyText}>{t("orders.noResultsHint")}</Text>
         </View>
       ) : (
         <FlatList
+          style={styles.list}
           data={filteredOrders}
           keyExtractor={(item) => item.order.id}
           renderItem={renderItem}
@@ -264,50 +262,32 @@ function createStyles(theme: AppTheme) {
   topBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    marginBottom: 8,
+    paddingHorizontal: 8,
+    marginBottom: 4,
   },
   backBtn: {
-    width: 42,
-    height: 42,
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
   },
   topBarSide: {
-    width: 42,
+    width: 40,
   },
   screenTitle: {
     flex: 1,
     color: theme.text,
-    fontSize: 22,
-    fontWeight: "900",
+    fontSize: 18,
+    fontWeight: "700",
     textAlign: "center",
+    letterSpacing: -0.3,
   },
-  filterRow: {
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    gap: 8,
-    flexDirection: "row",
+  filterWrap: {
+    flexGrow: 0,
+    flexShrink: 0,
   },
-  filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    backgroundColor: theme.bgElevated,
-  },
-  filterChipActive: {
-    borderColor: theme.accent,
-    backgroundColor: theme.accentSoft,
-  },
-  filterChipText: {
-    color: theme.textMuted,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  filterChipTextActive: {
-    color: theme.accent,
+  list: {
+    flex: 1,
   },
   centerState: {
     flex: 1,
@@ -349,7 +329,7 @@ function createStyles(theme: AppTheme) {
   },
   listContent: {
     paddingHorizontal: 16,
-    paddingTop: 4,
+    paddingTop: 2,
   },
   listFooter: {
     paddingVertical: 16,
@@ -372,5 +352,6 @@ function createStyles(theme: AppTheme) {
     lineHeight: 18,
     textAlign: "center",
   },
-  });
+});
 }
+

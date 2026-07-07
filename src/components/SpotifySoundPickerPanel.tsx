@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { AppTheme } from "../constants/theme";
 import {
   ActivityIndicator,
   FlatList,
@@ -10,7 +13,6 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../constants/theme";
 import {
   resolveSpotifyTrack,
   searchSpotifyTracks,
@@ -42,6 +44,9 @@ export function SpotifySoundPickerPanel({
   onSelect,
   onClose,
 }: Props) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SpotifyTrackResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -229,7 +234,8 @@ export function SpotifySoundPickerPanel({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 100,
@@ -353,3 +359,5 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
 });
+}
+
