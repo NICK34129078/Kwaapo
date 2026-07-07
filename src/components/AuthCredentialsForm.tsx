@@ -11,7 +11,10 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { PASSWORD_RESET_REDIRECT_URL, logPasswordResetRedirectUrl } from "../constants/authLinks";
 import { supabase } from "../lib/supabase";
-import { theme, spacing } from "../constants/theme";
+import { spacing } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 
 type PendingAction = "none" | "login" | "register" | "reset";
 const USERNAME_MAX_LENGTH = 30;
@@ -25,6 +28,8 @@ function isValidEmailFormat(email: string): boolean {
 }
 
 export function AuthCredentialsForm() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const { signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -197,7 +202,7 @@ export function AuthCredentialsForm() {
       <TextInput
         style={styles.input}
         placeholder="E-mail"
-        placeholderTextColor={theme.textMuted}
+        placeholderTextColor={theme.placeholder}
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="email-address"
@@ -208,7 +213,7 @@ export function AuthCredentialsForm() {
       <TextInput
         style={styles.input}
         placeholder="Wachtwoord"
-        placeholderTextColor={theme.textMuted}
+        placeholderTextColor={theme.placeholder}
         secureTextEntry
         value={password}
         onChangeText={setPassword}
@@ -217,7 +222,7 @@ export function AuthCredentialsForm() {
       <TextInput
         style={styles.input}
         placeholder="Accountnaam"
-        placeholderTextColor={theme.textMuted}
+        placeholderTextColor={theme.placeholder}
         autoCapitalize="none"
         autoCorrect={false}
         value={username}

@@ -9,15 +9,19 @@ import {
   Text,
   View,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { AvatarImage } from "../components/AvatarImage";
 import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
+import { useActivityNotificationsOptional } from "../context/ActivityNotificationsContext";
 import { supabase } from "../lib/supabase";
 import { fetchProfileById } from "../services/profileService";
+import { fetchUserPosts } from "../services/postsService";
 import { fetchSellerOrders } from "../services/ordersService";
 import { SellerActionRequiredCard } from "../components/SellerActionRequiredCard";
 import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
@@ -375,10 +379,13 @@ async function fetchActivityFeed(userId: string): Promise<ActivityFeedItem[]> {
 }
 
 export function ActivityScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { openAuthPrompt } = useAuthPrompt();
+  const activityNotifications = useActivityNotificationsOptional();
   const { actionCount, isBusinessSeller } = useSellerFulfillment();
 
   const [items, setItems] = useState<ActivityFeedItem[]>([]);
@@ -419,6 +426,12 @@ export function ActivityScreen() {
     void load();
   }, [user?.id, load]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void activityNotifications?.markActivitySeen();
+    }, [activityNotifications])
+  );
+
   const onRefresh = useCallback(() => {
     if (!user?.id) {
       return;
@@ -426,6 +439,29 @@ export function ActivityScreen() {
     setRefreshing(true);
     void load();
   }, [user?.id, load]);
+
+  const openOwnPostReel = useCallback(
+    async (postId: string) => {
+      if (!user?.id || postId.length === 0) {
+        return;
+      }
+      try {
+        const posts = (await fetchUserPosts(user.id, "own_profile")) ?? [];
+        if (!posts.some((p) => p.id === postId)) {
+          return;
+        }
+        navigation.navigate("ProfileReels", {
+          profileId: user.id,
+          initialPostId: postId,
+          posts,
+          isOwnProfile: true,
+        });
+      } catch {
+        /* postlijst niet beschikbaar */
+      }
+    },
+    [navigation, user?.id]
+  );
 
   const bottomPad = 100 + Math.max(insets.bottom, 0);
 
@@ -449,70 +485,90 @@ export function ActivityScreen() {
           ? `“${truncateCommentPreview(item.commentBody)}”`
           : null;
 
+      const onRowPress = () => {
+        if (item.kind === "order" && item.orderId) {
+          navigation.navigate("OrderDetail", { orderId: item.orderId });
+          return;
+        }
+        navigation.navigate("PublicProfile", {
+          profileId: item.actorId,
+        });
+      };
+
       return (
-        <Pressable
+        <View
           style={[
             styles.row,
             item.kind === "order" && item.orderNeedsAction
               ? styles.rowActionRequired
               : null,
           ]}
-          onPress={() => {
-            if (item.kind === "order" && item.orderId) {
-              navigation.navigate("OrderDetail", { orderId: item.orderId });
-              return;
-            }
-            navigation.navigate("PublicProfile", {
-              profileId: item.actorId,
-            });
-          }}
-          accessibilityRole="button"
-          accessibilityLabel={
-            item.kind === "order" ? "Open bestelling" : `Profiel ${uname}`
-          }
         >
-          <AvatarImage uri={item.profile.avatar_url} style={styles.avatar} />
+          <Pressable
+            style={styles.rowBodyHit}
+            onPress={onRowPress}
+            accessibilityRole="button"
+            accessibilityLabel={
+              item.kind === "order" ? "Open bestelling" : `Profiel ${uname}`
+            }
+          >
+            <AvatarImage uri={item.profile.avatar_url} style={styles.avatar} />
 
-          <View style={styles.rowMain}>
-            <View style={styles.rowTop}>
-              <Text style={styles.username} numberOfLines={1}>
-                @{uname}
-              </Text>
-              {timeLabel ? (
-                <Text style={styles.time}>{timeLabel}</Text>
+            <View style={styles.rowMain}>
+              <View style={styles.rowTop}>
+                <Text style={styles.username} numberOfLines={1}>
+                  @{uname}
+                </Text>
+                {timeLabel ? (
+                  <Text style={styles.time}>{timeLabel}</Text>
+                ) : null}
+              </View>
+              {display ? (
+                <Text style={styles.displayName} numberOfLines={1}>
+                  {display}
+                </Text>
+              ) : null}
+              <Text style={styles.action}>{actionLabel}</Text>
+              {commentPreview ? (
+                <Text style={styles.commentPreview} numberOfLines={2}>
+                  {commentPreview}
+                </Text>
+              ) : null}
+              {item.kind === "order" && item.orderProductName ? (
+                <Text style={styles.commentPreview} numberOfLines={2}>
+                  {item.orderProductName}
+                </Text>
               ) : null}
             </View>
-            {display ? (
-              <Text style={styles.displayName} numberOfLines={1}>
-                {display}
-              </Text>
-            ) : null}
-            <Text style={styles.action}>{actionLabel}</Text>
-            {commentPreview ? (
-              <Text style={styles.commentPreview} numberOfLines={2}>
-                {commentPreview}
-              </Text>
-            ) : null}
-            {item.kind === "order" && item.orderProductName ? (
-              <Text style={styles.commentPreview} numberOfLines={2}>
-                {item.orderProductName}
-              </Text>
-            ) : null}
-          </View>
+          </Pressable>
 
-          {(item.kind === "like" ||
-            item.kind === "comment" ||
-            item.kind === "order") &&
+          {(item.kind === "like" || item.kind === "comment") &&
+          item.postId &&
           item.postThumbnailUrl ? (
+            <Pressable
+              onPress={() => void openOwnPostReel(item.postId!)}
+              style={({ pressed }) => [
+                styles.postThumbHit,
+                pressed && styles.postThumbHitPressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Bekijk je post"
+            >
+              <Image
+                source={{ uri: item.postThumbnailUrl }}
+                style={styles.postThumb}
+              />
+            </Pressable>
+          ) : item.kind === "order" && item.postThumbnailUrl ? (
             <Image
               source={{ uri: item.postThumbnailUrl }}
               style={styles.postThumb}
             />
           ) : null}
-        </Pressable>
+        </View>
       );
     },
-    [navigation]
+    [navigation, openOwnPostReel]
   );
 
   const keyExtractor = useCallback((item: ActivityFeedItem) => {
@@ -597,7 +653,8 @@ export function ActivityScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -651,6 +708,13 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  rowBodyHit: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
   rowTop: {
     flexDirection: "row",
     alignItems: "center",
@@ -683,11 +747,17 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 4,
   },
+  postThumbHit: {
+    borderRadius: 6,
+  },
   postThumb: {
     width: 44,
     height: 44,
     borderRadius: 6,
     backgroundColor: theme.bgElevated,
+  },
+  postThumbHitPressed: {
+    opacity: 0.82,
   },
   centerState: {
     paddingVertical: 32,
@@ -727,4 +797,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
   },
-});
+  });
+}

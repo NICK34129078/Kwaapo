@@ -26,6 +26,8 @@ import {
 } from "../utils/orderDashboard";
 
 export function MyOrdersScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const [orders, setOrders] = useState<BuyerOrder[]>([]);
@@ -253,7 +255,8 @@ export function MyOrdersScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -369,4 +372,5 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: "center",
   },
-});
+  });
+}

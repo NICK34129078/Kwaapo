@@ -12,7 +12,9 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { ProductListingImage } from "../components/ProductListingImage";
 import { AvatarImage } from "../components/AvatarImage";
 import {
@@ -31,6 +33,8 @@ import { formatPriceEur } from "../utils/formatPrice";
 import { isProductPurchasable, productUsesVariantCheckout } from "../utils/productStock";
 
 export function CheckoutReviewScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
@@ -274,7 +278,8 @@ export function CheckoutReviewScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -476,4 +481,5 @@ const styles = StyleSheet.create({
     marginTop: 8,
     lineHeight: 17,
   },
-});
+  });
+}

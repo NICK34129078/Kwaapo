@@ -43,7 +43,9 @@ import {
 import { isPersistablePostId } from "../services/postLikesService";
 import { useCloudImageCarouselUpload } from "../hooks/useCloudImageCarouselUpload";
 import { useCloudVideoUpload } from "../hooks/useCloudVideoUpload";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { useAuth } from "../context/AuthContext";
 import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
@@ -108,6 +110,8 @@ type FollowListProfile = {
 };
 
 function GuestProfileScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { openAuthPrompt } = useAuthPrompt();
 
@@ -169,6 +173,8 @@ function ProfileAuthenticatedScreen({
 }: {
   profileId?: string;
 }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { openAuthPrompt } = useAuthPrompt();
@@ -1505,6 +1511,7 @@ function ProfileAuthenticatedScreen({
                   )}
                 </View>
               </Pressable>
+              </ScrollView>
             </View>
               </ScrollView>
             </View>
@@ -1655,7 +1662,7 @@ function ProfileAuthenticatedScreen({
                 <TextInput
                   style={[styles.uploadSheetInput, styles.uploadSheetCaptionInput]}
                   placeholder="Vertel iets over je outfit..."
-                  placeholderTextColor={theme.textMuted}
+                  placeholderTextColor={theme.placeholder}
                   value={captionDraft}
                   onChangeText={setCaptionDraft}
                   maxLength={150}
@@ -1674,7 +1681,7 @@ function ProfileAuthenticatedScreen({
                 <TextInput
                   style={[styles.uploadSheetInput, styles.uploadSheetHashtagInput]}
                   placeholder="#oldmoney #zomervibe #classy"
-                  placeholderTextColor={theme.textMuted}
+                  placeholderTextColor={theme.placeholder}
                   value={hashtagsDraft}
                   onChangeText={setHashtagsDraft}
                   autoCorrect={false}
@@ -1946,7 +1953,8 @@ export function ProfileScreen({ profileId: profileIdProp }: { profileId?: string
   return <ProfileAuthenticatedScreen profileId={routeProfileId} />;
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   scroll: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -2097,10 +2105,9 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     maxWidth: 280,
   },
-  stats: {
-    flexDirection: "row",
-    marginTop: 22,
-    gap: 28,
+  statsRow: {
+    marginTop: 18,
+    width: "100%",
     alignItems: "center",
   },
   statsRow: {
@@ -2134,14 +2141,16 @@ const styles = StyleSheet.create({
   },
   stat: {
     alignItems: "center",
+    minWidth: 52,
   },
   statNum: {
     color: theme.text,
     fontSize: 17,
     fontWeight: "800",
+    lineHeight: 22,
   },
   statLabel: {
-    marginTop: 4,
+    marginTop: 2,
     color: theme.textMuted,
     fontSize: 12,
     fontWeight: "600",
@@ -2315,6 +2324,15 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   modalScrollContent: {
+    flexGrow: 1,
+  },
+  settingsModalSheet: {
+    width: "100%",
+  },
+  settingsModalScroll: {
+    flexShrink: 1,
+  },
+  settingsModalScrollContent: {
     flexGrow: 1,
   },
   modalHeader: {
@@ -2867,7 +2885,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   uploadSheetBtnPrimaryText: {
-    color: "#0B0B0B",
+    color: theme.accentText,
     fontSize: 16,
     fontWeight: "700",
   },
@@ -2883,4 +2901,5 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 4,
   },
-});
+  });
+}

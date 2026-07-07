@@ -32,7 +32,9 @@ import * as ImagePicker from "expo-image-picker";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 
 import {
 
@@ -206,6 +208,8 @@ function SimpleStockStepper({
 
 }) {
 
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const stockNum = Math.max(0, parseInt(stockText, 10) || 0);
 
   return (
@@ -276,6 +280,8 @@ function SimpleStockStepper({
 
 export function ProductFormScreen() {
 
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
 
   const route = useRoute<any>();
@@ -2049,7 +2055,8 @@ export function ProductFormScreen() {
 
 
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
 
   root: {
 
@@ -2653,6 +2660,7 @@ const styles = StyleSheet.create({
 
   },
 
-});
+  });
+}
 
 

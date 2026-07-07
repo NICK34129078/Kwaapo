@@ -118,7 +118,11 @@ export const SHOP_SUBCATEGORIES: Record<ShopMainCategoryCode, readonly ShopSubca
 };
 
 /** Bovenste shop-tabs (feed-modi + hoofdcategorieën). */
-export type ShopFeedTabId = "voor_jou" | "browse" | ShopMainCategoryCode;
+export type ShopFeedTabId =
+  | "voor_jou"
+  | "merken"
+  | "browse"
+  | ShopMainCategoryCode;
 
 export type ShopFeedTabDef = {
   id: ShopFeedTabId;
@@ -127,6 +131,7 @@ export type ShopFeedTabDef = {
 
 export const SHOP_FEED_TABS: readonly ShopFeedTabDef[] = [
   { id: "voor_jou", label: "Voor jou" },
+  { id: "merken", label: "Bedrijven" },
   { id: "browse", label: "Alle" },
   ...SHOP_MAIN_CATEGORIES.map((c) => ({ id: c.code, label: c.label })),
 ];

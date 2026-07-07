@@ -25,8 +25,10 @@ import {
   type FeedPost,
 } from "../data/placeholder";
 import type { UserVideoPost } from "../types/userVideoPost";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { useSellerFulfillment } from "../context/SellerFulfillmentContext";
 import { isPersistablePostId } from "../services/postLikesService";
@@ -60,6 +62,11 @@ function ReelsFeedTopBar() {
   const isFocused = useIsFocused();
   const { user } = useAuth();
   const { openAuthPrompt } = useAuthPrompt();
+  const styles = useThemedStyles(createStyles);
+
+  if (user) {
+    return null;
+  }
 
   if (!isFocused || user) {
     return null;
@@ -119,6 +126,7 @@ function pickActiveViewable(
 }
 
 function ReelNextPreloader({ videoUrl }: { videoUrl: string | undefined | null }) {
+  const styles = useThemedStyles(createStyles);
   if (!videoUrl || Platform.OS === "web") {
     return null;
   }
@@ -144,6 +152,8 @@ function FeedListFooter({
   loading: boolean;
   endReached: boolean;
 }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   if (loading) {
     return (
       <View style={styles.footerWrap}>
@@ -162,6 +172,8 @@ function FeedListFooter({
 }
 
 export function ReelsScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const {
     globalFeedPosts,
     refreshGlobalFeed,
@@ -183,6 +195,9 @@ export function ReelsScreen() {
   const [activeReelId, setActiveReelId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const isFocused = useIsFocused();
+  const listRef = useRef<FlatList<FeedPost>>(null);
+  const wasFocusedBeforeTabPressRef = useRef(false);
+  const pendingHomeReselectRef = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -327,6 +342,45 @@ export function ReelsScreen() {
       setRefreshing(false);
     });
   }, [refreshGlobalFeed]);
+
+  const onHomeTabReselect = useCallback(() => {
+    pendingHomeReselectRef.current = true;
+    finalizeActiveView();
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    onPullRefresh();
+  }, [finalizeActiveView, onPullRefresh]);
+
+  useFocusEffect(
+    useCallback(() => {
+      wasFocusedBeforeTabPressRef.current = true;
+      return () => {
+        wasFocusedBeforeTabPressRef.current = false;
+      };
+    }, [])
+  );
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("tabPress", () => {
+      if (wasFocusedBeforeTabPressRef.current) {
+        onHomeTabReselect();
+      }
+    });
+    return unsubscribe;
+  }, [navigation, onHomeTabReselect]);
+
+  useEffect(() => {
+    if (!pendingHomeReselectRef.current || refreshing) {
+      return;
+    }
+    if (finalFeedData.length === 0) {
+      pendingHomeReselectRef.current = false;
+      setActiveReelId(null);
+      return;
+    }
+    pendingHomeReselectRef.current = false;
+    setActiveReelId(finalFeedData[0]!.id);
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [finalFeedData, refreshing]);
 
   useEffect(() => {
     if (isFocused) {
@@ -578,6 +632,7 @@ export function ReelsScreen() {
         </View>
       ) : (
         <FlatList
+          ref={listRef}
           data={finalFeedData}
           extraData={`${activeReelId}:${interactionRevision}`}
           renderItem={renderItem}
@@ -618,7 +673,8 @@ export function ReelsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -673,9 +729,6 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
     pointerEvents: "box-none",
   },
-  feedTopBarSide: {
-    flex: 1,
-  },
   feedTopBarAuth: {
     flexDirection: "row",
     alignItems: "center",
@@ -688,7 +741,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   feedTopBarAuthTxt: {
-    color: theme.text,
+    color: theme.onMediaText,
     fontSize: 15,
     fontWeight: "700",
     textShadowColor: "rgba(0,0,0,0.55)",
@@ -706,4 +759,5 @@ const styles = StyleSheet.create({
     opacity: 0,
     zIndex: -1,
   },
-});
+  });
+}

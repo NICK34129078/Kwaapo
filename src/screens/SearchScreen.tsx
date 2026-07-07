@@ -12,7 +12,9 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { AvatarImage } from "../components/AvatarImage";
 import { supabase } from "../lib/supabase";
 
@@ -24,6 +26,8 @@ type SearchProfile = {
 };
 
 export function SearchScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
@@ -90,7 +94,7 @@ export function SearchScreen() {
         </Pressable>
       );
     },
-    [navigation]
+    [navigation, styles]
   );
 
   return (
@@ -100,7 +104,7 @@ export function SearchScreen() {
         value={query}
         onChangeText={setQuery}
         placeholder="Zoek op gebruikersnaam of naam"
-        placeholderTextColor={theme.textMuted}
+        placeholderTextColor={theme.placeholder}
         style={styles.input}
         autoCapitalize="none"
         autoCorrect={false}
@@ -132,80 +136,82 @@ export function SearchScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: theme.bg,
-    paddingHorizontal: 16,
-  },
-  title: {
-    color: theme.text,
-    fontSize: 24,
-    fontWeight: "700",
-    marginBottom: 12,
-  },
-  input: {
-    height: 48,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 12,
-    backgroundColor: theme.bgElevated,
-    color: theme.text,
-    paddingHorizontal: 14,
-    marginBottom: 12,
-  },
-  listContent: {
-    paddingBottom: 120,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 10,
-  },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: theme.bgElevated,
-  },
-  avatarFallback: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: theme.bgElevated,
-    borderWidth: 1,
-    borderColor: theme.border,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 6,
-  },
-  avatarFallbackText: {
-    color: theme.textMuted,
-    fontSize: 9,
-    textAlign: "center",
-    lineHeight: 12,
-  },
-  rowText: {
-    flex: 1,
-  },
-  name: {
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  username: {
-    color: theme.textMuted,
-    fontSize: 13,
-    marginTop: 2,
-  },
-  centerState: {
-    paddingVertical: 28,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyText: {
-    color: theme.textMuted,
-    fontSize: 14,
-  },
-});
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+    root: {
+      flex: 1,
+      backgroundColor: theme.bg,
+      paddingHorizontal: 16,
+    },
+    title: {
+      color: theme.text,
+      fontSize: 24,
+      fontWeight: "700",
+      marginBottom: 12,
+    },
+    input: {
+      height: 48,
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 12,
+      backgroundColor: theme.bgElevated,
+      color: theme.text,
+      paddingHorizontal: 14,
+      marginBottom: 12,
+    },
+    listContent: {
+      paddingBottom: 120,
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingVertical: 10,
+    },
+    avatar: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      backgroundColor: theme.bgElevated,
+    },
+    avatarFallback: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      backgroundColor: theme.bgElevated,
+      borderWidth: 1,
+      borderColor: theme.border,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 6,
+    },
+    avatarFallbackText: {
+      color: theme.textMuted,
+      fontSize: 9,
+      textAlign: "center",
+      lineHeight: 12,
+    },
+    rowText: {
+      flex: 1,
+    },
+    name: {
+      color: theme.text,
+      fontSize: 16,
+      fontWeight: "600",
+    },
+    username: {
+      color: theme.textMuted,
+      fontSize: 13,
+      marginTop: 2,
+    },
+    centerState: {
+      paddingVertical: 28,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    emptyText: {
+      color: theme.textMuted,
+      fontSize: 14,
+    },
+  });
+}

@@ -42,12 +42,13 @@ import { PasswordRecoveryNavigator } from "./src/navigation/PasswordRecoveryNavi
 import { SellerFulfillmentProvider } from "./src/context/SellerFulfillmentContext";
 import { InAppNotificationProvider } from "./src/context/InAppNotificationContext";
 import { BottomNavbar } from "./src/components/BottomNavbar";
+import { ActivityInAppToast } from "./src/components/ActivityInAppToast";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { AuthPromptProvider } from "./src/context/AuthPromptContext";
 import { GlobalFeedProvider } from "./src/context/GlobalFeedContext";
 import { LikesProvider } from "./src/context/LikesContext";
 import { UserUploadsProvider } from "./src/context/UserUploadsContext";
-import { theme } from "./src/constants/theme";
+import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
 import { PUBLIC_SHARE_BASE } from "./src/constants/shareLinks";
 import {
   configurePushNotificationHandlers,
@@ -75,22 +76,39 @@ const linking = {
   },
 };
 
-const navTheme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    background: theme.bg,
-    card: theme.bg,
-    text: theme.text,
-    border: theme.border,
-    primary: theme.accent,
-  },
-};
+function ThemedNavigationContainer({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const { theme } = useTheme();
+  const navigationTheme = useMemo(
+    () => ({
+      ...DefaultTheme,
+      colors: {
+        ...DefaultTheme.colors,
+        background: theme.bg,
+        card: theme.bg,
+        text: theme.text,
+        border: theme.border,
+        primary: theme.accent,
+      },
+    }),
+    [theme]
+  );
+
+  return (
+    <NavigationContainer theme={navigationTheme} linking={linking as any}>
+      {children}
+    </NavigationContainer>
+  );
+}
 
 function MainTabs() {
+  const { theme } = useTheme();
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style={theme.statusBarStyle} />
       <Tab.Navigator
         initialRouteName="Home"
         tabBar={(props) => <BottomNavbar {...props} />}
@@ -154,9 +172,9 @@ function AppGate() {
     return () => subscription?.remove();
   }, [navigationReady]);
 
-  if (loading) {
+  if (loading || !themeReady) {
     return (
-      <View style={styles.loadingRoot}>
+      <View style={[styles.loadingRoot, { backgroundColor: theme.bg }]}>
         <ActivityIndicator size="large" color={theme.accent} />
       </View>
     );
@@ -165,6 +183,7 @@ function AppGate() {
   return (
     <AuthPromptProvider>
       <SellerFulfillmentProvider>
+      <ActivityNotificationsProvider>
       <LikesProvider>
         <GlobalFeedProvider>
           <UserUploadsProvider>
@@ -302,6 +321,7 @@ function AppGate() {
           </UserUploadsProvider>
         </GlobalFeedProvider>
       </LikesProvider>
+      </ActivityNotificationsProvider>
       </SellerFulfillmentProvider>
     </AuthPromptProvider>
   );
@@ -311,9 +331,11 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
       <SafeAreaProvider>
-        <AuthProvider>
-          <AppGate />
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <AppGate />
+          </AuthProvider>
+        </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
@@ -325,7 +347,6 @@ const styles = StyleSheet.create({
   },
   loadingRoot: {
     flex: 1,
-    backgroundColor: theme.bg,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -7,6 +7,76 @@ import { theme } from "../constants/theme";
 
 type FailureReason = "cancelled" | "failed" | "pending";
 
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+    root: {
+      flex: 1,
+      backgroundColor: theme.bg,
+      paddingHorizontal: 20,
+    },
+    scrollContent: {
+      flexGrow: 1,
+      justifyContent: "center",
+    },
+    iconWrap: {
+      alignItems: "center",
+      marginBottom: 20,
+    },
+    iconCircle: {
+      width: 88,
+      height: 88,
+      borderRadius: 44,
+      backgroundColor: theme.bgElevated,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    title: {
+      color: theme.text,
+      fontSize: 26,
+      fontWeight: "900",
+      textAlign: "center",
+      marginBottom: 10,
+    },
+    message: {
+      color: theme.textMuted,
+      fontSize: 15,
+      lineHeight: 22,
+      textAlign: "center",
+      marginBottom: 28,
+      paddingHorizontal: 8,
+    },
+    primaryBtn: {
+      minHeight: 52,
+      borderRadius: 14,
+      backgroundColor: theme.accent,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 12,
+    },
+    primaryBtnText: {
+      color: theme.bg,
+      fontSize: 16,
+      fontWeight: "900",
+    },
+    secondaryBtn: {
+      minHeight: 52,
+      borderRadius: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.border,
+      backgroundColor: theme.bgElevated,
+    },
+    secondaryBtnText: {
+      color: theme.text,
+      fontSize: 16,
+      fontWeight: "800",
+    },
+  });
+}
+
 export function CheckoutFailedScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -105,71 +175,3 @@ export function CheckoutFailedScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: theme.bg,
-    paddingHorizontal: 20,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: "center",
-  },
-  iconWrap: {
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  iconCircle: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: theme.bgElevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    color: theme.text,
-    fontSize: 26,
-    fontWeight: "900",
-    textAlign: "center",
-    marginBottom: 10,
-  },
-  message: {
-    color: theme.textMuted,
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: "center",
-    marginBottom: 28,
-    paddingHorizontal: 8,
-  },
-  primaryBtn: {
-    minHeight: 52,
-    borderRadius: 14,
-    backgroundColor: theme.accent,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-  },
-  primaryBtnText: {
-    color: theme.bg,
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  secondaryBtn: {
-    minHeight: 52,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: theme.border,
-    backgroundColor: theme.bgElevated,
-  },
-  secondaryBtnText: {
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: "800",
-  },
-});

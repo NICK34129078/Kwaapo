@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 
 export type ProfileContentTab = "posts" | "shop" | "saved";
 
@@ -24,11 +26,51 @@ type Props = {
   tabs?: ProfileContentTab[];
 };
 
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+    row: {
+      flexDirection: "row",
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.border,
+      marginBottom: 2,
+      position: "relative",
+    },
+    tab: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      paddingVertical: 12,
+    },
+    indicator: {
+      position: "absolute",
+      left: 0,
+      bottom: -1,
+      height: 2,
+      backgroundColor: theme.accent,
+      borderRadius: 999,
+    },
+    tabLabel: {
+      color: theme.textMuted,
+      fontSize: 13,
+      fontWeight: "600",
+      letterSpacing: 0.2,
+    },
+    tabLabelActive: {
+      color: theme.text,
+      fontWeight: "700",
+    },
+  });
+}
+
 export function ProfileContentTabs({
   active,
   onChange,
   tabs = ["posts", "shop"],
 }: Props) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const [width, setWidth] = useState(0);
   const count = Math.max(1, tabs.length);
   const activeIndex = Math.max(0, tabs.indexOf(active));
@@ -88,39 +130,3 @@ export function ProfileContentTabs({
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  row: {
-    flexDirection: "row",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: theme.border,
-    marginBottom: 2,
-    position: "relative",
-  },
-  tab: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-  },
-  indicator: {
-    position: "absolute",
-    left: 0,
-    bottom: -1,
-    height: 2,
-    backgroundColor: theme.accent,
-    borderRadius: 999,
-  },
-  tabLabel: {
-    color: theme.textMuted,
-    fontSize: 13,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
-  tabLabelActive: {
-    color: theme.text,
-    fontWeight: "700",
-  },
-});

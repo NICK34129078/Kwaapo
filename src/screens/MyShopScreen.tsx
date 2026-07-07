@@ -15,7 +15,9 @@ import {
 import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import { useAuth } from "../context/AuthContext";
 import { fetchProfileById } from "../services/profileService";
 import {
@@ -92,6 +94,8 @@ function ProductManageRow({
   onAddStock: () => void;
   toggleBusy: boolean;
 }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const imageUri = product.images[0];
   const stockStatus = getProductStockStatus(product.stock);
 
@@ -174,6 +178,8 @@ function SellerOrderCard({
   sellerOrder: SellerOrderListRow;
   onPress: () => void;
 }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const firstItem = sellerOrder.items[0];
   const product = firstItem?.product;
   const order = sellerOrder.order;
@@ -243,6 +249,8 @@ function SellerOrderCard({
 }
 
 export function MyShopScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
@@ -746,7 +754,8 @@ export function MyShopScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -1161,4 +1170,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
   },
-});
+  });
+}

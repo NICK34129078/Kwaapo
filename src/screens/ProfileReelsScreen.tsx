@@ -24,7 +24,9 @@ import {
   type PostStats,
 } from "../services/postStatsService";
 import { isPersistablePostId } from "../services/postLikesService";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import type { UserVideoPost } from "../types/userVideoPost";
 
 const INITIAL_H = Dimensions.get("window").height;
@@ -71,6 +73,7 @@ function PostStatsPanel({
   isShopPost: boolean;
   onClose: () => void;
 }) {
+  const styles = useThemedStyles(createStyles);
   return (
     <Modal
       visible={visible}
@@ -123,6 +126,8 @@ function PostStatsPanel({
 }
 
 export function ProfileReelsScreen() {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const navigation = useNavigation();
   const route = useRoute();
   const insets = useSafeAreaInsets();
@@ -351,7 +356,7 @@ export function ProfileReelsScreen() {
             accessibilityRole="button"
             accessibilityLabel="Statistieken"
           >
-            <Ionicons name="stats-chart-outline" size={24} color={theme.text} />
+            <Ionicons name="stats-chart-outline" size={24} color={theme.onMediaIcon} />
             <Text style={styles.chromeBtnLabel}>Statistieken</Text>
           </Pressable>
         ) : (
@@ -364,7 +369,7 @@ export function ProfileReelsScreen() {
           accessibilityLabel="Sluiten"
           hitSlop={10}
         >
-          <Ionicons name="close" size={28} color={theme.text} />
+          <Ionicons name="close" size={28} color={theme.onMediaIcon} />
         </Pressable>
       </View>
 
@@ -408,7 +413,8 @@ export function ProfileReelsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -436,7 +442,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.25)",
   },
   chromeBtnLabel: {
-    color: theme.text,
+    color: theme.onMediaText,
     fontSize: 13,
     fontWeight: "600",
   },
@@ -485,4 +491,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
-});
+  });
+}

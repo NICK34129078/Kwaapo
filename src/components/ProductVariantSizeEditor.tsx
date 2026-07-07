@@ -9,7 +9,9 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../constants/theme";
+import type { AppTheme } from "../constants/themeTokens";
+import { useTheme } from "../context/ThemeContext";
+import { useThemedStyles } from "../hooks/useThemedStyles";
 import {
   getSizeMode,
   sizePresetsForSizeMode,
@@ -47,6 +49,8 @@ function StockStepperRow({
   stock: number;
   onChangeStock: (next: number) => void;
 }) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const adjust = useCallback(
     (delta: number) => {
       onChangeStock(Math.max(0, stock + delta));
@@ -113,6 +117,8 @@ export function ProductVariantSizeEditor({
   value,
   onChange,
 }: Props) {
+  const { theme } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const sizeMode = getSizeMode(mainCategory, subcategory);
   const presets = useMemo(
     () => [...sizePresetsForSizeMode(sizeMode, audience)],
@@ -261,7 +267,8 @@ export function ProductVariantSizeEditor({
 
 const SIZE_BLOCK_MIN = 52;
 
-const styles = StyleSheet.create({
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
   root: { gap: 16, marginTop: 4 },
   blockTitle: {
     color: theme.text,
@@ -481,4 +488,5 @@ const styles = StyleSheet.create({
   modalBtn: { paddingVertical: 10, paddingHorizontal: 4 },
   modalBtnText: { color: theme.textMuted, fontWeight: "700", fontSize: 15 },
   modalBtnPrimaryText: { color: theme.accent, fontWeight: "800", fontSize: 15 },
-});
+  });
+}
