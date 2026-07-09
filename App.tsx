@@ -38,6 +38,8 @@ import { PolicyDocumentScreen } from "./src/screens/PolicyDocumentScreen";
 import { AccountDeletionScreen } from "./src/screens/AccountDeletionScreen";
 import { BlockedUsersScreen } from "./src/screens/BlockedUsersScreen";
 import { LanguageSettingsScreen } from "./src/screens/LanguageSettingsScreen";
+import { ContactSupportScreen } from "./src/screens/ContactSupportScreen";
+import { ContactSupportSuccessScreen } from "./src/screens/ContactSupportSuccessScreen";
 import { ResetPasswordScreen } from "./src/screens/ResetPasswordScreen";
 import { PasswordRecoveryNavigator } from "./src/navigation/PasswordRecoveryNavigator";
 import { SellerFulfillmentProvider } from "./src/context/SellerFulfillmentContext";
@@ -321,6 +323,16 @@ function AppGate() {
                 <RootStack.Screen
                   name="LanguageSettings"
                   component={LanguageSettingsScreen}
+                  options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="ContactSupport"
+                  component={ContactSupportScreen}
+                  options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="ContactSupportSuccess"
+                  component={ContactSupportSuccessScreen}
                   options={{ animation: "slide_from_right" }}
                 />
                 <RootStack.Screen

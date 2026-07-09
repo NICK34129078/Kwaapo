@@ -1,4 +1,5 @@
 -- Bedrijven-tab: geverifieerde verkopers met minstens één live shop-product.
+-- Renumbered from 0039 → 0054: duplicate version conflict with 0039_feed_interest_ranking.sql.
 
 create or replace function public.get_shop_live_seller_profiles(
   p_search_query text default null,

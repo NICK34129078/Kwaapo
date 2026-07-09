@@ -86,13 +86,15 @@ import { UploadProductPickerPanel } from "../components/UploadProductPickerPanel
 import { PressableScale } from "../components/PressableScale";
 import { SpotifySoundPickerPanel } from "../components/SpotifySoundPickerPanel";
 import type { SpotifyTrackResult } from "../services/spotifyService";
-import { SETTINGS_LEGAL_LINKS, SUPPORT_EMAIL } from "../constants/appPolicies";
+import { SETTINGS_LEGAL_LINKS } from "../constants/appPolicies";
 import { getPolicyLinkLabel } from "../i18n/policyLabels";
 import { useTranslation } from "react-i18next";
 import { useLanguage } from "../context/LanguageContext";
 import { PrivateProfileEmptyState } from "../components/PrivateProfileEmptyState";
 import { UnfollowConfirmModal } from "../components/UnfollowConfirmModal";
 import { PrivateAccountSettingsRow } from "../components/PrivateAccountSettingsRow";
+import { SettingsRowIcon } from "../components/SettingsRowIcon";
+import { SETTINGS_POLICY_ICONS } from "../constants/settingsPolicyIcons";
 import {
   cancelFollowRequest,
   getOutgoingFollowRequestStatus,
@@ -1106,12 +1108,10 @@ function ProfileAuthenticatedScreen({
     navigation.navigate("SellerOnboarding");
   }, [isOwnProfile, navigation, profileAccountType]);
 
-  const openSupportEmail = useCallback(() => {
-    const mailto = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Kwaapo support")}`;
-    void Linking.openURL(mailto).catch(() => {
-      Alert.alert("Contact", `Mail ons op ${SUPPORT_EMAIL}`);
-    });
-  }, []);
+  const openContactSupport = useCallback(() => {
+    setSettingsVisible(false);
+    navigation.navigate("ContactSupport");
+  }, [navigation]);
 
   const openPolicy = useCallback(
     (policyId: (typeof SETTINGS_LEGAL_LINKS)[number]["policyId"]) => {
@@ -1536,7 +1536,10 @@ function ProfileAuthenticatedScreen({
                   navigation.navigate("MyOrders");
                 }}
               >
-                <Text style={styles.rowLabel}>{t("settings.myOrders")}</Text>
+                <SettingsRowIcon name="receipt-outline" />
+                <View style={styles.rowButtonMain}>
+                  <Text style={styles.rowLabel}>{t("settings.myOrders")}</Text>
+                </View>
                 <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
               </Pressable>
               <Pressable
@@ -1546,7 +1549,10 @@ function ProfileAuthenticatedScreen({
                   setEditProfileVisible(true);
                 }}
               >
-                <Text style={styles.rowLabel}>{t("profile.editProfile")}</Text>
+                <SettingsRowIcon name="person-circle-outline" />
+                <View style={styles.rowButtonMain}>
+                  <Text style={styles.rowLabel}>{t("profile.editProfile")}</Text>
+                </View>
                 <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
               </Pressable>
               <PrivateAccountSettingsRow
@@ -1560,6 +1566,7 @@ function ProfileAuthenticatedScreen({
                 accessibilityRole="button"
                 accessibilityLabel={t("settings.logout")}
               >
+                <SettingsRowIcon name="log-out-outline" variant="danger" />
                 <View style={styles.rowButtonMain}>
                   <Text style={[styles.rowLabel, styles.dangerLabel]}>{t("settings.logout")}</Text>
                   <Text style={styles.logoutSubLabel}>{t("settings.logoutSubtitle")}</Text>
@@ -1593,6 +1600,7 @@ function ProfileAuthenticatedScreen({
                           : t("settings.newOrderAction_other")
                       }
                     >
+                      <SettingsRowIcon name="notifications-outline" variant="accent" />
                       <View style={styles.rowButtonMain}>
                         <Text style={styles.rowLabel}>
                           {sellerOrderBadgeCount === 1
@@ -1627,7 +1635,10 @@ function ProfileAuthenticatedScreen({
                       navigation.navigate("SellerOnboarding");
                     }}
                   >
-                    <Text style={styles.rowLabel}>{t("settings.sellAccount")}</Text>
+                    <SettingsRowIcon name="storefront-outline" />
+                    <View style={styles.rowButtonMain}>
+                      <Text style={styles.rowLabel}>{t("settings.sellAccount")}</Text>
+                    </View>
                     <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
                   </Pressable>
                   <Pressable
@@ -1637,7 +1648,10 @@ function ProfileAuthenticatedScreen({
                       navigation.navigate("CreatorStats");
                     }}
                   >
-                    <Text style={styles.rowLabel}>{t("settings.shopStats")}</Text>
+                    <SettingsRowIcon name="bar-chart-outline" />
+                    <View style={styles.rowButtonMain}>
+                      <Text style={styles.rowLabel}>{t("settings.shopStats")}</Text>
+                    </View>
                     <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
                   </Pressable>
                 </>
@@ -1646,7 +1660,10 @@ function ProfileAuthenticatedScreen({
                   style={styles.rowButton}
                   onPress={onMakeBusinessAccount}
                 >
-                  <Text style={styles.rowLabel}>{t("settings.becomeSeller")}</Text>
+                  <SettingsRowIcon name="briefcase-outline" />
+                  <View style={styles.rowButtonMain}>
+                    <Text style={styles.rowLabel}>{t("settings.becomeSeller")}</Text>
+                  </View>
                   <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
                 </Pressable>
               )}
@@ -1661,9 +1678,12 @@ function ProfileAuthenticatedScreen({
                     style={styles.rowButton}
                     onPress={() => openPolicy(link.policyId)}
                   >
-                    <Text style={styles.rowLabel}>
-                      {getPolicyLinkLabel(link.policyId)}
-                    </Text>
+                    <SettingsRowIcon name={SETTINGS_POLICY_ICONS[link.policyId]} />
+                    <View style={styles.rowButtonMain}>
+                      <Text style={styles.rowLabel}>
+                        {getPolicyLinkLabel(link.policyId)}
+                      </Text>
+                    </View>
                     <Ionicons
                       name={chevronIcon}
                       size={18}
@@ -1676,15 +1696,14 @@ function ProfileAuthenticatedScreen({
 
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>{t("settings.support")}</Text>
-              <Pressable style={styles.rowButton} onPress={openSupportEmail}>
-                <Text style={styles.rowLabel}>{t("settings.contactSupport")}</Text>
-                <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
-              </Pressable>
               <Pressable
                 style={styles.rowButton}
                 onPress={() => openPolicy("contact")}
               >
-                <Text style={styles.rowLabel}>{t("settings.privacyRequests")}</Text>
+                <SettingsRowIcon name={SETTINGS_POLICY_ICONS.contact} />
+                <View style={styles.rowButtonMain}>
+                  <Text style={styles.rowLabel}>{t("settings.privacyRequests")}</Text>
+                </View>
                 <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
               </Pressable>
             </View>
@@ -1700,6 +1719,7 @@ function ProfileAuthenticatedScreen({
                 accessibilityRole="button"
                 accessibilityLabel={t("settings.blockedUsers")}
               >
+                <SettingsRowIcon name="person-remove-outline" />
                 <View style={styles.rowButtonMain}>
                   <Text style={styles.rowLabel}>{t("settings.blockedUsers")}</Text>
                   <Text style={styles.logoutSubLabel}>
@@ -1721,6 +1741,7 @@ function ProfileAuthenticatedScreen({
                 accessibilityRole="button"
                 accessibilityLabel={t("settings.language")}
               >
+                <SettingsRowIcon name="language-outline" />
                 <View style={styles.rowButtonMain}>
                   <Text style={styles.rowLabel}>{t("settings.language")}</Text>
                   <Text style={styles.logoutSubLabel}>{currentLanguageLabel}</Text>
@@ -1744,12 +1765,34 @@ function ProfileAuthenticatedScreen({
                 accessibilityRole="button"
                 accessibilityLabel={t("settings.deleteAccount")}
               >
+                <SettingsRowIcon
+                  name={SETTINGS_POLICY_ICONS.account_deletion}
+                  variant="danger"
+                />
                 <View style={styles.rowButtonMain}>
                   <Text style={[styles.rowLabel, styles.dangerLabel]}>
                     {t("settings.deleteAccount")}
                   </Text>
                   <Text style={styles.logoutSubLabel}>
                     {t("settings.deleteAccountSubtitle")}
+                  </Text>
+                </View>
+                <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
+              </Pressable>
+            </View>
+
+            <View style={styles.section}>
+              <Pressable
+                style={styles.rowButton}
+                onPress={openContactSupport}
+                accessibilityRole="button"
+                accessibilityLabel={t("contact.helpdeskTitle")}
+              >
+                <SettingsRowIcon name="headset-outline" />
+                <View style={styles.rowButtonMain}>
+                  <Text style={styles.rowLabel}>{t("contact.helpdeskTitle")}</Text>
+                  <Text style={styles.logoutSubLabel}>
+                    {t("contact.helpdeskSubtitle")}
                   </Text>
                 </View>
                 <Ionicons name={chevronIcon} size={18} color={theme.textMuted} />
@@ -2654,9 +2697,11 @@ const styles = StyleSheet.create({
   rowButton: {
     minHeight: 48,
     paddingHorizontal: 14,
+    paddingVertical: 6,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
   },
   rowSwitch: {
     minHeight: 52,

@@ -16,6 +16,7 @@ import {
   updateMyProfileIsPrivate,
 } from "../services/profilePrivacyService";
 import { getReadableErrorMessage } from "../utils/getReadableErrorMessage";
+import { SettingsRowIcon } from "./SettingsRowIcon";
 
 type Props = {
   /** Reload privacy state when settings sheet opens. */
@@ -77,6 +78,7 @@ export function PrivateAccountSettingsRow({ active = true, onPrivacyChange }: Pr
 
   return (
     <View style={styles.row}>
+      <SettingsRowIcon name="lock-closed-outline" />
       <View style={styles.textWrap}>
         <Text style={styles.title}>{t("privacy.privateAccountLabel")}</Text>
         {loading ? (
@@ -116,14 +118,13 @@ export function PrivateAccountSettingsRow({ active = true, onPrivacyChange }: Pr
 function createStyles(theme: AppTheme) {
   return StyleSheet.create({
     row: {
+      minHeight: 52,
       flexDirection: "row",
-      alignItems: "flex-start",
+      alignItems: "center",
       justifyContent: "space-between",
       gap: 12,
-      paddingVertical: 12,
-      paddingHorizontal: 4,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: theme.border,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
     },
     textWrap: {
       flex: 1,
