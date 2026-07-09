@@ -16,7 +16,6 @@ function clampLimit(limit?: number): number {
  * Bij geen user: lege array. Bij RPC-fout: throw (caller doet retry/explore).
  *
  * `excludePostIds`: posts die niet opnieuw in de batch mogen (voor infinite scroll).
- * Oude DB zonder `p_exclude_post_ids`: alleen fallback als er niets te excluden is.
  */
 export async function fetchPersonalizedFeed(
   limit?: number,
@@ -32,34 +31,12 @@ export async function fetchPersonalizedFeed(
 
   const lim = clampLimit(limit);
   const validExclude = (excludePostIds ?? []).filter(isPersistablePostId);
-  const allowRecentlyViewed = options?.allowRecentlyViewed === true;
 
-  const argsFull: Record<string, unknown> = {
+  const { data, error } = await supabase.rpc("get_personalized_feed", {
     p_limit: lim,
     p_exclude_post_ids: validExclude,
-  };
-  if (allowRecentlyViewed) {
-    argsFull.p_allow_recently_viewed = true;
-  }
-
-  let { data, error } = await supabase.rpc("get_personalized_feed", argsFull);
-
-  if (error && allowRecentlyViewed) {
-    const retry = await supabase.rpc("get_personalized_feed", {
-      p_limit: lim,
-      p_exclude_post_ids: validExclude,
-    });
-    data = retry.data;
-    error = retry.error;
-  } else if (error && validExclude.length === 0) {
-    const retry = await supabase.rpc("get_personalized_feed", {
-      p_limit: lim,
-    });
-    data = retry.data;
-    error = retry.error;
-  } else if (error) {
-    throw new Error(error.message);
-  }
+    p_allow_recently_viewed: options?.allowRecentlyViewed === true,
+  });
 
   if (error) {
     throw new Error(error.message);

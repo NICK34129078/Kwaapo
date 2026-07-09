@@ -6,6 +6,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { useTheme } from "../context/ThemeContext";
 import { useThemedStyles } from "../hooks/useThemedStyles";
 import type { AppTheme } from "../constants/theme";
@@ -70,6 +71,7 @@ type AggregatedPlaybackMetrics = {
 
 function ReelsFeedTopBar() {
   const styles = useThemedStyles(createStyles);
+  const { t } = useTranslation();
 
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
@@ -91,26 +93,26 @@ function ReelsFeedTopBar() {
           style={styles.feedTopBarAuthBtn}
           onPress={() =>
             openAuthPrompt({
-              message: "Welkom terug — log hieronder in.",
+              message: t("auth.promptWelcome"),
             })
           }
           accessibilityRole="button"
-          accessibilityLabel="Inloggen"
+          accessibilityLabel={t("auth.login")}
         >
-          <Text style={styles.feedTopBarAuthTxt}>Inloggen</Text>
+          <Text style={styles.feedTopBarAuthTxt}>{t("auth.login")}</Text>
         </Pressable>
         <Pressable
           style={styles.feedTopBarAuthBtn}
           onPress={() =>
             openAuthPrompt({
-              message: "Maak een account om te liken, reageren en te uploaden.",
+              message: t("auth.promptCreate"),
             })
           }
           accessibilityRole="button"
-          accessibilityLabel="Account maken"
+          accessibilityLabel={t("auth.createAccount")}
         >
           <Text style={[styles.feedTopBarAuthTxt, styles.feedTopBarAuthAccent]}>
-            Account maken
+            {t("auth.createAccount")}
           </Text>
         </Pressable>
       </View>
@@ -162,6 +164,7 @@ function FeedListFooter({
   endReached: boolean;
 }) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
 
   const styles = useThemedStyles(createStyles);
 
@@ -175,16 +178,44 @@ function FeedListFooter({
   if (endReached) {
     return (
       <View style={styles.footerWrap}>
-        <Text style={styles.footerText}>Geen nieuwe posts</Text>
+        <Text style={styles.footerText}>{t("feed.noNewPosts")}</Text>
       </View>
     );
   }
   return null;
 }
 
+/** Niet-blokkerende foutmelding als refresh/load-more faalt terwijl er posts staan. */
+function FeedErrorBanner({
+  errorKey,
+  onDismiss,
+}: {
+  errorKey: string | null;
+  onDismiss: () => void;
+}) {
+  const styles = useThemedStyles(createStyles);
+  const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+
+  if (!errorKey) {
+    return null;
+  }
+
+  return (
+    <Pressable
+      style={[styles.errorBanner, { top: insets.top + 52 }]}
+      onPress={onDismiss}
+      accessibilityRole="alert"
+    >
+      <Text style={styles.errorBannerText}>{t(errorKey)}</Text>
+    </Pressable>
+  );
+}
+
 export function ReelsScreen() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+  const { t } = useTranslation();
 
   const {
     globalFeedPosts,
@@ -231,9 +262,22 @@ export function ReelsScreen() {
     new Map()
   );
   const impressionSentRef = useRef<Set<string>>(new Set());
+  const impressionOrderRef = useRef<string[]>([]);
   const milestoneSentRef = useRef<Set<string>>(new Set());
+  const milestoneOrderRef = useRef<string[]>([]);
+  const savedStatusFetchedRef = useRef<Set<string>>(new Set());
+  const savedStatusOrderRef = useRef<string[]>([]);
+  const [dismissedErrorKey, setDismissedErrorKey] = useState<string | null>(
+    null
+  );
 
   const finalFeedData = globalFeedPosts;
+
+  useEffect(() => {
+    if (globalFeedError == null) {
+      setDismissedErrorKey(null);
+    }
+  }, [globalFeedError]);
 
   const onPlaybackMetrics = useCallback(
     (postId: string, metrics: FeedItemPlaybackMetrics) => {
@@ -266,7 +310,8 @@ export function ReelsScreen() {
         for (const evt of milestoneEventsForWatch(
           postId,
           pct,
-          milestoneSentRef.current
+          milestoneSentRef.current,
+          milestoneOrderRef.current
         )) {
           queueContentInteraction(evt);
         }
@@ -444,7 +489,12 @@ export function ReelsScreen() {
       return;
     }
     if (isPersistablePostId(activeReelId) && !impressionSentRef.current.has(activeReelId)) {
-      impressionSentRef.current.add(activeReelId);
+      addToBoundedSet(
+        impressionSentRef.current,
+        impressionOrderRef.current,
+        activeReelId,
+        REELS_WINDOW.RECORDED_VIEW_MAX
+      );
       queueContentInteraction({
         postId: activeReelId,
         eventType: "impression",
@@ -480,15 +530,34 @@ export function ReelsScreen() {
     };
   }, [finalizeActiveView]);
 
+  // Reset per gebruiker zodat saved-status opnieuw wordt opgehaald na login-switch.
+  useEffect(() => {
+    savedStatusFetchedRef.current.clear();
+    savedStatusOrderRef.current.length = 0;
+  }, [user?.id]);
+
   useEffect(() => {
     if (user == null || finalFeedData.length === 0) {
       return;
     }
-    const ids = finalFeedData.map((p) => p.id).filter(isPersistablePostId);
-    if (ids.length === 0) {
+    // Alleen nieuw binnengekomen posts: voorkomt her-fetch van het hele window
+    // bij elke append/trim.
+    const newIds = finalFeedData
+      .map((p) => p.id)
+      .filter(isPersistablePostId)
+      .filter((id) => !savedStatusFetchedRef.current.has(id));
+    if (newIds.length === 0) {
       return;
     }
-    void fetchSavedPostIdsForCurrentUser(ids).catch(() => {
+    for (const id of newIds) {
+      addToBoundedSet(
+        savedStatusFetchedRef.current,
+        savedStatusOrderRef.current,
+        id,
+        REELS_WINDOW.RECORDED_VIEW_MAX
+      );
+    }
+    void fetchSavedPostIdsForCurrentUser(newIds).catch(() => {
       /* stil falen: FeedItem valt terug op per-item check */
     });
   }, [finalFeedData, user]);
@@ -540,9 +609,6 @@ export function ReelsScreen() {
       return;
     }
     if (activeIndex < 0 || finalFeedData.length === 0) {
-      return;
-    }
-    if (finalFeedData.length < 6) {
       return;
     }
     if (activeIndex < finalFeedData.length - REELS_WINDOW.LOAD_MORE_TRIGGER_FROM_END) {
@@ -680,6 +746,14 @@ export function ReelsScreen() {
   return (
     <View style={styles.root} onLayout={onRootLayout}>
       <ReelsFeedTopBar />
+      {finalFeedData.length > 0 ? (
+        <FeedErrorBanner
+          errorKey={
+            globalFeedError !== dismissedErrorKey ? globalFeedError : null
+          }
+          onDismiss={() => setDismissedErrorKey(globalFeedError)}
+        />
+      ) : null}
       <ReelNextPreloader videoUrl={nextVideoForPreload} />
       {showBlockingLoader ? (
         <View style={styles.centerState}>
@@ -687,26 +761,26 @@ export function ReelsScreen() {
         </View>
       ) : globalFeedError && finalFeedData.length === 0 ? (
         <View style={styles.centerState}>
-          <Text style={styles.errorText}>{globalFeedError}</Text>
+          <Text style={styles.errorText}>{t(globalFeedError)}</Text>
           <Pressable
             style={styles.retryBtn}
             onPress={onRetryFeed}
             accessibilityRole="button"
-            accessibilityLabel="Opnieuw proberen"
+            accessibilityLabel={t("common.retry")}
           >
-            <Text style={styles.retryBtnText}>Opnieuw proberen</Text>
+            <Text style={styles.retryBtnText}>{t("common.retry")}</Text>
           </Pressable>
         </View>
       ) : finalFeedData.length === 0 ? (
         <View style={styles.centerState}>
-          <Text style={styles.emptyText}>Nog geen posts in de feed</Text>
+          <Text style={styles.emptyText}>{t("feed.emptyFeed")}</Text>
           <Pressable
             style={styles.retryBtn}
             onPress={onPullRefresh}
             accessibilityRole="button"
-            accessibilityLabel="Feed vernieuwen"
+            accessibilityLabel={t("feed.refresh")}
           >
-            <Text style={styles.retryBtnText}>Vernieuwen</Text>
+            <Text style={styles.retryBtnText}>{t("feed.refresh")}</Text>
           </Pressable>
         </View>
       ) : (
@@ -729,7 +803,6 @@ export function ReelsScreen() {
           viewabilityConfig={viewabilityConfig}
           onScrollToIndexFailed={onScrollToIndexFailed}
           removeClippedSubviews={false}
-          bounces={false}
           overScrollMode="never"
           scrollEventThrottle={SCROLL_THROTTLE}
           refreshControl={
@@ -790,6 +863,23 @@ function createStyles(theme: AppTheme) {
   footerText: {
     color: theme.textMuted,
     fontSize: 13,
+  },
+  errorBanner: {
+    position: "absolute",
+    left: 24,
+    right: 24,
+    zIndex: 60,
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    alignItems: "center",
+  },
+  errorBannerText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
   },
   feedTopBar: {
     position: "absolute",

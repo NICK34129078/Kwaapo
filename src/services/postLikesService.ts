@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { queueContentInteraction } from "./contentInteractionsService";
 
 function logPostLikesError(scope: string, error: unknown): void {
   const e = error as {
@@ -33,6 +34,10 @@ function fireApplyPostLikePreference(postId: string, isLiked: boolean): void {
         console.warn("[Likes] preference update failed:", error.message);
       }
     });
+  queueContentInteraction({
+    postId,
+    eventType: isLiked ? "like" : "unlike",
+  });
 }
 
 /** Alleen echte post-ids (uuid); placeholders zoals "reel-1" niet. */

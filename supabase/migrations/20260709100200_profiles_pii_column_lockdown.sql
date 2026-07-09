@@ -1,4 +1,4 @@
--- 0039: Restrict PII / secret columns on public.profiles to owner-only reads.
+-- Restrict PII / secret columns on public.profiles to owner-only reads.
 --
 -- Problem (security.md #2): the "Profiles readable by authenticated" RLS policy
 -- is row-level only. Postgres RLS cannot hide columns, so ANY authenticated user

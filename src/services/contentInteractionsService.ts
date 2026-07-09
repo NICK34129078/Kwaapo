@@ -1,5 +1,14 @@
 import { supabase } from "../lib/supabase";
-import { isPersistablePostId } from "./postLikesService";
+import { addToBoundedSet } from "../utils/boundedSeenIds";
+
+// Lokale uuid-check (zelfde regex als postLikesService.isPersistablePostId).
+// Niet importeren uit postLikesService: die module queuet zelf events,
+// en een require-cycle geeft Metro-warnings.
+function isPersistablePostId(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    id
+  );
+}
 
 export type ContentInteractionEventType =
   | "impression"
@@ -119,11 +128,16 @@ export async function flushContentInteractionsNow(): Promise<void> {
   await flushContentInteractionQueue();
 }
 
-/** Milestone-events voor video (25/50/75/100%) — één keer per post per sessie. */
+/**
+ * Milestone-events voor video (25/50/75/100%) — één keer per post per sessie.
+ * Met `alreadySentOrder` wordt de dedup-set FIFO-begrensd (lange sessies).
+ */
 export function milestoneEventsForWatch(
   postId: string,
   watchedPercent: number,
-  alreadySent: Set<string>
+  alreadySent: Set<string>,
+  alreadySentOrder?: string[],
+  maxTracked = 2000
 ): ContentInteractionEvent[] {
   const out: ContentInteractionEvent[] = [];
   const milestones: Array<{ key: string; type: ContentInteractionEventType; min: number }> = [
@@ -137,7 +151,11 @@ export function milestoneEventsForWatch(
     if (alreadySent.has(id) || watchedPercent < m.min) {
       continue;
     }
-    alreadySent.add(id);
+    if (alreadySentOrder) {
+      addToBoundedSet(alreadySent, alreadySentOrder, id, maxTracked);
+    } else {
+      alreadySent.add(id);
+    }
     out.push({
       postId,
       eventType: m.type,

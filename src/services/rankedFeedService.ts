@@ -16,7 +16,7 @@ export type RankedFeedFetchOptions = {
   allowRecentlyViewed?: boolean;
 };
 
-const MAX_RPC_ATTEMPTS = 3;
+const MAX_RPC_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 450;
 
 function sleep(ms: number): Promise<void> {

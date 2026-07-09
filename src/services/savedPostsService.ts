@@ -1,6 +1,7 @@
 import { supabase } from "../lib/supabase";
 import { isPersistablePostId } from "./postLikesService";
 import { mapSupabasePostRowsToGlobalUserVideoPosts } from "./postsService";
+import { queueContentInteraction } from "./contentInteractionsService";
 import type { UserVideoPost } from "../types/userVideoPost";
 
 /**
@@ -30,6 +31,24 @@ async function getCurrentUserId(): Promise<string | null> {
     data: { user },
   } = await supabase.auth.getUser();
   return user?.id ?? null;
+}
+
+/** Ranking-signaal + audit-event na een geslaagde save/unsave (fire-and-forget). */
+function fireApplyPostSavePreference(postId: string, isSaved: boolean): void {
+  void supabase
+    .rpc("apply_post_save_preference", {
+      p_post_id: postId,
+      p_is_saved: isSaved,
+    })
+    .then(({ error }) => {
+      if (error) {
+        console.warn("[SavedPosts] preference update failed:", error.message);
+      }
+    });
+  queueContentInteraction({
+    postId,
+    eventType: isSaved ? "save" : "unsave",
+  });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -173,7 +192,8 @@ export async function savePost(postId: string): Promise<void> {
     .insert({ user_id: userId, post_id: postId });
 
   if (error) {
-    // 23505 = unique_violation: al opgeslagen, behandelen als succes.
+    // 23505 = unique_violation: al opgeslagen, behandelen als succes
+    // (geen nieuw ranking-signaal — er veranderde niets).
     if ((error as { code?: string }).code === "23505") {
       setCachedSavedStatus(postId, true);
       return;
@@ -183,6 +203,7 @@ export async function savePost(postId: string): Promise<void> {
   }
 
   setCachedSavedStatus(postId, true);
+  fireApplyPostSavePreference(postId, true);
 }
 
 /** Verwijder een opgeslagen post (idempotent). */
@@ -207,6 +228,7 @@ export async function unsavePost(postId: string): Promise<void> {
   }
 
   setCachedSavedStatus(postId, false);
+  fireApplyPostSavePreference(postId, false);
 }
 
 /**
