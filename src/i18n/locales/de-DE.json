@@ -145,6 +145,14 @@
     "unblockFailed": "Entblocken fehlgeschlagen.",
     "loadFailed": "Blockierte Nutzer konnten nicht geladen werden."
   },
+  "feedInterests": {
+    "title": "Wähle deine Interessen",
+    "subtitle": "Wähle mindestens {{min}} Themen, damit wir deinen Feed sofort anpassen können.",
+    "skip": "Überspringen",
+    "submit": "Meinen Feed anzeigen",
+    "submitCount": "{{count}}/{{min}} ausgewählt",
+    "saveFailed": "Interessen konnten nicht gespeichert werden."
+  },
   "feed": {
     "likes": "Likes",
     "comments": "Kommentare",

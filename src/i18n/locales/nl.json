@@ -145,6 +145,14 @@
     "unblockFailed": "Deblokkeren mislukt.",
     "loadFailed": "Geblokkeerde gebruikers laden mislukt."
   },
+  "feedInterests": {
+    "title": "Kies je interesses",
+    "subtitle": "Selecteer minstens {{min}} onderwerpen zodat we je feed meteen op maat maken.",
+    "skip": "Overslaan",
+    "submit": "Toon mijn feed",
+    "submitCount": "Nog {{count}}/{{min}} gekozen",
+    "saveFailed": "Interesses opslaan mislukt."
+  },
   "feed": {
     "likes": "likes",
     "comments": "reacties",

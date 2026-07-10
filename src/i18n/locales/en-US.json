@@ -145,6 +145,14 @@
     "unblockFailed": "Unblock failed.",
     "loadFailed": "Could not load blocked users."
   },
+  "feedInterests": {
+    "title": "Pick your interests",
+    "subtitle": "Choose at least {{min}} topics so we can tailor your feed right away.",
+    "skip": "Skip",
+    "submit": "Show my feed",
+    "submitCount": "{{count}}/{{min}} selected",
+    "saveFailed": "Could not save interests."
+  },
   "feed": {
     "likes": "likes",
     "comments": "comments",
