@@ -13,7 +13,8 @@
     "more": "mehr",
     "less": "weniger",
     "product": "Produkt",
-    "user": "Benutzer"
+    "user": "Benutzer",
+    "tryAgain": "Versuche es erneut."
   },
   "tabs": {
     "home": "Home",
@@ -144,6 +145,14 @@
     "unblockFailed": "Entblocken fehlgeschlagen.",
     "loadFailed": "Blockierte Nutzer konnten nicht geladen werden."
   },
+  "feedInterests": {
+    "title": "Wähle deine Interessen",
+    "subtitle": "Wähle mindestens {{min}} Themen, damit wir deinen Feed sofort anpassen können.",
+    "skip": "Überspringen",
+    "submit": "Meinen Feed anzeigen",
+    "submitCount": "{{count}}/{{min}} ausgewählt",
+    "saveFailed": "Interessen konnten nicht gespeichert werden."
+  },
   "feed": {
     "likes": "Likes",
     "comments": "Kommentare",
@@ -171,7 +180,28 @@
     "unfollow": "@{{handle}} entfolgen",
     "followHandle": "@{{handle}} folgen",
     "blockHandle": "@{{handle}} blockieren",
-    "closeMenu": "Menü schließen"
+    "closeMenu": "Menü schließen",
+    "emptyFeed": "Noch keine Beiträge im Feed",
+    "refresh": "Aktualisieren",
+    "noRankedPosts": "Keine Beiträge verfügbar. Ziehe nach unten, um es erneut zu versuchen.",
+    "loadMoreFailed": "Neue Beiträge konnten nicht geladen werden.",
+    "saveFailed": "Speichern fehlgeschlagen",
+    "linkCopied": "Link kopiert",
+    "linkCopiedBody": "Der Link ist in deiner Zwischenablage.",
+    "copyFailed": "Kopieren fehlgeschlagen",
+    "deleteConfirmTitle": "Beitrag löschen?",
+    "deleteConfirmBody": "Möchtest du diesen Beitrag wirklich löschen?",
+    "deleteFailed": "Löschen fehlgeschlagen",
+    "notInterestedConfirmedBody": "Wir zeigen diesen Beitrag und ähnliche Inhalte seltener.",
+    "notInterestedFailed": "Präferenz konnte nicht gespeichert werden.",
+    "reportThanksTitle": "Danke für deine Meldung",
+    "reportThanksBody": "Wir prüfen diesen Inhalt so schnell wie möglich.",
+    "reportFailed": "Melden fehlgeschlagen.",
+    "blockConfirmTitle": "@{{handle}} blockieren?",
+    "blockConfirmBody": "Du siehst keine Beiträge dieses Nutzers mehr und ihr folgt einander nicht mehr.",
+    "blockedTitle": "Blockiert",
+    "blockedBody": "Du siehst keine Inhalte von @{{handle}} mehr.",
+    "blockFailed": "Blockieren fehlgeschlagen."
   },
   "shop": {
     "buy": "Kaufen",
@@ -367,7 +397,17 @@
     "login": "Anmelden",
     "register": "Registrieren",
     "email": "E-Mail",
-    "password": "Passwort"
+    "password": "Passwort",
+    "createAccount": "Konto erstellen",
+    "promptWelcome": "Willkommen zurück — melde dich unten an.",
+    "promptCreate": "Erstelle ein Konto, um zu liken, zu kommentieren und hochzuladen.",
+    "promptLike": "Melde dich an oder registriere dich, um zu liken.",
+    "promptComment": "Melde dich an, um Videos zu kommentieren.",
+    "promptSave": "Melde dich an, um Beiträge zu speichern.",
+    "promptFollow": "Melde dich an, um Creators zu folgen.",
+    "promptPersonalize": "Melde dich an, um deinen Feed zu personalisieren.",
+    "promptReport": "Melde dich an, um Inhalte zu melden.",
+    "promptBlock": "Melde dich an, um Nutzer zu blockieren."
   },
   "alerts": {
     "error": "Fehler",

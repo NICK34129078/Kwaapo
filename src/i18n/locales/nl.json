@@ -13,7 +13,8 @@
     "more": "meer",
     "less": "minder",
     "product": "Product",
-    "user": "Gebruiker"
+    "user": "Gebruiker",
+    "tryAgain": "Probeer het opnieuw."
   },
   "tabs": {
     "home": "Home",
@@ -144,6 +145,14 @@
     "unblockFailed": "Deblokkeren mislukt.",
     "loadFailed": "Geblokkeerde gebruikers laden mislukt."
   },
+  "feedInterests": {
+    "title": "Kies je interesses",
+    "subtitle": "Selecteer minstens {{min}} onderwerpen zodat we je feed meteen op maat maken.",
+    "skip": "Overslaan",
+    "submit": "Toon mijn feed",
+    "submitCount": "Nog {{count}}/{{min}} gekozen",
+    "saveFailed": "Interesses opslaan mislukt."
+  },
   "feed": {
     "likes": "likes",
     "comments": "reacties",
@@ -171,7 +180,28 @@
     "unfollow": "Ontvolgen @{{handle}}",
     "followHandle": "Volgen @{{handle}}",
     "blockHandle": "Blokkeer @{{handle}}",
-    "closeMenu": "Sluit menu"
+    "closeMenu": "Sluit menu",
+    "emptyFeed": "Nog geen posts in de feed",
+    "refresh": "Vernieuwen",
+    "noRankedPosts": "Geen posts beschikbaar. Trek omlaag om opnieuw te proberen.",
+    "loadMoreFailed": "Nieuwe posts laden mislukt.",
+    "saveFailed": "Opslaan mislukt",
+    "linkCopied": "Link gekopieerd",
+    "linkCopiedBody": "De link staat op je klembord.",
+    "copyFailed": "Kopiëren mislukt",
+    "deleteConfirmTitle": "Post verwijderen?",
+    "deleteConfirmBody": "Weet je zeker dat je deze post wilt verwijderen?",
+    "deleteFailed": "Verwijderen mislukt",
+    "notInterestedConfirmedBody": "We tonen deze post en vergelijkbare content minder vaak.",
+    "notInterestedFailed": "Voorkeur kon niet worden opgeslagen.",
+    "reportThanksTitle": "Bedankt voor je melding",
+    "reportThanksBody": "We bekijken deze content zo snel mogelijk.",
+    "reportFailed": "Melden mislukt.",
+    "blockConfirmTitle": "@{{handle}} blokkeren?",
+    "blockConfirmBody": "Je ziet geen posts meer van deze gebruiker en jullie volgen elkaar niet meer.",
+    "blockedTitle": "Geblokkeerd",
+    "blockedBody": "Je ziet geen content meer van @{{handle}}.",
+    "blockFailed": "Blokkeren mislukt."
   },
   "shop": {
     "buy": "Kopen",
@@ -367,7 +397,17 @@
     "login": "Inloggen",
     "register": "Registreren",
     "email": "E-mail",
-    "password": "Wachtwoord"
+    "password": "Wachtwoord",
+    "createAccount": "Account maken",
+    "promptWelcome": "Welkom terug — log hieronder in.",
+    "promptCreate": "Maak een account om te liken, reageren en te uploaden.",
+    "promptLike": "Log in of registreer om een like te plaatsen.",
+    "promptComment": "Log in om te reageren op video’s.",
+    "promptSave": "Log in om posts op te slaan.",
+    "promptFollow": "Log in om creators te volgen.",
+    "promptPersonalize": "Log in om je feed te personaliseren.",
+    "promptReport": "Log in om content te melden.",
+    "promptBlock": "Log in om gebruikers te blokkeren."
   },
   "alerts": {
     "error": "Fout",

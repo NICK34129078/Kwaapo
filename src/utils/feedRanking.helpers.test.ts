@@ -41,6 +41,18 @@ export function runFeedRankingHelperTests(): void {
 
   const empty = buildRankedFeedBatch([]);
   assert(empty.length === 0, "empty rpc returns empty feed");
+
+  // Server bepaalt de tagged/untagged mix: client mag niets droppen of herordenen.
+  const serverMix = buildRankedFeedBatch([
+    post("t1", ["tag"]),
+    post("u1"),
+    post("t2", ["tag"]),
+    post("t1", ["tag"]),
+  ]);
+  assert(
+    serverMix.map((p) => p.id).join(",") === "t1,u1,t2",
+    "ranked batch preserves server order incl. untagged and dedupes"
+  );
 }
 
 if (require.main === module) {

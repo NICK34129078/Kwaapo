@@ -43,6 +43,7 @@ import { useAuth } from "../context/AuthContext";
 import { useAuthPrompt } from "../context/AuthPromptContext";
 import { useReelLike } from "../context/LikesContext";
 import { recordProductClick } from "../services/productClicksService";
+import { queueContentInteraction } from "../services/contentInteractionsService";
 import { isPersistablePostId } from "../services/postLikesService";
 import {
   getCachedSavedStatus,
@@ -661,7 +662,7 @@ export function FeedItem({
   const onLikePress = () => {
     if (user == null) {
       openAuthPrompt({
-        message: "Log in of registreer om een like te plaatsen.",
+        message: t("auth.promptLike"),
       });
       return;
     }
@@ -671,7 +672,7 @@ export function FeedItem({
   const onCommentPress = () => {
     if (user == null) {
       openAuthPrompt({
-        message: "Log in om te reageren op video’s.",
+        message: t("auth.promptComment"),
       });
       return;
     }
@@ -765,7 +766,7 @@ export function FeedItem({
   const onSavePress = () => {
     if (user == null) {
       openAuthPrompt({
-        message: "Log in om posts op te slaan.",
+        message: t("auth.promptSave"),
       });
       return;
     }
@@ -781,7 +782,7 @@ export function FeedItem({
     void action
       .catch(() => {
         setIsSaved(!next); // rollback bij fout
-        Alert.alert("Opslaan mislukt", "Probeer het opnieuw.");
+        Alert.alert(t("feed.saveFailed"), t("common.tryAgain"));
       })
       .finally(() => {
         saveBusyRef.current = false;
@@ -834,16 +835,16 @@ export function FeedItem({
     void (async () => {
       try {
         await Clipboard.setStringAsync(buildPublicPostShareUrl(item));
-        Alert.alert("Link gekopieerd", "De link staat op je klembord.");
+        Alert.alert(t("feed.linkCopied"), t("feed.linkCopiedBody"));
       } catch {
-        Alert.alert("Kopiëren mislukt", "Probeer het opnieuw.");
+        Alert.alert(t("feed.copyFailed"), t("common.tryAgain"));
       }
     })();
-  }, [item]);
+  }, [item, t]);
 
   const onToggleFollow = useCallback(() => {
     if (user == null) {
-      requireAuth("Log in om creators te volgen.");
+      requireAuth(t("auth.promptFollow"));
       return;
     }
     if (!targetProfileId || isOwnPost || followBusy) {
@@ -901,12 +902,12 @@ export function FeedItem({
       return;
     }
     Alert.alert(
-      "Post verwijderen?",
-      "Weet je zeker dat je deze post wilt verwijderen?",
+      t("feed.deleteConfirmTitle"),
+      t("feed.deleteConfirmBody"),
       [
-        { text: "Annuleren", style: "cancel" },
+        { text: t("common.cancel"), style: "cancel" },
         {
-          text: "Verwijderen",
+          text: t("common.delete"),
           style: "destructive",
           onPress: () => {
             setDeleteBusy(true);
@@ -916,8 +917,8 @@ export function FeedItem({
                 onRequestRemove?.(item.id);
               } catch (e) {
                 const msg =
-                  e instanceof Error ? e.message : "Verwijderen mislukt";
-                Alert.alert("Fout", msg);
+                  e instanceof Error ? e.message : t("feed.deleteFailed");
+                Alert.alert(t("alerts.error"), msg);
               } finally {
                 setDeleteBusy(false);
               }
@@ -926,11 +927,11 @@ export function FeedItem({
         },
       ]
     );
-  }, [deleteBusy, isOwnPost, item.id, onRequestRemove]);
+  }, [deleteBusy, isOwnPost, item.id, onRequestRemove, t]);
 
   const onNotInterested = useCallback(() => {
     if (user == null) {
-      requireAuth("Log in om je feed te personaliseren.");
+      requireAuth(t("auth.promptPersonalize"));
       return;
     }
     if (!isPersistablePostId(item.id) || moderationBusy) {
@@ -942,27 +943,27 @@ export function FeedItem({
         await markNotInterested(item.id);
         onRequestRemove?.(item.id);
         Alert.alert(
-          "Niet geïnteresseerd",
-          "We tonen deze post en vergelijkbare content minder vaak."
+          t("feed.notInterested"),
+          t("feed.notInterestedConfirmedBody")
         );
       } catch (e) {
         Alert.alert(
-          "Fout",
-          getReadableErrorMessage(e, "Voorkeur kon niet worden opgeslagen.")
+          t("alerts.error"),
+          getReadableErrorMessage(e, t("feed.notInterestedFailed"))
         );
       } finally {
         setModerationBusy(false);
       }
     })();
-  }, [item.id, moderationBusy, onRequestRemove, requireAuth, user]);
+  }, [item.id, moderationBusy, onRequestRemove, requireAuth, t, user]);
 
   const onReport = useCallback(() => {
     if (user == null) {
-      requireAuth("Log in om content te melden.");
+      requireAuth(t("auth.promptReport"));
       return;
     }
     setReportReasonVisible(true);
-  }, [requireAuth, user]);
+  }, [requireAuth, t, user]);
 
   const onSubmitReport = useCallback(
     (reason: string) => {
@@ -975,25 +976,25 @@ export function FeedItem({
           await reportPost(item.id, reason as ReportReason);
           onRequestRemove?.(item.id);
           Alert.alert(
-            "Bedankt voor je melding",
-            "We bekijken deze content zo snel mogelijk."
+            t("feed.reportThanksTitle"),
+            t("feed.reportThanksBody")
           );
         } catch (e) {
           Alert.alert(
-            "Fout",
-            getReadableErrorMessage(e, "Melden mislukt.")
+            t("alerts.error"),
+            getReadableErrorMessage(e, t("feed.reportFailed"))
           );
         } finally {
           setModerationBusy(false);
         }
       })();
     },
-    [item.id, moderationBusy, onRequestRemove]
+    [item.id, moderationBusy, onRequestRemove, t]
   );
 
   const onBlock = useCallback(() => {
     if (user == null) {
-      requireAuth("Log in om gebruikers te blokkeren.");
+      requireAuth(t("auth.promptBlock"));
       return;
     }
     if (!targetProfileId || moderationBusy) {
@@ -1001,12 +1002,12 @@ export function FeedItem({
     }
     const handle = resolvePostUsername(item);
     Alert.alert(
-      `@${handle} blokkeren?`,
-      "Je ziet geen posts meer van deze gebruiker en jullie volgen elkaar niet meer.",
+      t("feed.blockConfirmTitle", { handle }),
+      t("feed.blockConfirmBody"),
       [
-        { text: "Annuleren", style: "cancel" },
+        { text: t("common.cancel"), style: "cancel" },
         {
-          text: "Blokkeren",
+          text: t("feed.block"),
           style: "destructive",
           onPress: () => {
             setModerationBusy(true);
@@ -1017,13 +1018,13 @@ export function FeedItem({
                 onRequestRemoveAuthor?.(targetProfileId);
                 onRequestRemove?.(item.id);
                 Alert.alert(
-                  "Geblokkeerd",
-                  `Je ziet geen content meer van @${handle}.`
+                  t("feed.blockedTitle"),
+                  t("feed.blockedBody", { handle })
                 );
               } catch (e) {
                 Alert.alert(
-                  "Fout",
-                  getReadableErrorMessage(e, "Blokkeren mislukt.")
+                  t("alerts.error"),
+                  getReadableErrorMessage(e, t("feed.blockFailed"))
                 );
               } finally {
                 setModerationBusy(false);
@@ -1039,6 +1040,7 @@ export function FeedItem({
     onRequestRemove,
     onRequestRemoveAuthor,
     requireAuth,
+    t,
     targetProfileId,
     user,
   ]);
@@ -1062,6 +1064,7 @@ export function FeedItem({
     if (item.linkedProduct) {
       void (async () => {
         if (user != null && isPersistablePostId(item.id)) {
+          queueContentInteraction({ postId: item.id, eventType: "product_opened" });
           await recordProductClick(item.id, clickSource);
         }
         navigation.navigate("ProductDetail", {
@@ -1079,6 +1082,7 @@ export function FeedItem({
 
     void (async () => {
       if (user != null && isPersistablePostId(item.id)) {
+        queueContentInteraction({ postId: item.id, eventType: "product_opened" });
         await recordProductClick(item.id, clickSource);
       }
       try {

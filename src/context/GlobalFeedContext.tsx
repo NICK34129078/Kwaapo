@@ -33,7 +33,20 @@ import {
   trimReelsFeedWindow,
 } from "../utils/feedRollingWindow";
 import { resolveLoadMoreBatchDecision } from "../utils/globalFeedLoadMore";
+import {
+  FEED_ERROR_KEYS,
+  isStaleFeedGeneration,
+  resolveRefreshEmptyOutcome,
+  resolveRefreshErrorOutcome,
+  shouldSkipRefresh,
+} from "../utils/globalFeedRefresh";
+import {
+  MAX_CONSECUTIVE_SAME_CREATOR,
+  respaceFeedByCreator,
+  trailingCreatorIds,
+} from "../utils/feedCreatorSpacing";
 import { pruneSavedStatusCache } from "../services/savedPostsService";
+import { reportFeedFetch } from "../services/feedObservability";
 
 const FEED_BATCH = REELS_WINDOW.LOAD_BATCH;
 
@@ -45,6 +58,8 @@ type RefreshOptions = {
 
 type FetchBatchOptions = {
   allowRecentlyViewed?: boolean;
+  /** Which context the fetch runs in, for feed observability. */
+  phase?: "refresh" | "loadMore";
 };
 
 type GlobalFeedValue = {
@@ -86,8 +101,8 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
     return filterFeedPostsByMuteSets(posts, muteSetsRef.current);
   }, []);
 
-  const registerPostsInSeen = useCallback((posts: readonly UserVideoPost[]) => {
-    seenPostIdsRef.current.addMany(posts.map((p) => p.id));
+  const registerIdsInSeen = useCallback((ids: readonly string[]) => {
+    seenPostIdsRef.current.addMany(ids);
   }, []);
 
   const onPostsRemovedFromWindow = useCallback(
@@ -151,9 +166,21 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
         isLoggedIn: user?.id != null,
         allowRecentlyViewed: options?.allowRecentlyViewed === true,
       });
+      const filtered = applyMuteFilter(result.posts);
+      reportFeedFetch({
+        phase: options?.phase ?? "refresh",
+        source: result.source,
+        postCount: filtered.length,
+        rawCount: result.posts.length,
+        hadError: result.lastError != null,
+      });
       return {
         ...result,
-        posts: applyMuteFilter(result.posts),
+        posts: filtered,
+        // Server-aantallen vóór mute-filter: bepalen hasMore/paginatie, anders
+        // stopt infinite scroll zodra een geblokkeerde auteur de batch vult.
+        rawCount: result.posts.length,
+        rawIds: result.posts.map((p) => p.id),
       };
     },
     [user?.id, applyMuteFilter]
@@ -165,9 +192,11 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
       const allowRecentlyViewed =
         options?.allowRecentlyViewed === true || force;
       if (
-        !force &&
-        hasLoadedOnce &&
-        globalFeedPostsRef.current.length > 0
+        shouldSkipRefresh({
+          force,
+          hasLoadedOnce,
+          currentPostCount: globalFeedPostsRef.current.length,
+        })
       ) {
         return;
       }
@@ -184,26 +213,35 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
 
       try {
         await loadMuteSets();
-        if (generation !== feedGenerationRef.current) {
+        if (isStaleFeedGeneration(generation, feedGenerationRef.current)) {
           return;
         }
 
-        const { posts: rankedBatch, lastError } = await fetchRankedFeedBatch(
-          FEED_BATCH,
-          [],
-          { allowRecentlyViewed }
-        );
+        const {
+          posts: rankedBatch,
+          rawCount,
+          rawIds,
+          lastError,
+        } = await fetchRankedFeedBatch(FEED_BATCH, [], {
+          allowRecentlyViewed,
+          phase: "refresh",
+        });
 
-        if (generation !== feedGenerationRef.current) {
+        if (isStaleFeedGeneration(generation, feedGenerationRef.current)) {
           return;
         }
 
         if (rankedBatch.length === 0) {
-          const msg =
-            lastError ??
-            "Geen gerankte posts beschikbaar. Trek omlaag om opnieuw te proberen.";
-          if (hadPostsBeforeRefresh) {
-            setGlobalFeedError(msg);
+          if (__DEV__ && lastError) {
+            console.warn("[GlobalFeed] refresh empty:", lastError);
+          }
+          const emptyOutcome = resolveRefreshEmptyOutcome({
+            hadPostsBefore: hadPostsBeforeRefresh,
+            rawCount,
+            batchTarget: FEED_BATCH,
+          });
+          if (emptyOutcome.keepExistingPosts) {
+            setGlobalFeedError(emptyOutcome.errorKey);
             setHasLoadedOnce(true);
             if (__DEV__) {
               console.warn("[GlobalFeed] refresh empty - keeping existing posts");
@@ -211,34 +249,40 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
             return;
           }
           setGlobalFeedPosts([]);
-          setHasMoreRankedFeed(false);
-          setGlobalFeedError(msg);
+          if (emptyOutcome.setHasMore != null) {
+            setHasMoreRankedFeed(emptyOutcome.setHasMore);
+          }
+          setGlobalFeedError(emptyOutcome.errorKey);
           setHasLoadedOnce(true);
           return;
         }
 
         setHasMoreRankedFeed(true);
 
-        const merged = buildRankedFeedBatch(rankedBatch);
+        // Creator-fatigue cap: server only soft-penalises repeat creators, so
+        // hard-cap consecutive posts client-side (order-preserving, not a re-rank).
+        const merged = respaceFeedByCreator(buildRankedFeedBatch(rankedBatch));
         logForYouControlledMix(merged);
-        registerPostsInSeen(merged);
+        registerIdsInSeen(rawIds);
         setGlobalFeedPosts(merged);
+        syncFeedLikeState(merged);
         setGlobalFeedError(null);
         setHasLoadedOnce(true);
       } catch (e) {
-        if (generation !== feedGenerationRef.current) {
+        if (isStaleFeedGeneration(generation, feedGenerationRef.current)) {
           return;
         }
-        const msg =
-          e instanceof Error ? e.message : "Feed kon niet geladen worden";
-        setGlobalFeedError(msg);
-        if (!hadPostsBeforeRefresh) {
+        if (__DEV__) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.warn("[GlobalFeed] refresh failed:", msg);
+        }
+        const errorOutcome = resolveRefreshErrorOutcome(hadPostsBeforeRefresh);
+        setGlobalFeedError(errorOutcome.errorKey);
+        if (errorOutcome.clearPosts) {
           setGlobalFeedPosts([]);
-        } else if (__DEV__) {
-          console.warn("[GlobalFeed] refresh failed - keeping existing posts", msg);
         }
       } finally {
-        if (generation === feedGenerationRef.current) {
+        if (!isStaleFeedGeneration(generation, feedGenerationRef.current)) {
           setGlobalFeedLoading(false);
         }
       }
@@ -247,8 +291,9 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
       resetPaginationState,
       hasLoadedOnce,
       loadMuteSets,
-      registerPostsInSeen,
+      registerIdsInSeen,
       fetchRankedFeedBatch,
+      syncFeedLikeState,
     ]
   );
 
@@ -264,40 +309,48 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
     try {
       let staleRounds = 0;
 
-      while (generation === feedGenerationRef.current) {
+      while (!isStaleFeedGeneration(generation, feedGenerationRef.current)) {
         const allowRecentlyViewed = staleRounds >= 2;
         const exclude = excludeIdsForRpc(seenPostIdsRef.current);
-        const { posts: batch, lastError } = await fetchRankedFeedBatch(
-          REELS_WINDOW.LOAD_BATCH,
-          exclude,
-          { allowRecentlyViewed }
-        );
+        const { posts: batch, rawCount, rawIds, lastError } =
+          await fetchRankedFeedBatch(REELS_WINDOW.LOAD_BATCH, exclude, {
+            allowRecentlyViewed,
+            phase: "loadMore",
+          });
 
-        if (generation !== feedGenerationRef.current) {
+        if (isStaleFeedGeneration(generation, feedGenerationRef.current)) {
           return;
         }
 
         const unseen = filterUnseenPosts(batch, seenPostIdsRef.current);
-        const append = buildRankedFeedBatch(unseen);
+        // Respace against the tail already on screen so an append can't extend
+        // a run that ends the current window.
+        const append = respaceFeedByCreator(buildRankedFeedBatch(unseen), {
+          precedingCreators: trailingCreatorIds(
+            globalFeedPostsRef.current,
+            MAX_CONSECUTIVE_SAME_CREATOR
+          ),
+        });
         const decision = resolveLoadMoreBatchDecision(
-          batch.length,
+          rawCount,
           append.length,
           staleRounds
         );
 
         if (append.length > 0) {
-          registerPostsInSeen(append);
+          registerIdsInSeen(rawIds);
           setGlobalFeedPosts((prev) => appendUniqueFeedPosts(prev, append));
+          syncFeedLikeState(append);
           return;
         }
 
-        if (batch.length > 0) {
-          registerPostsInSeen(batch);
+        if (rawIds.length > 0) {
+          registerIdsInSeen(rawIds);
         }
 
         if (decision.stopHasMore) {
           setHasMoreRankedFeed(false);
-          if (batch.length === 0 && lastError && __DEV__) {
+          if (rawCount === 0 && lastError && __DEV__) {
             console.warn("[GlobalFeed] loadMore ranked empty:", lastError);
           }
           return;
@@ -306,17 +359,16 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
         staleRounds++;
       }
     } catch (e) {
-      const msg =
-        e instanceof Error ? e.message : "Kon geen extra posts laden";
-      setGlobalFeedError(msg);
       if (__DEV__) {
+        const msg = e instanceof Error ? e.message : String(e);
         console.warn("[GlobalFeed] loadMore failed:", msg);
       }
+      setGlobalFeedError(FEED_ERROR_KEYS.loadMoreFailed);
     } finally {
       loadMoreInFlightRef.current = false;
       setIsLoadingMoreFeed(false);
     }
-  }, [hasMoreFeed, registerPostsInSeen, fetchRankedFeedBatch]);
+  }, [hasMoreFeed, registerIdsInSeen, fetchRankedFeedBatch, syncFeedLikeState]);
 
   const removePostFromFeed = useCallback((postId: string) => {
     muteSetsRef.current.hiddenPostIds.add(postId);
@@ -330,13 +382,6 @@ export function GlobalFeedProvider({ children }: { children: React.ReactNode }) 
       prev.filter((p) => p.ownerProfileId !== profileId)
     );
   }, []);
-
-  useEffect(() => {
-    if (globalFeedPosts.length === 0) {
-      return;
-    }
-    syncFeedLikeState(globalFeedPosts);
-  }, [user?.id, globalFeedPosts, syncFeedLikeState]);
 
   const value = useMemo(
     () => ({

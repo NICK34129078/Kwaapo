@@ -72,6 +72,44 @@ function hasSecret(env, name) {
 }
 
 /**
+ * Best-effort rate limit via a Cloudflare Workers rate-limiting binding.
+ * Fails open when the binding is not configured (e.g. local dev), so it never
+ * blocks legitimate traffic on misconfiguration — it only blunts abuse in prod.
+ * @param {any} env
+ * @param {string} limiterName
+ * @param {string} key
+ * @returns {Promise<boolean>} true if the request may proceed
+ */
+async function enforceRateLimit(env, limiterName, key) {
+  const limiter = env?.[limiterName];
+  if (!limiter || typeof limiter.limit !== "function") {
+    return true;
+  }
+  try {
+    const { success } = await limiter.limit({ key });
+    return success !== false;
+  } catch {
+    return true;
+  }
+}
+
+/** Per-client rate-limit key. Prefer the real client IP; fall back to a constant. */
+function rateLimitKey(request, scope) {
+  const ip =
+    request.headers.get("CF-Connecting-IP") ||
+    request.headers.get("cf-connecting-ip") ||
+    "unknown";
+  return `${scope}:${ip}`;
+}
+
+function tooManyRequests() {
+  return json(
+    { success: false, message: "Too many requests. Please slow down and try again." },
+    429
+  );
+}
+
+/**
  * Parse an HTTP Range header like `bytes=0-1023`, `bytes=1024-` or `bytes=-1024`.
  * Returns null if absent, and throws on invalid/unsatisfiable format.
  * @param {string | null} rangeHeader
@@ -179,6 +217,35 @@ function isAllowedStreamVideoKey(key) {
   return isAllowedVideoKey(key) || isAllowedDirectVideoR2Key(key);
 }
 
+/** Extract the post UUID embedded in a direct-upload video key. */
+function extractPostIdFromVideoKey(key) {
+  const m =
+    /^videos\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\//i.exec(
+      key || ""
+    );
+  return m ? m[1] : null;
+}
+
+/** Owner (posts.user_id) of an existing post, or null if no post row yet. */
+async function fetchExistingPostOwner(env, postId) {
+  if (!isStandardUuid(postId)) {
+    return null;
+  }
+  const rows = await supabaseRequest(
+    env,
+    "GET",
+    `/posts?id=eq.${encodeURIComponent(postId)}&select=user_id&limit=1`
+  );
+  if (
+    Array.isArray(rows) &&
+    rows.length > 0 &&
+    typeof rows[0].user_id === "string"
+  ) {
+    return rows[0].user_id;
+  }
+  return null;
+}
+
 function sanitizeVideoFileName(name) {
   if (!name || typeof name !== "string") return "video";
   const base = name.split(/[/\\]/).pop() || "video";
@@ -272,9 +339,33 @@ async function handleVideoPut(request, url, env) {
   if (!request.body) {
     return json({ success: false, message: "empty upload body" }, 400);
   }
+
+  // Prevent hijacking another user's media. The r2Key is public (it appears in
+  // every feed item's video_url), so without these checks any authenticated
+  // user could PUT new bytes over someone else's video.
+  const keyPostId = extractPostIdFromVideoKey(r2Key);
+  const existingPostOwner = await fetchExistingPostOwner(env, keyPostId);
+  if (existingPostOwner && existingPostOwner !== auth.userId) {
+    return json(
+      { success: false, message: "forbidden: post belongs to another user" },
+      403
+    );
+  }
+  const existingObject = await env.VIDEOS.head(r2Key);
+  if (existingObject) {
+    const uploadedBy = existingObject.customMetadata?.uploadedBy;
+    if (uploadedBy && uploadedBy !== auth.userId) {
+      return json(
+        { success: false, message: "forbidden: object owned by another user" },
+        403
+      );
+    }
+  }
+
   try {
     await env.VIDEOS.put(r2Key, request.body, {
       httpMetadata: { contentType },
+      customMetadata: { uploadedBy: auth.userId },
     });
     const head = await env.VIDEOS.head(r2Key);
     if (!head || typeof head.size !== "number" || head.size <= 0) {
@@ -1587,6 +1678,9 @@ export default {
     }
 
     if (request.method === "PUT" && url.searchParams.get("videoPut") === "1") {
+      if (!(await enforceRateLimit(env, "UPLOAD_LIMITER", rateLimitKey(request, "upload")))) {
+        return tooManyRequests();
+      }
       return handleVideoPut(request, url, env);
     }
     const file = url.searchParams.get("file");
@@ -1702,6 +1796,9 @@ export default {
     }
 
     if (request.method === "GET" && url.searchParams.get("spotifySearch") === "1") {
+      if (!(await enforceRateLimit(env, "SPOTIFY_LIMITER", rateLimitKey(request, "spotify")))) {
+        return tooManyRequests();
+      }
       return handleSpotifySearch(request, env, cors);
     }
 
@@ -1904,24 +2001,42 @@ export default {
         return handleStripeConnectPayoutManageLink(request, env, cors);
       }
       if (url.searchParams.get("kvkVerify") === "1") {
+        if (!(await enforceRateLimit(env, "KVK_LIMITER", rateLimitKey(request, "kvk")))) {
+          return tooManyRequests();
+        }
         return handleKvkVerify(request, env, cors);
       }
       if (url.searchParams.get("spotifyResolveTrack") === "1") {
+        if (!(await enforceRateLimit(env, "SPOTIFY_LIMITER", rateLimitKey(request, "spotify")))) {
+          return tooManyRequests();
+        }
         return handleSpotifyResolveTrack(request, env, cors);
       }
       if (url.searchParams.get("stripeWebhook") === "1") {
         return handleStripeWebhook(request, env);
       }
       if (url.searchParams.get("uploadInit") === "1") {
+        if (!(await enforceRateLimit(env, "UPLOAD_LIMITER", rateLimitKey(request, "upload")))) {
+          return tooManyRequests();
+        }
         return handleUploadInit(request, url, env);
       }
       if (url.searchParams.get("uploadComplete") === "1") {
+        if (!(await enforceRateLimit(env, "UPLOAD_LIMITER", rateLimitKey(request, "upload")))) {
+          return tooManyRequests();
+        }
         return handleUploadComplete(request, env);
       }
       if (url.searchParams.get("uploadThumbnail") === "1") {
+        if (!(await enforceRateLimit(env, "UPLOAD_LIMITER", rateLimitKey(request, "upload")))) {
+          return tooManyRequests();
+        }
         return handleUploadThumbnail(request, env);
       }
 
+      if (!(await enforceRateLimit(env, "UPLOAD_LIMITER", rateLimitKey(request, "upload")))) {
+        return tooManyRequests();
+      }
       const auth = await requireAuthUser(request, env, cors);
       if (auth.error) {
         return auth.error;

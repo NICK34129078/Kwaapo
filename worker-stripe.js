@@ -1263,22 +1263,57 @@ function hexFromBuffer(buffer) {
     .join("");
 }
 
+/** Constant-time string compare — avoids leaking the signature via timing. */
+function timingSafeEqualHex(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) {
+    return false;
+  }
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
+/** Stripe's recommended replay-tolerance window (seconds). */
+const STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300;
+
 async function verifyStripeWebhook(payload, sigHeader, secret) {
   if (!sigHeader || !secret) {
     throw new Error("Missing webhook signature or secret");
   }
   const parts = {};
+  // Stripe may send multiple v1 signatures (during secret rotation).
+  const v1Signatures = [];
   for (const item of sigHeader.split(",")) {
-    const [k, v] = item.split("=");
-    if (k && v) {
-      parts[k.trim()] = v.trim();
+    const idx = item.indexOf("=");
+    if (idx <= 0) {
+      continue;
+    }
+    const k = item.slice(0, idx).trim();
+    const v = item.slice(idx + 1).trim();
+    if (k === "v1") {
+      v1Signatures.push(v);
+    } else if (k) {
+      parts[k] = v;
     }
   }
   const t = parts.t;
-  const v1 = parts.v1;
-  if (!t || !v1) {
+  if (!t || v1Signatures.length === 0) {
     throw new Error("Invalid Stripe-Signature header");
   }
+
+  // Replay protection: reject stale or future-dated timestamps. Stripe re-signs
+  // each delivery attempt with a fresh timestamp, so legitimate retries pass.
+  const timestamp = Number(t);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error("Invalid Stripe-Signature timestamp");
+  }
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (Math.abs(nowSeconds - timestamp) > STRIPE_WEBHOOK_TOLERANCE_SECONDS) {
+    throw new Error("Stripe webhook timestamp outside tolerance");
+  }
+
   const signedPayload = `${t}.${payload}`;
   const keyBytes = webhookSecretBytes(secret);
   const cryptoKey = await crypto.subtle.importKey(
@@ -1294,7 +1329,10 @@ async function verifyStripeWebhook(payload, sigHeader, secret) {
     new TextEncoder().encode(signedPayload)
   );
   const expected = hexFromBuffer(sig);
-  if (expected !== v1) {
+  const matched = v1Signatures.some((candidate) =>
+    timingSafeEqualHex(expected, candidate)
+  );
+  if (!matched) {
     throw new Error("Webhook signature mismatch");
   }
 }

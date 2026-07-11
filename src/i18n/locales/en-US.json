@@ -13,7 +13,8 @@
     "more": "more",
     "less": "less",
     "product": "Product",
-    "user": "User"
+    "user": "User",
+    "tryAgain": "Please try again."
   },
   "tabs": {
     "home": "Home",
@@ -144,6 +145,14 @@
     "unblockFailed": "Unblock failed.",
     "loadFailed": "Could not load blocked users."
   },
+  "feedInterests": {
+    "title": "Pick your interests",
+    "subtitle": "Choose at least {{min}} topics so we can tailor your feed right away.",
+    "skip": "Skip",
+    "submit": "Show my feed",
+    "submitCount": "{{count}}/{{min}} selected",
+    "saveFailed": "Could not save interests."
+  },
   "feed": {
     "likes": "likes",
     "comments": "comments",
@@ -171,7 +180,28 @@
     "unfollow": "Unfollow @{{handle}}",
     "followHandle": "Follow @{{handle}}",
     "blockHandle": "Block @{{handle}}",
-    "closeMenu": "Close menu"
+    "closeMenu": "Close menu",
+    "emptyFeed": "No posts in the feed yet",
+    "refresh": "Refresh",
+    "noRankedPosts": "No posts available. Pull down to try again.",
+    "loadMoreFailed": "Couldn’t load more posts.",
+    "saveFailed": "Save failed",
+    "linkCopied": "Link copied",
+    "linkCopiedBody": "The link is on your clipboard.",
+    "copyFailed": "Copy failed",
+    "deleteConfirmTitle": "Delete post?",
+    "deleteConfirmBody": "Are you sure you want to delete this post?",
+    "deleteFailed": "Delete failed",
+    "notInterestedConfirmedBody": "We’ll show this post and similar content less often.",
+    "notInterestedFailed": "Couldn’t save your preference.",
+    "reportThanksTitle": "Thanks for your report",
+    "reportThanksBody": "We’ll review this content as soon as possible.",
+    "reportFailed": "Report failed.",
+    "blockConfirmTitle": "Block @{{handle}}?",
+    "blockConfirmBody": "You won’t see posts from this user anymore and you’ll no longer follow each other.",
+    "blockedTitle": "Blocked",
+    "blockedBody": "You won’t see content from @{{handle}} anymore.",
+    "blockFailed": "Blocking failed."
   },
   "shop": {
     "buy": "Buy",
@@ -367,7 +397,17 @@
     "login": "Log in",
     "register": "Register",
     "email": "Email",
-    "password": "Password"
+    "password": "Password",
+    "createAccount": "Create account",
+    "promptWelcome": "Welcome back — log in below.",
+    "promptCreate": "Create an account to like, comment and upload.",
+    "promptLike": "Log in or register to like posts.",
+    "promptComment": "Log in to comment on videos.",
+    "promptSave": "Log in to save posts.",
+    "promptFollow": "Log in to follow creators.",
+    "promptPersonalize": "Log in to personalize your feed.",
+    "promptReport": "Log in to report content.",
+    "promptBlock": "Log in to block users."
   },
   "alerts": {
     "error": "Error",

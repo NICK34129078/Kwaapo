@@ -13,6 +13,9 @@ export type LoadMoreBatchDecision = {
 /**
  * Decides how to handle a load-more batch when nothing new can be appended.
  * Retries before declaring end-of-feed — short or duplicate batches do not imply exhaustion.
+ *
+ * `batchLength` moet het RUWE serveraantal zijn (vóór client-side mute-filter),
+ * anders eindigt paginatie te vroeg zodra een geblokkeerde auteur de batch vult.
  */
 export function resolveLoadMoreBatchDecision(
   batchLength: number,

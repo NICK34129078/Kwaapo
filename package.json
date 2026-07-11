@@ -22,7 +22,11 @@
     "validate:release:production": "node scripts/validate-release-config.mjs production",
     "test:release-config": "npx tsx src/config/releaseConfig.test.ts",
     "test:buyer-orders": "npx tsx src/utils/buyerOrders.test.ts",
-    "test:in-app-notifications": "npx tsx src/utils/inAppNotification.test.ts"
+    "test:in-app-notifications": "npx tsx src/utils/inAppNotification.test.ts",
+    "test:feed-telemetry": "npx tsx src/utils/feedTelemetry.test.ts",
+    "test:ranked-feed-ladder": "npx tsx src/utils/rankedFeedLadder.test.ts",
+    "test:global-feed-refresh": "npx tsx src/utils/globalFeedRefresh.test.ts",
+    "test:feed": "npm run test:feed-telemetry && npm run test:ranked-feed-ladder && npm run test:global-feed-refresh && npx tsx src/utils/feedRanking.helpers.test.ts && npx tsx src/utils/feedMuteFilter.test.ts && npx tsx src/utils/globalFeedLoadMore.test.ts && npx tsx src/services/commentLearning.test.ts && npx tsx src/utils/feedCreatorSpacing.test.ts && npx tsx src/utils/feedInterests.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

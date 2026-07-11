@@ -13,6 +13,7 @@ import {
   type ProductRow,
 } from "../types/product";
 import { filterLinkableUploadProducts } from "../utils/linkableUploadProducts";
+import { sanitizePostgrestFilterValue } from "../utils/postgrestFilter";
 import { addProductStock } from "./productStockService";
 
 const PRODUCT_COLUMNS =
@@ -107,18 +108,23 @@ export async function fetchShopProducts(
     .limit(cap);
 
   if (category.length > 0 && category.toLowerCase() !== "alle") {
-    const safeCategory = category.replace(/[%_]/g, "");
-    const categoryPattern = `%${safeCategory}%`;
-    builder = builder.or(
-      `category.ilike.${categoryPattern},name.ilike.${categoryPattern},description.ilike.${categoryPattern},brand.ilike.${categoryPattern}`
-    );
+    const safeCategory = sanitizePostgrestFilterValue(category);
+    if (safeCategory.length > 0) {
+      const categoryPattern = `%${safeCategory}%`;
+      builder = builder.or(
+        `category.ilike.${categoryPattern},name.ilike.${categoryPattern},description.ilike.${categoryPattern},brand.ilike.${categoryPattern}`
+      );
+    }
   }
 
   if (q.length > 0) {
-    const pattern = `%${q.replace(/[%_]/g, "")}%`;
-    builder = builder.or(
-      `name.ilike.${pattern},brand.ilike.${pattern},description.ilike.${pattern},category.ilike.${pattern}`
-    );
+    const safeQuery = sanitizePostgrestFilterValue(q);
+    if (safeQuery.length > 0) {
+      const pattern = `%${safeQuery}%`;
+      builder = builder.or(
+        `name.ilike.${pattern},brand.ilike.${pattern},description.ilike.${pattern},category.ilike.${pattern}`
+      );
+    }
   }
 
   const { data, error } = await builder;
@@ -151,10 +157,13 @@ export async function fetchProductSeller(
     return null;
   }
 
+  // Buyer-facing seller card: safe columns only. kvk_number, business_postal_code
+  // and stripe_connect_account_id are owner-only PII/secrets (migration 0039)
+  // and are not needed here — checkout readiness is derived from the booleans.
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "id, username, display_name, avatar_url, seller_type, business_name, kvk_number, kvk_verified_at, business_city, business_postal_code, business_country, seller_onboarding_status, stripe_connect_account_id, stripe_connect_onboarding_complete, stripe_charges_enabled, stripe_payouts_enabled"
+      "id, username, display_name, avatar_url, seller_type, business_name, kvk_verified_at, business_city, business_country, seller_onboarding_status, stripe_connect_onboarding_complete, stripe_charges_enabled, stripe_payouts_enabled"
     )
     .eq("id", ownerId)
     .maybeSingle<{
@@ -164,13 +173,10 @@ export async function fetchProductSeller(
       avatar_url: string | null;
       seller_type: string | null;
       business_name: string | null;
-      kvk_number: string | null;
       kvk_verified_at: string | null;
       business_city: string | null;
-      business_postal_code: string | null;
       business_country: string | null;
       seller_onboarding_status: string | null;
-      stripe_connect_account_id: string | null;
       stripe_connect_onboarding_complete: boolean | null;
       stripe_charges_enabled: boolean | null;
       stripe_payouts_enabled: boolean | null;
@@ -190,15 +196,15 @@ export async function fetchProductSeller(
     avatarUrl: data.avatar_url,
     sellerType: isSellerType(data.seller_type) ? data.seller_type : null,
     businessName: data.business_name,
-    kvkNumber: data.kvk_number,
+    kvkNumber: null,
     kvkVerifiedAt: data.kvk_verified_at ?? null,
     businessCity: data.business_city,
-    businessPostalCode: data.business_postal_code,
+    businessPostalCode: null,
     businessCountry: data.business_country,
     sellerOnboardingStatus: isSellerOnboardingStatus(data.seller_onboarding_status)
       ? data.seller_onboarding_status
       : "not_started",
-    stripeConnectAccountId: data.stripe_connect_account_id ?? null,
+    stripeConnectAccountId: null,
     stripeConnectOnboardingComplete: data.stripe_connect_onboarding_complete === true,
     stripeChargesEnabled: data.stripe_charges_enabled === true,
     stripePayoutsEnabled: data.stripe_payouts_enabled === true,

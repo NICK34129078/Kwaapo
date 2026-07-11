@@ -34,6 +34,7 @@ import { CheckoutReviewScreen } from "./src/screens/CheckoutReviewScreen";
 import { CheckoutFailedScreen } from "./src/screens/CheckoutFailedScreen";
 import { CheckoutInfoScreen } from "./src/screens/CheckoutInfoScreen";
 import { SellerOnboardingScreen } from "./src/screens/SellerOnboardingScreen";
+import { FeedInterestsOnboardingScreen } from "./src/screens/FeedInterestsOnboardingScreen";
 import { PolicyDocumentScreen } from "./src/screens/PolicyDocumentScreen";
 import { AccountDeletionScreen } from "./src/screens/AccountDeletionScreen";
 import { BlockedUsersScreen } from "./src/screens/BlockedUsersScreen";
@@ -54,6 +55,7 @@ import { UserUploadsProvider } from "./src/context/UserUploadsContext";
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
 import { LanguageProvider, useLanguage } from "./src/context/LanguageContext";
 import { PUBLIC_SHARE_BASE } from "./src/constants/shareLinks";
+import { needsFeedInterestOnboarding } from "./src/services/feedInterestsService";
 import {
   configurePushNotificationHandlers,
   parsePushOrderDeepLink,
@@ -146,6 +148,7 @@ function AppGate() {
   const { isReady: languageReady } = useLanguage();
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
   const [navigationReady, setNavigationReady] = useState(false);
+  const interestOnboardingCheckedRef = useRef<string | null>(null);
 
   const navigatorChoice =
     loading || !themeReady || !languageReady
@@ -173,6 +176,24 @@ function AppGate() {
   React.useEffect(() => {
     void configurePushNotificationHandlers();
   }, []);
+
+  // Cold-start: show the interest picker once for brand-new users. Fails closed
+  // (any error → skip), and never re-checks the same user within a session.
+  React.useEffect(() => {
+    if (!user?.id || !navigationReady) {
+      return;
+    }
+    if (interestOnboardingCheckedRef.current === user.id) {
+      return;
+    }
+    interestOnboardingCheckedRef.current = user.id;
+    void (async () => {
+      const needs = await needsFeedInterestOnboarding();
+      if (needs && navigationRef.current != null) {
+        navigationRef.current.navigate("FeedInterestsOnboarding");
+      }
+    })();
+  }, [navigationReady, user?.id]);
 
   React.useEffect(() => {
     if (!user?.id || !navigationReady) {
@@ -338,6 +359,15 @@ function AppGate() {
                   name="SellerOnboarding"
                   component={SellerOnboardingScreen}
                   options={{ animation: "slide_from_right" }}
+                />
+                <RootStack.Screen
+                  name="FeedInterestsOnboarding"
+                  component={FeedInterestsOnboardingScreen}
+                  options={{
+                    animation: "slide_from_bottom",
+                    presentation: "fullScreenModal",
+                    gestureEnabled: false,
+                  }}
                 />
                 <RootStack.Screen
                   name="PolicyDocument"

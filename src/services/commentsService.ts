@@ -1,5 +1,7 @@
 import { supabase } from "../lib/supabase";
 import { isPersistablePostId } from "./postLikesService";
+import { buildCommentInteractionEvent } from "./commentLearning";
+import { queueContentInteraction } from "./contentInteractionsService";
 
 const COMMENT_BODY_MAX = 300;
 const FETCH_LIMIT = 50;
@@ -151,6 +153,13 @@ export async function addComment(
       throw new Error("Deze post bestaat niet meer.");
     }
     throw new Error("Reactie plaatsen mislukt.");
+  }
+
+  // Audit trail voor content_interactions; de tag/creator-learning past de
+  // server al toe binnen add_post_comment (apply_post_comment_preference).
+  const interaction = buildCommentInteractionEvent(result.post_id ?? postId);
+  if (interaction) {
+    queueContentInteraction(interaction);
   }
 
   const profiles = await fetchProfilesByIds([result.user_id]);
