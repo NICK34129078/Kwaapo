@@ -22,6 +22,7 @@ import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
+import { useTranslation } from "react-i18next";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   FeedPost,
@@ -309,6 +310,7 @@ export function FeedItem({
 }: Props) {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
+  const { t } = useTranslation();
 
   const navigation = useNavigation<any>();
   const { user } = useAuth();
