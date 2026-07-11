@@ -15,9 +15,26 @@ import { spacing } from "../constants/theme";
 import { useTheme } from "../context/ThemeContext";
 import { useThemedStyles } from "../hooks/useThemedStyles";
 import type { AppTheme } from "../constants/theme";
+import {
+  LOGIN_INVALID_CREDENTIALS_MESSAGE,
+  performLoginAttempt,
+  performRegisterAttempt,
+} from "../utils/authLoginFlow";
+import { formatAuthError } from "../utils/authErrorMessages";
+import { RegistrationTermsPanel } from "./RegistrationTermsPanel";
+import { validateRegistrationConsent } from "../utils/registrationTermsAcceptance";
+import { recordAppTermsAcceptance } from "../services/appTermsService";
 
 type PendingAction = "none" | "login" | "register" | "reset";
 const USERNAME_MAX_LENGTH = 30;
+
+function authFormLog(message: string, extra?: Record<string, unknown>): void {
+  if (extra) {
+    console.log(`[AuthCredentialsForm] ${message}`, extra);
+    return;
+  }
+  console.log(`[AuthCredentialsForm] ${message}`);
+}
 
 function isValidEmailFormat(email: string): boolean {
   const t = email.trim();
@@ -31,13 +48,15 @@ export function AuthCredentialsForm() {
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
 
-  const { signIn } = useAuth();
+  const { applyLoginSuccess } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
   const [pending, setPending] = useState<PendingAction>("none");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [confirmedMinimumAge, setConfirmedMinimumAge] = useState(false);
 
   const busy = pending !== "none";
 
@@ -73,7 +92,8 @@ export function AuthCredentialsForm() {
     }
   }, [email]);
 
-  const onLogin = useCallback(async () => {
+  const handleLogin = useCallback(async () => {
+    authFormLog("LOGIN_BUTTON_PRESSED");
     setErrorMessage(null);
     setSuccessMessage(null);
     const em = email.trim();
@@ -91,16 +111,26 @@ export function AuthCredentialsForm() {
     }
     setPending("login");
     try {
-      const { error } = await signIn(em, password);
-      if (error) {
-        setErrorMessage(error.message);
+      authFormLog("SIGN_IN_WITH_PASSWORD_CALLED", { email: em });
+      const result = await performLoginAttempt(em, password, (credentials) =>
+        supabase.auth.signInWithPassword(credentials)
+      );
+
+      if (!result.ok) {
+        authFormLog("LOGIN_FAILED", { message: result.message });
+        setErrorMessage(LOGIN_INVALID_CREDENTIALS_MESSAGE);
+        return;
       }
+
+      authFormLog("LOGIN_SUCCESS", { userId: result.user.id });
+      applyLoginSuccess(result.session, result.user);
     } finally {
       setPending("none");
     }
-  }, [email, password, signIn]);
+  }, [applyLoginSuccess, email, password]);
 
-  const onRegister = useCallback(async () => {
+  const handleRegister = useCallback(async () => {
+    authFormLog("REGISTER_BUTTON_PRESSED");
     setErrorMessage(null);
     setSuccessMessage(null);
     const em = email.trim();
@@ -136,6 +166,14 @@ export function AuthCredentialsForm() {
       setErrorMessage("Gebruik alleen letters, cijfers en underscore (_).");
       return;
     }
+    const consent = validateRegistrationConsent({
+      acceptedTerms,
+      confirmedMinimumAge,
+    });
+    if (!consent.ok) {
+      setErrorMessage(consent.message);
+      return;
+    }
     setPending("register");
     try {
       const { data: existingUsername, error: existingUsernameError } = await supabase
@@ -153,50 +191,64 @@ export function AuthCredentialsForm() {
         return;
       }
 
-      const { data, error } = await supabase.auth.signUp({
-        email: em,
-        password,
-        options: {
-          data: {
-            username: cleanUsername,
-          },
-        },
-      });
+      authFormLog("SIGN_UP_CALLED", { email: em, username: cleanUsername });
+      const result = await performRegisterAttempt(
+        { email: em, password, username: cleanUsername },
+        (credentials) => supabase.auth.signUp(credentials)
+      );
 
-      if (error) {
-        if (error.code === "23505") {
-          setErrorMessage("Deze accountnaam is al in gebruik.");
-          return;
-        }
-        setErrorMessage(error.message);
+      if (!result.ok) {
+        setErrorMessage(
+          result.message.includes("already")
+            ? formatAuthError(
+                { message: result.message, name: "AuthError", status: 400 } as any,
+                "signUp"
+              )
+            : result.message
+        );
         return;
       }
 
-      const userId = data.user?.id ?? null;
-      if (userId) {
-        const { error: updateProfileError } = await supabase
-          .from("profiles")
-          .update({ username: cleanUsername })
-          .eq("id", userId);
+      const userId = result.user.id;
+      const { error: updateProfileError } = await supabase
+        .from("profiles")
+        .update({ username: cleanUsername })
+        .eq("id", userId);
 
-        if (updateProfileError) {
-          if (updateProfileError.code === "23505") {
-            setErrorMessage("Deze accountnaam is al in gebruik.");
-            return;
-          }
-          setErrorMessage(updateProfileError.message);
+      if (updateProfileError) {
+        if (updateProfileError.code === "23505") {
+          setErrorMessage("Deze accountnaam is al in gebruik.");
           return;
         }
+        setErrorMessage(updateProfileError.message);
+        return;
       }
 
-      const needsEmailConfirmation = data.session == null && data.user != null;
-      if (needsEmailConfirmation) {
+      if (result.needsEmailConfirmation) {
         setSuccessMessage("Check je e-mail om je account te bevestigen.");
+        return;
+      }
+
+      if (result.session) {
+        applyLoginSuccess(result.session, result.user);
+      }
+
+      try {
+        await recordAppTermsAcceptance(userId);
+      } catch {
+        // Profiel-update faalt niet de registratie; acceptatie kan later opnieuw worden opgeslagen.
       }
     } finally {
       setPending("none");
     }
-  }, [cleanUsername, email, password]);
+  }, [
+    applyLoginSuccess,
+    acceptedTerms,
+    cleanUsername,
+    confirmedMinimumAge,
+    email,
+    password,
+  ]);
 
   return (
     <View>
@@ -210,6 +262,7 @@ export function AuthCredentialsForm() {
         value={email}
         onChangeText={setEmail}
         editable={!busy}
+        returnKeyType="next"
       />
       <TextInput
         style={styles.input}
@@ -219,10 +272,16 @@ export function AuthCredentialsForm() {
         value={password}
         onChangeText={setPassword}
         editable={!busy}
+        returnKeyType="done"
+        onSubmitEditing={() => {
+          if (!busy) {
+            void handleLogin();
+          }
+        }}
       />
       <TextInput
         style={styles.input}
-        placeholder="Accountnaam"
+        placeholder="Accountnaam (alleen bij registreren)"
         placeholderTextColor={theme.textMuted}
         autoCapitalize="none"
         autoCorrect={false}
@@ -257,8 +316,10 @@ export function AuthCredentialsForm() {
           pressed && styles.pressed,
           busy && styles.disabled,
         ]}
-        onPress={onLogin}
+        onPress={() => void handleLogin()}
         disabled={busy}
+        accessibilityRole="button"
+        accessibilityLabel="Inloggen"
       >
         {pending === "login" ? (
           <ActivityIndicator color={theme.bg} />
@@ -267,19 +328,29 @@ export function AuthCredentialsForm() {
         )}
       </Pressable>
 
+      <RegistrationTermsPanel
+        acceptedTerms={acceptedTerms}
+        confirmedMinimumAge={confirmedMinimumAge}
+        onAcceptedTermsChange={setAcceptedTerms}
+        onConfirmedMinimumAgeChange={setConfirmedMinimumAge}
+        disabled={busy}
+      />
+
       <Pressable
         style={({ pressed }) => [
           styles.buttonSecondary,
           pressed && styles.pressed,
           busy && styles.disabled,
         ]}
-        onPress={onRegister}
+        onPress={() => void handleRegister()}
         disabled={busy}
+        accessibilityRole="button"
+        accessibilityLabel="Account aanmaken"
       >
         {pending === "register" ? (
           <ActivityIndicator color={theme.text} />
         ) : (
-          <Text style={styles.buttonSecondaryText}>Account maken</Text>
+          <Text style={styles.buttonSecondaryText}>Account aanmaken</Text>
         )}
       </Pressable>
     </View>
@@ -360,4 +431,3 @@ function createStyles(theme: AppTheme) {
   },
 });
 }
-

@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { useTheme } from "../context/ThemeContext";
 import { useThemedStyles } from "../hooks/useThemedStyles";
 import type { AppTheme } from "../constants/theme";
@@ -156,7 +155,6 @@ function ProductImageCarousel({
 }
 
 export function ProductDetailScreen() {
-  const { t } = useTranslation();
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
 
@@ -239,10 +237,10 @@ export function ProductDetailScreen() {
 
   const sellerDisplayName = useMemo(() => {
     if (!seller) {
-      return t("productDetail.unknownSeller");
+      return "Onbekende verkoper";
     }
     return getPublicSellerBusinessName(seller, verifiedBusinessSeller);
-  }, [seller, verifiedBusinessSeller, t]);
+  }, [seller, verifiedBusinessSeller]);
 
   const sellerUsername = useMemo(() => {
     if (!seller?.username?.trim()) {
@@ -256,10 +254,10 @@ export function ProductDetailScreen() {
       return sellerUsername;
     }
     if (sellerUsername) {
-      return t("productDetail.soldBy", { handle: sellerUsername });
+      return `Verkocht door ${sellerUsername}`;
     }
-    return t("productDetail.soldByUnknown");
-  }, [sellerUsername, verifiedBusinessSeller, t]);
+    return "Verkocht door onbekende verkoper";
+  }, [sellerUsername, verifiedBusinessSeller]);
 
   const showSellerVerificationWarning = useMemo(() => {
     if (!seller || canManage) {
@@ -286,24 +284,24 @@ export function ProductDetailScreen() {
       const updated = await setProductActive(product.id, !product.isActive);
       setProduct(updated);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("productDetail.statusChangeFailed");
-      Alert.alert(t("alerts.error"), msg);
+      const msg = e instanceof Error ? e.message : "Status wijzigen mislukt.";
+      Alert.alert("Fout", msg);
     } finally {
       setBusy(false);
     }
-  }, [product, t]);
+  }, [product]);
 
   const onDelete = useCallback(() => {
     if (!product) {
       return;
     }
     Alert.alert(
-      t("productDetail.deleteTitle"),
-      t("productDetail.deleteMessage", { name: product.name }),
+      "Product verwijderen?",
+      `"${product.name}" wordt permanent verwijderd.`,
       [
-        { text: t("common.cancel"), style: "cancel" },
+        { text: "Annuleren", style: "cancel" },
         {
-          text: t("common.delete"),
+          text: "Verwijderen",
           style: "destructive",
           onPress: () => {
             void (async () => {
@@ -313,8 +311,8 @@ export function ProductDetailScreen() {
                 navigation.goBack();
               } catch (e) {
                 const msg =
-                  e instanceof Error ? e.message : t("productDetail.deleteFailed");
-                Alert.alert(t("alerts.error"), msg);
+                  e instanceof Error ? e.message : "Verwijderen mislukt.";
+                Alert.alert("Fout", msg);
               } finally {
                 setBusy(false);
               }
@@ -323,7 +321,7 @@ export function ProductDetailScreen() {
         },
       ]
     );
-  }, [navigation, product, t]);
+  }, [navigation, product]);
 
   const onSubmitProductReport = useCallback(
     async (reason: string) => {
@@ -331,28 +329,28 @@ export function ProductDetailScreen() {
         return;
       }
       if (!user) {
-        openAuthPrompt({ message: t("productDetail.reportLogin") });
+        openAuthPrompt({ message: "Log in om dit product te melden." });
         return;
       }
       setReportBusy(true);
       try {
         const { duplicate } = await reportProduct(product.id, reason);
         Alert.alert(
-          t("productDetail.thanks"),
+          "Bedankt",
           duplicate
-            ? t("productDetail.reportDuplicate")
-            : t("productDetail.reportReceived")
+            ? "We hebben je eerdere melding al ontvangen."
+            : "We beoordelen je melding zo snel mogelijk."
         );
       } catch (e) {
         Alert.alert(
-          t("productDetail.reportFailed"),
-          getReadableErrorMessage(e, t("productDetail.tryAgainLater"))
+          "Melden mislukt",
+          getReadableErrorMessage(e, "Probeer het later opnieuw.")
         );
       } finally {
         setReportBusy(false);
       }
     },
-    [openAuthPrompt, product?.id, reportBusy, t, user]
+    [openAuthPrompt, product?.id, reportBusy, user]
   );
 
   const usesVariantCheckout = useMemo(
@@ -397,13 +395,13 @@ export function ProductDetailScreen() {
     }
     if (!sellerSalesActive) {
       Alert.alert(
-        t("productDetail.unavailable"),
-        t("productDetail.unavailableMessage")
+        "Niet beschikbaar",
+        "Dit product is momenteel tijdelijk niet beschikbaar voor aankoop."
       );
       return;
     }
     if (buyBlockedBySize) {
-      Alert.alert(t("productDetail.chooseSizeTitle"), t("productDetail.chooseSizeMessage"));
+      Alert.alert("Maat kiezen", "Kies eerst een maat.");
       return;
     }
     navigation.navigate("CheckoutReview", {
@@ -421,7 +419,6 @@ export function ProductDetailScreen() {
     selectedSize,
     selectedVariant,
     sellerSalesActive,
-    t,
   ]);
 
   const onToggleSave = useCallback(() => {
@@ -429,7 +426,7 @@ export function ProductDetailScreen() {
       return;
     }
     if (!user) {
-      openAuthPrompt({ message: t("productDetail.saveLogin") });
+      openAuthPrompt({ message: "Log in om producten te bewaren." });
       return;
     }
     const next = !isSaved;
@@ -437,10 +434,10 @@ export function ProductDetailScreen() {
     void (next ? saveProductLocally(product.id) : unsaveProductLocally(product.id)).catch(
       () => {
         setIsSaved(!next);
-        Alert.alert(t("productDetail.saveFailed"), t("productDetail.tryAgain"));
+        Alert.alert("Opslaan mislukt", "Probeer het opnieuw.");
       }
     );
-  }, [isSaved, openAuthPrompt, product, t, user]);
+  }, [isSaved, openAuthPrompt, product, user]);
 
   const onSellerPress = useCallback(() => {
     if (!seller?.id) {
@@ -502,12 +499,12 @@ export function ProductDetailScreen() {
           style={styles.topBtn}
           hitSlop={10}
           accessibilityRole="button"
-          accessibilityLabel={t("common.back")}
+          accessibilityLabel="Terug"
         >
           <Ionicons name="chevron-back" size={26} color={theme.text} />
         </Pressable>
         <Text style={styles.screenTitle} numberOfLines={1}>
-          {t("productDetail.title")}
+          Product
         </Text>
         {canManage ? (
           <Pressable
@@ -515,7 +512,7 @@ export function ProductDetailScreen() {
             style={styles.topBtn}
             hitSlop={10}
             accessibilityRole="button"
-            accessibilityLabel={t("common.edit")}
+            accessibilityLabel="Bewerken"
           >
             <Ionicons name="create-outline" size={24} color={theme.accent} />
           </Pressable>
@@ -523,7 +520,7 @@ export function ProductDetailScreen() {
           <Pressable
             onPress={() => {
               if (!user) {
-                openAuthPrompt({ message: t("productDetail.reportLogin") });
+                openAuthPrompt({ message: "Log in om dit product te melden." });
                 return;
               }
               setReportVisible(true);
@@ -531,7 +528,7 @@ export function ProductDetailScreen() {
             style={styles.topBtn}
             hitSlop={10}
             accessibilityRole="button"
-            accessibilityLabel={t("productDetail.reportProduct")}
+            accessibilityLabel="Rapporteer product"
           >
             <Ionicons name="flag-outline" size={22} color={theme.text} />
           </Pressable>
@@ -546,7 +543,7 @@ export function ProductDetailScreen() {
         </View>
       ) : !product ? (
         <View style={styles.centerState}>
-          <Text style={styles.emptyText}>{t("productDetail.notFound")}</Text>
+          <Text style={styles.emptyText}>Product niet gevonden.</Text>
         </View>
       ) : (
         <>
@@ -576,7 +573,7 @@ export function ProductDetailScreen() {
               )}
               {!product.isActive && canManage ? (
                 <View style={styles.inactiveBadge}>
-                  <Text style={styles.inactiveBadgeText}>{t("productDetail.inactive")}</Text>
+                  <Text style={styles.inactiveBadgeText}>Inactief</Text>
                 </View>
               ) : null}
             </View>
@@ -618,19 +615,17 @@ export function ProductDetailScreen() {
               <Text style={styles.price}>{formatPriceEur(product.price)}</Text>
               <View style={styles.metaGrid}>
                 <View style={styles.metaPill}>
-                  <Text style={styles.metaLabel}>{t("productDetail.brand")}</Text>
-                  <Text style={styles.metaValue}>{product.brand || t("productDetail.unknown")}</Text>
+                  <Text style={styles.metaLabel}>Merk</Text>
+                  <Text style={styles.metaValue}>{product.brand || "Onbekend"}</Text>
                 </View>
                 <View style={styles.metaPill}>
-                  <Text style={styles.metaLabel}>{t("productDetail.category")}</Text>
-                  <Text style={styles.metaValue}>{product.category || t("productDetail.other")}</Text>
+                  <Text style={styles.metaLabel}>Categorie</Text>
+                  <Text style={styles.metaValue}>{product.category || "Overig"}</Text>
                 </View>
                 <View style={styles.metaPill}>
-                  <Text style={styles.metaLabel}>{t("productDetail.stock")}</Text>
+                  <Text style={styles.metaLabel}>Voorraad</Text>
                   <Text style={styles.metaValue}>
-                    {product.stock > 0
-                      ? t("productDetail.inStock", { count: product.stock })
-                      : t("productDetail.notInStock")}
+                    {product.stock > 0 ? `${product.stock} beschikbaar` : "Niet op voorraad"}
                   </Text>
                 </View>
               </View>
@@ -639,13 +634,14 @@ export function ProductDetailScreen() {
                 <View style={styles.verifyWarning}>
                   <Ionicons name="information-circle-outline" size={20} color="#f5c542" />
                   <Text style={styles.verifyWarningText}>
-                    {t("productDetail.verifyWarning")}
+                    Deze verkoper is nog niet volledig geverifieerd. Kopen is nog niet
+                    mogelijk tot het verkoopaccount is goedgekeurd.
                   </Text>
                 </View>
               ) : null}
 
               <View style={styles.sellerBlock}>
-                <Text style={styles.sellerSectionEyebrow}>{t("productDetail.soldByEyebrow")}</Text>
+                <Text style={styles.sellerSectionEyebrow}>Verkocht door</Text>
                 <View style={styles.sellerRow}>
                   <AvatarImage uri={seller?.avatarUrl} style={styles.sellerAvatar} />
                   <View style={styles.sellerTextWrap}>
@@ -660,7 +656,7 @@ export function ProductDetailScreen() {
                           color={theme.accent}
                         />
                         <Text style={styles.verifiedBadgeText}>
-                          {t("productDetail.verifiedSeller")}
+                          Geverifieerde zakelijke verkoper
                         </Text>
                       </View>
                     ) : null}
@@ -680,10 +676,10 @@ export function ProductDetailScreen() {
                       style={styles.sellerActionBtn}
                       onPress={() => setBusinessInfoVisible(true)}
                       accessibilityRole="button"
-                      accessibilityLabel={t("productDetail.viewBusinessInfo")}
+                      accessibilityLabel="Bekijk bedrijfsinformatie"
                     >
                       <Text style={styles.sellerActionBtnText}>
-                        {t("productDetail.viewBusinessInfo")}
+                        Bekijk bedrijfsinformatie
                       </Text>
                     </Pressable>
                   ) : null}
@@ -695,7 +691,7 @@ export function ProductDetailScreen() {
                     onPress={onSellerPress}
                     disabled={!seller?.id}
                     accessibilityRole="button"
-                    accessibilityLabel={t("productDetail.viewSellerProfile")}
+                    accessibilityLabel="Bekijk verkopersprofiel"
                   >
                     <Text
                       style={[
@@ -703,7 +699,7 @@ export function ProductDetailScreen() {
                         verifiedBusinessSeller && styles.sellerActionBtnTextSecondary,
                       ]}
                     >
-                      {t("productDetail.viewSellerProfile")}
+                      Bekijk verkopersprofiel
                     </Text>
                   </Pressable>
                 </View>
@@ -711,13 +707,15 @@ export function ProductDetailScreen() {
 
               {!canManage ? (
                 <Text style={styles.marketplaceNote}>
-                  {t("productDetail.marketplaceNote")}
+                  Het platform faciliteert betaling en orderinformatie. De verkoper is
+                  verantwoordelijk voor juistheid, verpakking en verzending. Controleer
+                  listing en verkoper vóór aankoop.
                 </Text>
               ) : null}
 
               {usesVariantCheckout && variants.length > 0 ? (
                 <View style={styles.section}>
-                  <Text style={styles.sectionLabel}>{t("productDetail.chooseSize")}</Text>
+                  <Text style={styles.sectionLabel}>Kies je maat</Text>
                   <View style={styles.sizeRow}>
                     {variants.map((variant) => {
                       const selected = selectedVariantId === variant.id;
@@ -739,9 +737,7 @@ export function ProductDetailScreen() {
                           }}
                           disabled={out}
                           accessibilityRole="button"
-                          accessibilityLabel={t("productDetail.sizeAccessibility", {
-                            size: variant.optionValue,
-                          })}
+                          accessibilityLabel={`Maat ${variant.optionValue}`}
                         >
                           <Text
                             style={[
@@ -754,7 +750,7 @@ export function ProductDetailScreen() {
                             {variant.optionValue}
                           </Text>
                           {out ? (
-                            <Text style={styles.sizeOutLabel}>{t("shop.outOfStock")}</Text>
+                            <Text style={styles.sizeOutLabel}>Uitverkocht</Text>
                           ) : null}
                         </Pressable>
                       );
@@ -762,16 +758,14 @@ export function ProductDetailScreen() {
                   </View>
                   {selectedVariant && selectedVariant.stock > 0 ? (
                     <Text style={styles.sizeStockHint}>
-                      {t("productDetail.sizeStockHint", {
-                        count: selectedVariant.stock,
-                        size: selectedVariant.optionValue,
-                      })}
+                      Nog {selectedVariant.stock} beschikbaar in maat{" "}
+                      {selectedVariant.optionValue}
                     </Text>
                   ) : null}
                 </View>
               ) : product.sizes.length > 0 && !usesVariantCheckout ? (
                 <View style={styles.section}>
-                  <Text style={styles.sectionLabel}>{t("productDetail.chooseSize")}</Text>
+                  <Text style={styles.sectionLabel}>Kies je maat</Text>
                   <View style={styles.sizeRow}>
                     {product.sizes.map((size) => {
                       const selected = selectedSize === size;
@@ -781,7 +775,7 @@ export function ProductDetailScreen() {
                           style={[styles.sizeChip, selected && styles.sizeChipSelected]}
                           onPress={() => setSelectedSize(size)}
                           accessibilityRole="button"
-                          accessibilityLabel={t("productDetail.sizeAccessibility", { size })}
+                          accessibilityLabel={`Maat ${size}`}
                         >
                           <Text
                             style={[
@@ -800,16 +794,16 @@ export function ProductDetailScreen() {
 
               {product.description?.trim() ? (
                 <View style={styles.section}>
-                  <Text style={styles.sectionLabel}>{t("productDetail.description")}</Text>
+                  <Text style={styles.sectionLabel}>Beschrijving</Text>
                   <Text style={styles.description}>{product.description.trim()}</Text>
                 </View>
               ) : null}
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>{t("productDetail.videosWithProduct")}</Text>
+                <Text style={styles.sectionTitle}>Video's met dit product</Text>
                 {relatedPosts.length === 0 ? (
                   <Text style={styles.mutedText}>
-                    {t("productDetail.noRelatedReels")}
+                    Er zijn nog geen reels gekoppeld aan dit product.
                   </Text>
                 ) : (
                   <FlatList
@@ -831,7 +825,7 @@ export function ProductDetailScreen() {
                         ]}
                         onPress={() => openRelatedPost(item)}
                         accessibilityRole="button"
-                        accessibilityLabel={t("productDetail.openReel")}
+                        accessibilityLabel="Open reel"
                       >
                         {item.thumbnailUrl || item.imageUrl ? (
                           <ProductListingImage
@@ -860,9 +854,9 @@ export function ProductDetailScreen() {
                     onPress={onEdit}
                     disabled={busy}
                     accessibilityRole="button"
-                    accessibilityLabel={t("productDetail.editProduct")}
+                    accessibilityLabel="Product bewerken"
                   >
-                    <Text style={styles.managePrimaryText}>{t("common.edit")}</Text>
+                    <Text style={styles.managePrimaryText}>Bewerken</Text>
                   </Pressable>
                   <Pressable
                     style={styles.manageSecondary}
@@ -870,13 +864,11 @@ export function ProductDetailScreen() {
                     disabled={busy}
                     accessibilityRole="button"
                     accessibilityLabel={
-                      product.isActive
-                        ? t("productDetail.deactivateProduct")
-                        : t("productDetail.activateProduct")
+                      product.isActive ? "Product deactiveren" : "Product activeren"
                     }
                   >
                     <Text style={styles.manageSecondaryText}>
-                      {product.isActive ? t("productDetail.deactivate") : t("productDetail.activate")}
+                      {product.isActive ? "Deactiveren" : "Activeren"}
                     </Text>
                   </Pressable>
                   <Pressable
@@ -884,9 +876,9 @@ export function ProductDetailScreen() {
                     onPress={onDelete}
                     disabled={busy}
                     accessibilityRole="button"
-                    accessibilityLabel={t("productDetail.deleteTitle")}
+                    accessibilityLabel="Product verwijderen"
                   >
-                    <Text style={styles.manageDangerText}>{t("common.delete")}</Text>
+                    <Text style={styles.manageDangerText}>Verwijderen</Text>
                   </Pressable>
                 </View>
               ) : null}
@@ -900,16 +892,14 @@ export function ProductDetailScreen() {
                   style={styles.saveBtn}
                   onPress={onToggleSave}
                   accessibilityRole="button"
-                  accessibilityLabel={
-                    isSaved ? t("productDetail.removeFromSaved") : t("productDetail.saveProduct")
-                  }
+                  accessibilityLabel={isSaved ? "Verwijder uit bewaard" : "Bewaar product"}
                 >
                   <Ionicons
                     name={isSaved ? "bookmark" : "bookmark-outline"}
                     size={22}
                     color={theme.text}
                   />
-                  <Text style={styles.saveBtnText}>{t("productDetail.save")}</Text>
+                  <Text style={styles.saveBtnText}>Bewaar</Text>
                 </Pressable>
                   <Pressable
                   style={[
@@ -922,17 +912,17 @@ export function ProductDetailScreen() {
                   accessibilityLabel={
                     sellerSalesActive
                       ? buyBlockedBySize
-                        ? t("productDetail.chooseSizeFirst")
-                        : t("productDetail.buyNow")
-                      : t("productDetail.buyUnavailable")
+                        ? "Kies eerst een maat"
+                        : "Koop nu"
+                      : "Kopen niet beschikbaar"
                   }
                 >
                   <Text style={styles.buyBtnText}>
                     {!sellerSalesActive
-                      ? t("productDetail.notForSaleYet")
+                      ? "Nog niet te koop"
                       : buyBlockedBySize
-                        ? t("productDetail.chooseSizeFirst")
-                        : t("productDetail.buyNow")}
+                        ? "Kies eerst een maat"
+                        : "Koop nu"}
                   </Text>
                 </Pressable>
               </View>
@@ -949,8 +939,8 @@ export function ProductDetailScreen() {
             onClose={() => setReportVisible(false)}
             onSubmit={(reason) => void onSubmitProductReport(reason)}
             busy={reportBusy}
-            title={t("productDetail.reportProduct")}
-            subtitle={t("productDetail.reportSubtitle")}
+            title="Rapporteer product"
+            subtitle="Je melding is anoniem voor de verkoper."
             reasons={PRODUCT_REPORT_REASONS}
           />
         </>

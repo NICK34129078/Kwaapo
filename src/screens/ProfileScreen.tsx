@@ -79,6 +79,10 @@ import { logSellerSettingsNavigation } from "../constants/sellerSettingsNavigati
 import { FullScreenImageModal } from "../components/FullScreenImageModal";
 import { hasProfileAvatar } from "../utils/resolveAvatarSource";
 import {
+  isAuthSessionError,
+  isValidAuthUser,
+} from "../utils/authSessionValidation";
+import {
   AudioPickerCard,
   AUDIO_VOLUME_NORMAL,
 } from "../components/AudioPickerCard";
@@ -206,7 +210,7 @@ function ProfileAuthenticatedScreen({
   const [uploadFlowBusy, setUploadFlowBusy] = useState(false);
   const placingPostRef = useRef(false);
   const isUploadBusy = isUploading || isCarouselUploading || uploadFlowBusy;
-  const { signOut, user } = useAuth();
+  const { signOut, user, invalidateSession } = useAuth();
   const { actionCount: openSellerOrderCount } = useSellerFulfillment();
   const { syncFeedLikeState } = useLikes();
   const targetProfileId = profileId ?? user?.id ?? null;
@@ -656,13 +660,25 @@ function ProfileAuthenticatedScreen({
       }
       return;
     }
+    if (isOwnProfile && !data) {
+      const {
+        data: { user: authUser },
+        error: authError,
+      } = await supabase.auth.getUser();
+      if (authError || !isValidAuthUser(authUser)) {
+        if (!authError || isAuthSessionError(authError)) {
+          void invalidateSession("profile_own_missing_auth_user");
+        }
+        return;
+      }
+    }
     setProfileAvatarUrl(data?.avatar_url ?? null);
     setProfileUsername((data?.username ?? "").trim());
     setProfileDisplayName((data?.display_name ?? "").trim());
     setProfileBio((data?.bio ?? "").trim());
     setProfileAccountType(normalizeAccountType(data?.account_type));
     setProfileIsPrivate(data?.is_private === true);
-  }, [targetProfileId]);
+  }, [targetProfileId, isOwnProfile, invalidateSession]);
 
   const {
     uploading: avatarUploading,

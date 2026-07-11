@@ -81,5 +81,33 @@ order by tablename, policyname;
 --   'securitytest',
 --   1.0, 1, 0, 1
 -- );
--- select user_id, tag, score from public.user_tag_preferences
--- where tag = 'securitytest';
+-- ---------------------------------------------------------------------------
+-- F. Comment/like writers use private helpers (migration 0055)
+-- ---------------------------------------------------------------------------
+select
+  p.proname as function_name,
+  case
+    when pg_get_functiondef(p.oid) ilike '%private.apply_creator_affinity%'
+      and pg_get_functiondef(p.oid) not ilike '%public.apply_creator_affinity%'
+      then 'PASS'
+    else 'FAIL'
+  end as uses_private_affinity
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in (
+    'apply_post_comment_preference',
+    'apply_post_like_preference',
+    'add_post_comment',
+    'record_content_interactions'
+  )
+order by p.proname;
+
+-- apply_post_comment_preference must NOT be executable by clients
+select
+  p.proname,
+  has_function_privilege('authenticated', p.oid, 'EXECUTE') as authenticated_can_execute
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname = 'apply_post_comment_preference';

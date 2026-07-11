@@ -169,6 +169,9 @@ function buildFormSteps(mainCategory: ShopMainCategoryCode | null): FormStepId[]
 
 
 function stepToCategorySection(step: FormStepId): ProductCategorySection | null {
+  const styles = useThemedStyles(createStyles);
+
+
   if (step === "category") {
 
     return "main";
@@ -206,7 +209,6 @@ function SimpleStockStepper({
   onChangeStockText: (next: string) => void;
 
 }) {
-
   const { theme } = useTheme();
   const styles = useThemedStyles(createStyles);
 
@@ -992,7 +994,8 @@ export function ProductFormScreen() {
                     text: "Seller-voorwaarden",
 
                     onPress: () =>
-                      navigation.navigate("SellerOnboarding", { focusStep: 3 }),
+
+                      navigation.navigate("SellerTerms", { requireAcceptance: true }),
 
                   },
 

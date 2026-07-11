@@ -23,6 +23,7 @@ import { ProductListingImage } from "../components/ProductListingImage";
 import { useAuth } from "../context/AuthContext";
 import {
   getMainCategoryDef,
+  isShopMainCategoryCode,
   SHOP_AUDIENCES,
   SHOP_FEED_TABS,
   SHOP_SUBCATEGORIES,
@@ -160,6 +161,9 @@ function subtitleForTab(
   if (feedTab === "browse") {
     return t("shop.subtitleBrowse");
   }
+  if (!isShopMainCategoryCode(feedTab)) {
+    return "";
+  }
   const def = getMainCategoryDef(feedTab);
   return def
     ? t("shop.subtitleCategory", { category: def.label.toLowerCase() })
@@ -200,7 +204,7 @@ export function ShopScreen() {
     if (feedTab === "voor_jou" || feedTab === "browse") {
       return null;
     }
-    return feedTab;
+    return isShopMainCategoryCode(feedTab) ? feedTab : null;
   }, [feedTab]);
 
   const mainDef = getMainCategoryDef(mainCategoryFilter ?? undefined);

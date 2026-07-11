@@ -141,11 +141,34 @@ function MainTabs() {
 }
 
 function AppGate() {
-  const { loading, user } = useAuth();
+  const { loading, user, loginRequired } = useAuth();
   const { theme, isReady: themeReady } = useTheme();
   const { isReady: languageReady } = useLanguage();
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
   const [navigationReady, setNavigationReady] = useState(false);
+
+  const navigatorChoice =
+    loading || !themeReady || !languageReady
+      ? "LoadingSpinner"
+      : "MainAppNavigator";
+
+  React.useEffect(() => {
+    console.log("[AppGate] navigator state", {
+      navigator: navigatorChoice,
+      userId: user?.id ?? null,
+      bootstrapLoading: loading,
+      loginRequired,
+      themeReady,
+      languageReady,
+    });
+  }, [
+    navigatorChoice,
+    user?.id,
+    loading,
+    loginRequired,
+    themeReady,
+    languageReady,
+  ]);
 
   React.useEffect(() => {
     void configurePushNotificationHandlers();
@@ -188,12 +211,23 @@ function AppGate() {
   }, [navigationReady]);
 
   if (loading || !themeReady || !languageReady) {
+    console.log("[AppGate] rendering LoadingSpinner", {
+      bootstrapLoading: loading,
+      userId: user?.id ?? null,
+      loginRequired,
+    });
     return (
       <View style={[styles.loadingRoot, { backgroundColor: theme.bg }]}>
         <ActivityIndicator size="large" color={theme.accent} />
       </View>
     );
   }
+
+  console.log("[AppGate] rendering MainAppNavigator", {
+    bootstrapLoading: loading,
+    userId: user?.id ?? null,
+    loginRequired,
+  });
 
   return (
     <AuthPromptProvider>
@@ -356,6 +390,11 @@ function AppGate() {
 }
 
 export default function App() {
+  console.log("[App] root layout mounted", {
+    authProviderImport: "./src/context/AuthContext",
+    entry: "index.js → App.tsx",
+  });
+
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
       <SafeAreaProvider>

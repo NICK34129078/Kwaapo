@@ -8,7 +8,8 @@ import { env, logSupabaseEnvDiagnosticsOnce } from "../config/env";
  * Supabase client voor Auth (en later evt. directe DB-calls met RLS).
  * Anon key is bedoeld voor client-side gebruik; blijf RLS streng instellen.
  *
- * React Native: AsyncStorage + geen URL-session detectie; refresh aan voor langlopende sessies.
+ * React Native: sessie wordt opgeslagen in AsyncStorage (key: sb-<project-ref>-auth-token),
+ * niet in SecureStore of expo-sqlite. Zie getSupabaseAuthStorageKey() in authSession.ts.
  */
 export const supabase = createClient(env.supabaseUrl, env.supabaseAnonKey, {
   auth: {

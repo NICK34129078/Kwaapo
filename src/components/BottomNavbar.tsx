@@ -63,7 +63,7 @@ export function BottomNavbar({
     fulfillment?.isBusinessSeller && fulfillment.actionCount > 0
       ? fulfillment.actionCount
       : 0;
-  const activityBadgeCount = notificationCenter?.totalUnreadCount ?? 0;
+  const activityBadgeCount = notificationCenter?.activityTabBadgeCount ?? 0;
 
   useEffect(() => {
     if (profileActionCount > 0) {
@@ -91,6 +91,10 @@ export function BottomNavbar({
           const color = focused ? IG.iconOn : IG.iconOff;
 
           const onPress = () => {
+            if (route.name === "Activity") {
+              void notificationCenter?.openActivityTab();
+            }
+
             const event = navigation.emit({
               type: "tabPress",
               target: route.key,

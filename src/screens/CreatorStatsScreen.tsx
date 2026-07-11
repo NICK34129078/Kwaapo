@@ -38,6 +38,8 @@ function formatLatestClick(iso: string | null | undefined): string {
 }
 
 function buildProductMeta(stat: MyShopPostStat): string {
+  const styles = useThemedStyles(createStyles);
+
   const parts: string[] = [];
   const brand = stat.productBrand?.trim();
   const price = stat.productPriceText?.trim();

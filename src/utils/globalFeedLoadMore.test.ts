@@ -10,26 +10,35 @@ function assert(condition: boolean, message: string): void {
 }
 
 export function runGlobalFeedLoadMoreTests(): void {
-  const fresh = resolveLoadMoreBatchDecision(5, 2, 0);
+  const fresh = resolveLoadMoreBatchDecision(20, 5, 0);
   assert(!fresh.stopHasMore && !fresh.retryWithExpandedExclude, "append ok");
 
-  const empty = resolveLoadMoreBatchDecision(0, 0, 0);
-  assert(empty.stopHasMore && !empty.retryWithExpandedExclude, "empty batch stops");
+  const emptyRetry = resolveLoadMoreBatchDecision(0, 0, 0, 20, LOAD_MORE_MAX_STALE_ROUNDS);
+  assert(!emptyRetry.stopHasMore && emptyRetry.retryWithExpandedExclude, "empty batch retries");
 
-  const short = resolveLoadMoreBatchDecision(2, 0, 0, 5);
-  assert(short.stopHasMore && !short.retryWithExpandedExclude, "short batch stops");
+  const shortRetry = resolveLoadMoreBatchDecision(8, 0, 0, 20, LOAD_MORE_MAX_STALE_ROUNDS);
+  assert(!shortRetry.stopHasMore && shortRetry.retryWithExpandedExclude, "short batch retries");
 
-  const staleRetry = resolveLoadMoreBatchDecision(5, 0, 0, 5, LOAD_MORE_MAX_STALE_ROUNDS);
+  const staleRetry = resolveLoadMoreBatchDecision(20, 0, 0, 20, LOAD_MORE_MAX_STALE_ROUNDS);
   assert(!staleRetry.stopHasMore && staleRetry.retryWithExpandedExclude, "stale full batch retries");
 
   const staleGiveUp = resolveLoadMoreBatchDecision(
-    5,
+    20,
     0,
     LOAD_MORE_MAX_STALE_ROUNDS - 1,
-    5,
+    20,
     LOAD_MORE_MAX_STALE_ROUNDS
   );
   assert(staleGiveUp.stopHasMore && !staleGiveUp.retryWithExpandedExclude, "stale retries exhausted");
+
+  const emptyGiveUp = resolveLoadMoreBatchDecision(
+    0,
+    0,
+    LOAD_MORE_MAX_STALE_ROUNDS - 1,
+    20,
+    LOAD_MORE_MAX_STALE_ROUNDS
+  );
+  assert(emptyGiveUp.stopHasMore && !emptyGiveUp.retryWithExpandedExclude, "empty retries exhausted");
 }
 
 if (require.main === module) {

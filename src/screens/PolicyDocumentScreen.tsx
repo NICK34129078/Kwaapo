@@ -13,6 +13,7 @@ import {
   type PolicyId,
 } from "../constants/appPolicies";
 import { SELLER_TERMS_SECTIONS } from "../constants/sellerTerms";
+import { TermsOfUseScreen } from "./TermsOfUseScreen";
 
 type RouteParams = {
   policyId: PolicyId;
@@ -27,6 +28,11 @@ export function PolicyDocumentScreen() {
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
   const policyId = (route.params?.policyId ?? "privacy") as PolicyId;
+
+  if (policyId === "terms") {
+    return <TermsOfUseScreen />;
+  }
+
   const policy = getPolicyById(policyId);
 
   const sections =

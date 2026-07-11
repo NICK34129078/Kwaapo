@@ -49,6 +49,8 @@ const ITEMS: Array<{
 export function isSellerShipChecklistComplete(
   value: SellerShipChecklistState
 ): boolean {
+  const styles = useThemedStyles(createStyles);
+
   return (
     value.productChecked &&
     value.buyerChecked &&

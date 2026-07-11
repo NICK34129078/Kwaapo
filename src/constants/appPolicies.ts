@@ -3,6 +3,8 @@
  * TODO(juridisch): laat alle teksten reviewen vóór publieke release.
  */
 
+import { LEGAL_PLACEHOLDERS } from "./legalPlaceholders";
+
 export const LEGAL_DISCLAIMER =
   "Deze voorwaarden moeten vóór publieke release juridisch worden gecontroleerd en aangepast aan de definitieve bedrijfsstructuur, landen en betaalflow.";
 
@@ -10,9 +12,9 @@ export const LEGAL_DISCLAIMER =
 export const PRIVACY_POLICY_WEB_URL = "[INVULLEN: https://jouwdomein.nl/privacy]";
 
 /** Support e-mail voor App Store Connect en in-app contact. */
-export const SUPPORT_EMAIL = "[INVULLEN: support@jouwdomein.nl]";
+export const SUPPORT_EMAIL = LEGAL_PLACEHOLDERS.CONTACT_EMAIL;
 
-export const CURRENT_APP_TERMS_VERSION = "2026-06-25";
+export const CURRENT_APP_TERMS_VERSION = LEGAL_PLACEHOLDERS.VERSION;
 
 export type PolicyId =
   | "privacy"

@@ -22,8 +22,11 @@ type AuthPromptContextValue = {
 
 const AuthPromptContext = createContext<AuthPromptContextValue | null>(null);
 
+const SESSION_EXPIRED_MESSAGE =
+  "Je sessie is verlopen of je account bestaat niet meer. Log opnieuw in of maak een nieuw account.";
+
 export function AuthPromptProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, loginRequired, clearLoginRequired } = useAuth();
   const [visible, setVisible] = useState(false);
   const [message, setMessage] = useState<string | undefined>(undefined);
 
@@ -35,7 +38,14 @@ export function AuthPromptProvider({ children }: { children: React.ReactNode }) 
   const closeAuthPrompt = useCallback(() => {
     setVisible(false);
     setMessage(undefined);
-  }, []);
+    clearLoginRequired();
+  }, [clearLoginRequired]);
+
+  useEffect(() => {
+    if (loginRequired && user == null) {
+      openAuthPrompt({ message: SESSION_EXPIRED_MESSAGE });
+    }
+  }, [loginRequired, user, openAuthPrompt]);
 
   useEffect(() => {
     if (user != null && visible) {

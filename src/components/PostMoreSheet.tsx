@@ -1,5 +1,4 @@
 import React, { useCallback, useMemo } from "react";
-import { useTranslation } from "react-i18next";
 import { useTheme } from "../context/ThemeContext";
 import { useThemedStyles } from "../hooks/useThemedStyles";
 import type { AppTheme } from "../constants/theme";
@@ -100,7 +99,6 @@ export function PostMoreSheet({
   onReport,
   onBlock,
 }: Props) {
-  const { t } = useTranslation();
   const styles = useThemedStyles(createStyles);
 
   const insets = useSafeAreaInsets();
@@ -127,7 +125,7 @@ export function PostMoreSheet({
       return [
         {
           id: "stats",
-          label: t("feed.stats"),
+          label: "Statistieken",
           icon: "stats-chart-outline",
           onPress: () => onViewStats?.(),
           accent: true,
@@ -135,13 +133,13 @@ export function PostMoreSheet({
         },
         {
           id: "copy",
-          label: t("feed.copyLink"),
+          label: "Link kopiëren",
           icon: "link-outline",
           onPress: onCopyLink,
         },
         {
           id: "delete",
-          label: t("feed.deletePost"),
+          label: "Verwijderen",
           icon: "trash-outline",
           onPress: () => onDelete?.(),
           destructive: true,
@@ -150,14 +148,12 @@ export function PostMoreSheet({
       ];
     }
 
-    const followLabel = isFollowing
-      ? t("feed.unfollow", { handle })
-      : t("feed.followHandle", { handle });
+    const followLabel = isFollowing ? `Ontvolgen @${handle}` : `Volgen @${handle}`;
 
     return [
       {
         id: "not-interested",
-        label: t("feed.notInterested"),
+        label: "Niet geïnteresseerd",
         icon: "eye-off-outline",
         onPress: () => onNotInterested?.(),
         disabled: !onNotInterested,
@@ -172,20 +168,20 @@ export function PostMoreSheet({
       },
       {
         id: "copy",
-        label: t("feed.copyLink"),
+        label: "Link kopiëren",
         icon: "link-outline",
         onPress: onCopyLink,
       },
       {
         id: "profile",
-        label: t("feed.viewProfile"),
+        label: "Bekijk profiel",
         icon: "person-circle-outline",
         onPress: () => onViewProfile?.(),
         disabled: !onViewProfile,
       },
       {
         id: "report",
-        label: t("feed.report"),
+        label: "Melden",
         icon: "flag-outline",
         onPress: () => onReport?.(),
         destructive: true,
@@ -193,7 +189,7 @@ export function PostMoreSheet({
       },
       {
         id: "block",
-        label: t("feed.blockHandle", { handle }),
+        label: `Blokkeer @${handle}`,
         icon: "ban-outline",
         onPress: () => onBlock?.(),
         destructive: true,
@@ -214,7 +210,6 @@ export function PostMoreSheet({
     onToggleFollow,
     onViewProfile,
     onViewStats,
-    t,
   ]);
 
   return (
@@ -229,7 +224,7 @@ export function PostMoreSheet({
           style={StyleSheet.absoluteFill}
           onPress={onClose}
           accessibilityRole="button"
-          accessibilityLabel={t("feed.closeMenu")}
+          accessibilityLabel="Sluit menu"
         />
         <View
           style={[
@@ -238,7 +233,7 @@ export function PostMoreSheet({
           ]}
         >
           <View style={styles.grabber} />
-          <Text style={styles.sheetTitle}>{t("feed.moreOptions")}</Text>
+          <Text style={styles.sheetTitle}>Meer opties</Text>
           {actions.map((action, index) => (
             <View key={action.id}>
               {index > 0 ? <View style={styles.separator} /> : null}
@@ -264,9 +259,9 @@ export function PostMoreSheet({
               pressed && styles.rowPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel={t("common.cancel")}
+            accessibilityLabel="Annuleren"
           >
-            <Text style={styles.cancelLabel}>{t("common.cancel")}</Text>
+            <Text style={styles.cancelLabel}>Annuleren</Text>
           </Pressable>
         </View>
       </View>

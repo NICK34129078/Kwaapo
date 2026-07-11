@@ -1,11 +1,17 @@
 export const REELS_WINDOW = {
+  /** Trim target once the in-memory window grows past MAX. */
   TARGET: 15,
-  MAX: 18,
+  /** Max posts held in memory before head-trim (ready buffer + scroll history). */
+  MAX: 28,
   BUFFER_ABOVE: 3,
-  LOAD_BATCH: 5,
+  /** RPC page size for initial load and load-more. */
+  LOAD_BATCH: 20,
   SEEN_MAX: 450,
   RECORDED_VIEW_MAX: 500,
-  LOAD_MORE_TRIGGER_FROM_END: 4,
+  /** Min items ahead of active reel before fetching the next page. */
+  LOAD_MORE_TRIGGER_AHEAD: 10,
+  /** Desired ready buffer depth ahead of the active reel. */
+  TARGET_READY_AHEAD: 15,
 } as const;
 
 export function trimReelsFeedWindow<T extends { id: string }>(

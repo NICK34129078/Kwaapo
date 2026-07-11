@@ -39,6 +39,8 @@ type Props = {
 };
 
 function formatCommentTime(iso: string): string {
+  const styles = useThemedStyles(createStyles);
+
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) {
     return "";

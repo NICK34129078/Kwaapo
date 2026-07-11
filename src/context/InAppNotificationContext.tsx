@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { AppState, StyleSheet, View } from "react-native";
+import { AppState } from "react-native";
 import type { NavigationContainerRef } from "@react-navigation/native";
 import { useAuth } from "./AuthContext";
 import { useSellerFulfillment } from "./SellerFulfillmentContext";
@@ -693,23 +693,15 @@ export function InAppNotificationProvider({
 
   return (
     <InAppNotificationContext.Provider value={value}>
-      <View style={styles.root}>
-        {children}
-        <InAppNotificationToast
-          notification={visibleNotification}
-          onPress={openNotification}
-          onDismiss={dismissActive}
-        />
-      </View>
+      {children}
+      <InAppNotificationToast
+        notification={visibleNotification}
+        onPress={openNotification}
+        onDismiss={dismissActive}
+      />
     </InAppNotificationContext.Provider>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-});
 
 export function useInAppNotifications(): InAppNotificationContextValue {
   const ctx = useContext(InAppNotificationContext);

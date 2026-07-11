@@ -4,6 +4,7 @@ import {
   Dimensions,
   Easing,
   Image,
+  Modal,
   PanResponder,
   Pressable,
   StyleSheet,
@@ -127,13 +128,13 @@ export function InAppNotificationToast({
     })
   ).current;
 
+  const isCompactSellerToast =
+    notification?.audience === "seller" &&
+    notification.notificationType === "new_paid_order";
+
   if (!notification) {
     return null;
   }
-
-  const isCompactSellerToast =
-    notification.audience === "seller" &&
-    notification.notificationType === "new_paid_order";
 
   const iconName =
     notification.audience === "seller" ? "storefront-outline" : "cube-outline";
@@ -155,105 +156,114 @@ export function InAppNotificationToast({
         ].filter(Boolean);
 
   return (
-    <View style={styles.overlay} pointerEvents="box-none">
-      <Animated.View
-        pointerEvents="box-none"
-        style={[
-          styles.host,
-          {
-            top: insets.top + 6,
-            opacity,
-            transform: [{ translateY }],
-            maxHeight: isCompactSellerToast ? TOAST_MAX_HEIGHT : undefined,
-          },
-        ]}
-        {...panResponder.panHandlers}
-      >
-        <Pressable
+    <Modal
+      visible
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={hide}
+    >
+      <View style={styles.modalRoot} pointerEvents="box-none">
+        <Animated.View
+          pointerEvents="box-none"
           style={[
-            styles.card,
-            isCompactSellerToast ? styles.cardCompact : styles.cardStandard,
+            styles.host,
+            {
+              top: insets.top + 6,
+              opacity,
+              transform: [{ translateY }],
+              maxHeight: isCompactSellerToast ? TOAST_MAX_HEIGHT : undefined,
+            },
           ]}
-          onPress={() => onPress(notification)}
-          accessibilityRole="button"
-          accessibilityLabel={notification.title}
+          {...panResponder.panHandlers}
         >
-          {notification.productImageUrl ? (
-            <Image
-              source={{ uri: notification.productImageUrl }}
-              style={isCompactSellerToast ? styles.thumbCompact : styles.thumb}
-            />
-          ) : (
-            <View
-              style={[
-                isCompactSellerToast ? styles.thumbCompact : styles.thumb,
-                styles.thumbFallback,
-              ]}
-            >
-              <Ionicons
-                name={iconName}
-                size={isCompactSellerToast ? 18 : 22}
-                color={theme.accent}
+          <Pressable
+            style={[
+              styles.card,
+              isCompactSellerToast ? styles.cardCompact : styles.cardStandard,
+            ]}
+            onPress={() => onPress(notification)}
+            accessibilityRole="button"
+            accessibilityLabel={notification.title}
+          >
+            {notification.productImageUrl ? (
+              <Image
+                source={{ uri: notification.productImageUrl }}
+                style={isCompactSellerToast ? styles.thumbCompact : styles.thumb}
               />
+            ) : (
+              <View
+                style={[
+                  isCompactSellerToast ? styles.thumbCompact : styles.thumb,
+                  styles.thumbFallback,
+                ]}
+              >
+                <Ionicons
+                  name={iconName}
+                  size={isCompactSellerToast ? 18 : 22}
+                  color={theme.accent}
+                />
+              </View>
+            )}
+            <View style={styles.body}>
+              <Text
+                style={isCompactSellerToast ? styles.titleCompact : styles.title}
+                numberOfLines={1}
+              >
+                {notification.title}
+              </Text>
+              <Text
+                style={
+                  isCompactSellerToast ? styles.messageCompact : styles.message
+                }
+                numberOfLines={isCompactSellerToast ? 1 : 2}
+              >
+                {notification.body}
+              </Text>
+              {!isCompactSellerToast && notification.subtitle ? (
+                <Text style={styles.subtitle} numberOfLines={2}>
+                  {notification.subtitle}
+                </Text>
+              ) : isCompactSellerToast && notification.subtitle ? (
+                <Text style={styles.subtitleCompact} numberOfLines={1}>
+                  {notification.subtitle}
+                </Text>
+              ) : null}
+              {!isCompactSellerToast && metaParts.length > 0 ? (
+                <Text style={styles.meta} numberOfLines={1}>
+                  {metaParts.join(" · ")}
+                </Text>
+              ) : null}
             </View>
-          )}
-          <View style={styles.body}>
-            <Text
-              style={isCompactSellerToast ? styles.titleCompact : styles.title}
-              numberOfLines={1}
-            >
-              {notification.title}
-            </Text>
-            <Text
-              style={
-                isCompactSellerToast ? styles.messageCompact : styles.message
-              }
-              numberOfLines={isCompactSellerToast ? 1 : 2}
-            >
-              {notification.body}
-            </Text>
-            {!isCompactSellerToast && notification.subtitle ? (
-              <Text style={styles.subtitle} numberOfLines={2}>
-                {notification.subtitle}
-              </Text>
-            ) : isCompactSellerToast && notification.subtitle ? (
-              <Text style={styles.subtitleCompact} numberOfLines={1}>
-                {notification.subtitle}
-              </Text>
+            {!isCompactSellerToast ? (
+              <Pressable
+                style={styles.closeBtn}
+                onPress={hide}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Melding sluiten"
+              >
+                <Ionicons name="close" size={18} color={theme.textMuted} />
+              </Pressable>
             ) : null}
-            {!isCompactSellerToast && metaParts.length > 0 ? (
-              <Text style={styles.meta} numberOfLines={1}>
-                {metaParts.join(" · ")}
-              </Text>
-            ) : null}
-          </View>
-          {!isCompactSellerToast ? (
-            <Pressable
-              style={styles.closeBtn}
-              onPress={hide}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel="Melding sluiten"
-            >
-              <Ionicons name="close" size={18} color={theme.textMuted} />
-            </Pressable>
-          ) : null}
-        </Pressable>
-      </Animated.View>
-    </View>
+          </Pressable>
+        </Animated.View>
+      </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 10000,
-    elevation: 10000,
+  modalRoot: {
+    flex: 1,
+    backgroundColor: "transparent",
   },
   host: {
     position: "absolute",
     left: 16,
     right: 16,
+    zIndex: 1000,
+    elevation: 16,
   },
   card: {
     flexDirection: "row",

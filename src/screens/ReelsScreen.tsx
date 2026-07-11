@@ -47,6 +47,7 @@ import {
   queueContentInteraction,
 } from "../services/contentInteractionsService";
 import { addToBoundedSet } from "../utils/boundedSeenIds";
+import { shouldPrefetchMoreFeed } from "../utils/feedInfiniteScroll";
 import { REELS_WINDOW } from "../utils/feedRollingWindow";
 
 const INITIAL_H = Dimensions.get("window").height;
@@ -368,7 +369,7 @@ export function ReelsScreen() {
     scrollFeedToOffset(0, true);
     setRefreshing(true);
     try {
-      await refreshGlobalFeed({ force: true });
+      await refreshGlobalFeed({ force: true, allowRecentlyViewed: true });
       setActiveReelId(null);
       requestAnimationFrame(() => {
         scrollFeedToOffset(0, false);
@@ -412,14 +413,14 @@ export function ReelsScreen() {
 
   const onRetryFeed = useCallback(() => {
     setRefreshing(true);
-    void refreshGlobalFeed({ force: true }).finally(() => {
+    void refreshGlobalFeed({ force: true, allowRecentlyViewed: true }).finally(() => {
       setRefreshing(false);
     });
   }, [refreshGlobalFeed]);
 
   const onPullRefresh = useCallback(() => {
     setRefreshing(true);
-    void refreshGlobalFeed({ force: true }).finally(() => {
+    void refreshGlobalFeed({ force: true, allowRecentlyViewed: true }).finally(() => {
       setRefreshing(false);
     });
   }, [refreshGlobalFeed]);
@@ -539,16 +540,13 @@ export function ReelsScreen() {
     if (!isFocused) {
       return;
     }
-    if (activeIndex < 0 || finalFeedData.length === 0) {
-      return;
-    }
-    if (finalFeedData.length < 6) {
-      return;
-    }
-    if (activeIndex < finalFeedData.length - REELS_WINDOW.LOAD_MORE_TRIGGER_FROM_END) {
-      return;
-    }
-    if (isLoadingMoreFeed || !hasMoreFeed) {
+    if (!shouldPrefetchMoreFeed({
+      activeIndex,
+      totalLength: finalFeedData.length,
+      isLoadingMore: isLoadingMoreFeed,
+      hasMore: hasMoreFeed,
+      isFocused,
+    })) {
       return;
     }
     void loadMoreGlobalFeed();
@@ -560,6 +558,13 @@ export function ReelsScreen() {
     hasMoreFeed,
     loadMoreGlobalFeed,
   ]);
+
+  const onEndReached = useCallback(() => {
+    if (!isFocused || isLoadingMoreFeed || !hasMoreFeed) {
+      return;
+    }
+    void loadMoreGlobalFeed();
+  }, [isFocused, isLoadingMoreFeed, hasMoreFeed, loadMoreGlobalFeed]);
 
   useEffect(() => {
     if (!isFocused || finalFeedData.length <= REELS_WINDOW.MAX) {
@@ -674,14 +679,14 @@ export function ReelsScreen() {
     [isLoadingMoreFeed, feedEndReached]
   );
 
-  const showBlockingLoader =
+  const showInitialLoading =
     globalFeedLoading && finalFeedData.length === 0 && !refreshing;
 
   return (
     <View style={styles.root} onLayout={onRootLayout}>
       <ReelsFeedTopBar />
       <ReelNextPreloader videoUrl={nextVideoForPreload} />
-      {showBlockingLoader ? (
+      {showInitialLoading ? (
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={theme.accent} />
         </View>
@@ -741,6 +746,8 @@ export function ReelsScreen() {
             />
           }
           ListFooterComponent={listFooter}
+          onEndReached={onEndReached}
+          onEndReachedThreshold={0.35}
           {...(Platform.OS === "android" ? { disableIntervalMomentum: true } : {})}
         />
       )}

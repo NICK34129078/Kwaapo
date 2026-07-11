@@ -14,7 +14,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -33,15 +33,7 @@ import {
   sellerPayoutStatusLabel,
   updateMyBusinessInfo,
 } from "../services/sellerOnboardingService";
-import { SellerTermsAcceptancePanel } from "../components/SellerTermsAcceptancePanel";
-import {
-  acceptCurrentSellerTerms,
-  fetchMySellerTermsAcceptance,
-  hasAcceptedCurrentSellerTerms,
-} from "../services/sellerTermsService";
 import type { BusinessInfoPayload, SellerOnboarding, SellerType } from "../types/sellerOnboarding";
-
-type OnboardingStep = 1 | 2 | 3 | 4;
 
 function FormField({
   label,
@@ -90,16 +82,11 @@ export function SellerOnboardingScreen() {
   const styles = useThemedStyles(createStyles);
 
   const navigation = useNavigation<any>();
-  const route = useRoute<any>();
   const insets = useSafeAreaInsets();
-  const focusStep = route.params?.focusStep as OnboardingStep | undefined;
-  const [step, setStep] = useState<OnboardingStep>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [onboarding, setOnboarding] = useState<SellerOnboarding | null>(null);
-  const [termsAccepted, setTermsAccepted] = useState(false);
-  const [termsChecked, setTermsChecked] = useState(false);
-  const [termsError, setTermsError] = useState<string | null>(null);
 
   const [sellerType, setSellerType] = useState<SellerType>("business");
   const [businessName, setBusinessName] = useState("");
@@ -114,13 +101,7 @@ export function SellerOnboardingScreen() {
   const [businessHouseNumber, setBusinessHouseNumber] = useState("");
 
   const load = useCallback(async () => {
-    const [row, acceptance] = await Promise.all([
-      fetchMySellerOnboarding(),
-      fetchMySellerTermsAcceptance(),
-    ]);
-    const accepted = hasAcceptedCurrentSellerTerms(acceptance);
-    setTermsAccepted(accepted);
-    setTermsChecked(accepted);
+    const row = await fetchMySellerOnboarding();
     setOnboarding(row);
     if (row) {
       setSellerType(row.sellerType ?? "business");
@@ -134,10 +115,9 @@ export function SellerOnboardingScreen() {
       setBusinessPostalCode(row.businessPostalCode ?? "");
       setBusinessStreet(row.businessStreet ?? "");
       setBusinessHouseNumber(row.businessHouseNumber ?? "");
-      const resumeStep = resolveSellerOnboardingStep(row, { termsAccepted: accepted });
-      setStep(focusStep && focusStep >= resumeStep ? focusStep : resumeStep);
+      setStep(resolveSellerOnboardingStep(row));
     }
-  }, [focusStep]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -190,7 +170,7 @@ export function SellerOnboardingScreen() {
   ]);
 
   const onContinueFromStep1 = useCallback(async () => {
-    const resumeStep = resolveSellerOnboardingStep(onboarding, { termsAccepted });
+    const resumeStep = resolveSellerOnboardingStep(onboarding);
     if (resumeStep >= 2) {
       setStep(resumeStep);
       return;
@@ -200,14 +180,14 @@ export function SellerOnboardingScreen() {
     try {
       const updated = await updateMyBusinessInfo(buildPayload());
       setOnboarding(updated);
-      setStep(resolveSellerOnboardingStep(updated, { termsAccepted }));
+      setStep(resolveSellerOnboardingStep(updated));
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Opslaan mislukt.";
       Alert.alert("Fout", msg);
     } finally {
       setSubmitting(false);
     }
-  }, [buildPayload, onboarding, termsAccepted]);
+  }, [buildPayload, onboarding]);
 
   const refreshOnboardingFromServer = useCallback(async () => {
     const row = await fetchMySellerOnboarding();
@@ -243,7 +223,7 @@ export function SellerOnboardingScreen() {
       const row = await refreshOnboardingFromServer();
       if (result.ok) {
         if (hasCompletedStripePayoutSetup(row)) {
-          setStep(resolveSellerOnboardingStep(row, { termsAccepted }));
+          setStep(3);
         }
         if (isStripePayoutFullyActive(row)) {
           Alert.alert("Uitbetalingen actief", "Je Stripe-uitbetalingen zijn ingesteld.");
@@ -257,30 +237,7 @@ export function SellerOnboardingScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [refreshOnboardingFromServer, stripePayoutsActive, termsAccepted]);
-
-  const onAcceptTermsAndContinue = useCallback(async () => {
-    if (termsAccepted) {
-      setStep(4);
-      return;
-    }
-    if (!termsChecked) {
-      return;
-    }
-    setSubmitting(true);
-    setTermsError(null);
-    try {
-      await acceptCurrentSellerTerms();
-      setTermsAccepted(true);
-      setStep(4);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Acceptatie mislukt.";
-      setTermsError(msg);
-      Alert.alert("Fout", msg);
-    } finally {
-      setSubmitting(false);
-    }
-  }, [termsAccepted, termsChecked]);
+  }, [refreshOnboardingFromServer, stripePayoutsActive]);
 
   const onSubmitForReview = useCallback(async () => {
     setSubmitting(true);
@@ -325,25 +282,22 @@ export function SellerOnboardingScreen() {
     }
   }, [refreshOnboardingFromServer]);
 
-  const onboardingComplete =
-    isSellerFullyReadyForLiveSales(onboarding) && termsAccepted;
+  const onboardingComplete = isSellerFullyReadyForLiveSales(onboarding);
   const showWizard = !onboardingComplete;
-  const resumeStep = resolveSellerOnboardingStep(onboarding, { termsAccepted });
-
-  const stepTitle =
-    step === 1
-      ? "Bedrijfsgegevens"
-      : step === 2
-        ? "Uitbetalingen instellen"
-        : step === 3
-          ? "Seller-voorwaarden"
-          : "Controle & indienen";
+  const resumeStep = resolveSellerOnboardingStep(onboarding);
 
   useEffect(() => {
     if (step === 2 && showWizard) {
       void refreshOnboardingFromServer().catch(() => undefined);
     }
   }, [refreshOnboardingFromServer, showWizard, step]);
+
+  const stepTitle =
+    step === 1
+      ? "Bedrijfsgegevens"
+      : step === 2
+        ? "Uitbetalingen instellen"
+        : "Controle & indienen";
 
   return (
     <KeyboardAvoidingView
@@ -370,10 +324,8 @@ export function SellerOnboardingScreen() {
         <View style={[styles.stepDot, step >= 2 && styles.stepDotActive]} />
         <View style={[styles.stepLine, step >= 3 && styles.stepLineActive]} />
         <View style={[styles.stepDot, step >= 3 && styles.stepDotActive]} />
-        <View style={[styles.stepLine, step >= 4 && styles.stepLineActive]} />
-        <View style={[styles.stepDot, step >= 4 && styles.stepDotActive]} />
       </View>
-      <Text style={styles.stepLabel}>Stap {step} van 4 — {stepTitle}</Text>
+      <Text style={styles.stepLabel}>Stap {step} van 3 — {stepTitle}</Text>
 
       {loading ? (
         <View style={styles.centerState}>
@@ -492,7 +444,7 @@ export function SellerOnboardingScreen() {
                 </Text>
               ) : stripePayoutsActive ? (
                 <Text style={styles.helperBlock}>
-                  Uitbetalingen actief. Ga verder naar de seller-voorwaarden.
+                  Uitbetalingen actief. Je kunt doorgaan naar controle en indienen.
                 </Text>
               ) : (
                 <Text style={styles.helperBlock}>
@@ -537,22 +489,10 @@ export function SellerOnboardingScreen() {
 
           {step === 3 && showWizard ? (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Seller-voorwaarden</Text>
-              <SellerTermsAcceptancePanel
-                checked={termsChecked}
-                onCheckedChange={setTermsChecked}
-                alreadyAccepted={termsAccepted}
-              />
-              {termsError ? <Text style={styles.termsError}>{termsError}</Text> : null}
-            </View>
-          ) : null}
-
-          {step === 4 && showWizard ? (
-            <View style={styles.section}>
               <Text style={styles.sectionTitle}>Controle</Text>
               <Text style={styles.reviewHint}>
                 Controleer je gegevens. Je verkoopaccount wordt automatisch actief
-                zodra KVK, Stripe en de seller-voorwaarden volledig zijn afgerond.
+                zodra KVK en Stripe volledig zijn afgerond.
               </Text>
               <View style={styles.reviewRow}>
                 <Text style={styles.reviewLabel}>Type</Text>
@@ -581,12 +521,6 @@ export function SellerOnboardingScreen() {
               <View style={styles.reviewRow}>
                 <Text style={styles.reviewLabel}>Uitbetalingen</Text>
                 <Text style={styles.reviewValue}>{stripePayoutLabel}</Text>
-              </View>
-              <View style={styles.reviewRow}>
-                <Text style={styles.reviewLabel}>Seller-voorwaarden</Text>
-                <Text style={styles.reviewValue}>
-                  {termsAccepted ? "Geaccepteerd" : "Nog niet geaccepteerd"}
-                </Text>
               </View>
             </View>
           ) : null}
@@ -636,13 +570,11 @@ export function SellerOnboardingScreen() {
                 <ActivityIndicator size="small" color={theme.bg} />
               ) : (
                 <Text style={styles.primaryBtnText}>
-                  {resumeStep >= 4
+                  {resumeStep >= 3
                     ? "Ga verder naar controle"
-                    : resumeStep === 3
-                      ? "Ga verder naar voorwaarden"
-                      : resumeStep === 2
-                        ? "Ga verder naar uitbetalingen"
-                        : "Opslaan en verder"}
+                    : resumeStep === 2
+                      ? "Ga verder naar uitbetalingen"
+                      : "Opslaan en verder"}
                 </Text>
               )}
             </Pressable>
@@ -677,9 +609,9 @@ export function SellerOnboardingScreen() {
                   onPress={() => setStep(3)}
                   disabled={submitting}
                   accessibilityRole="button"
-                  accessibilityLabel="Ga verder naar voorwaarden"
+                  accessibilityLabel="Ga verder naar controle"
                 >
-                  <Text style={styles.secondaryBtnText}>Ga verder naar voorwaarden</Text>
+                  <Text style={styles.secondaryBtnText}>Ga verder naar controle</Text>
                 </Pressable>
               ) : null}
             </>
@@ -688,40 +620,7 @@ export function SellerOnboardingScreen() {
             <>
               <Pressable
                 style={styles.secondaryBtn}
-                onPress={() => setStep(2)}
-                disabled={submitting}
-                accessibilityRole="button"
-                accessibilityLabel="Terug"
-              >
-                <Text style={styles.secondaryBtnText}>Terug</Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.primaryBtn,
-                  (submitting || (!termsAccepted && !termsChecked)) && styles.btnDisabled,
-                ]}
-                onPress={() => void onAcceptTermsAndContinue()}
-                disabled={submitting || (!termsAccepted && !termsChecked)}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  termsAccepted ? "Ga verder naar controle" : "Akkoord en verder"
-                }
-              >
-                {submitting ? (
-                  <ActivityIndicator size="small" color={theme.bg} />
-                ) : (
-                  <Text style={styles.primaryBtnText}>
-                    {termsAccepted ? "Ga verder naar controle" : "Akkoord en verder"}
-                  </Text>
-                )}
-              </Pressable>
-            </>
-          ) : null}
-          {step === 4 ? (
-            <>
-              <Pressable
-                style={styles.secondaryBtn}
-                onPress={() => setStep(3)}
+                onPress={() => setStep(stripeDone ? 2 : 1)}
                 disabled={submitting}
                 accessibilityRole="button"
                 accessibilityLabel="Terug"
@@ -731,7 +630,7 @@ export function SellerOnboardingScreen() {
               <Pressable
                 style={[styles.primaryBtn, submitting && styles.btnDisabled]}
                 onPress={() => void onSubmitForReview()}
-                disabled={submitting || !stripeDone || !termsAccepted}
+                disabled={submitting || !stripeDone}
                 accessibilityRole="button"
                 accessibilityLabel="Status controleren en activeren"
               >
@@ -911,12 +810,6 @@ function createStyles(theme: AppTheme) {
     fontSize: 13,
     marginBottom: 14,
     lineHeight: 19,
-  },
-  termsError: {
-    color: "#FF6B6B",
-    fontSize: 13,
-    marginTop: 10,
-    lineHeight: 18,
   },
   reviewHintAccent: {
     color: theme.accent,
