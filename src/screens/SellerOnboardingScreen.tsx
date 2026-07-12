@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { useThemedStyles } from "../hooks/useThemedStyles";
 import type { AppTheme } from "../constants/theme";
+import { logSellerOnboarding } from "../constants/sellerOnboardingDebug";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -17,13 +19,15 @@ import {
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { syncSellerOnboardingAfterStripe } from "../services/sellerOnboardingStripeSync";
 import {
+  openStripeConnectOnboarding,
   refreshStripeConnectStatus,
-  startStripeConnectOnboarding,
   startStripePayoutManagement,
 } from "../services/stripeConnectService";
 import {
   fetchMySellerOnboarding,
+  hasCompletedStripeOnboardingForm,
   hasCompletedStripePayoutSetup,
   isSellerFullyReadyForLiveSales,
   isStripePayoutFullyActive,
@@ -34,6 +38,7 @@ import {
   updateMyBusinessInfo,
 } from "../services/sellerOnboardingService";
 import type { BusinessInfoPayload, SellerOnboarding, SellerType } from "../types/sellerOnboarding";
+import { shouldOpenStripeOnboardingLink } from "../utils/stripeConnectState";
 
 function FormField({
   label,
@@ -100,10 +105,15 @@ export function SellerOnboardingScreen() {
   const [businessStreet, setBusinessStreet] = useState("");
   const [businessHouseNumber, setBusinessHouseNumber] = useState("");
 
-  const load = useCallback(async () => {
-    const row = await fetchMySellerOnboarding();
-    setOnboarding(row);
-    if (row) {
+  const applyOnboardingRow = useCallback(
+    (
+      row: SellerOnboarding | null,
+      opts?: { canProceedToStep3?: boolean }
+    ) => {
+      setOnboarding(row);
+      if (!row) {
+        return;
+      }
       setSellerType(row.sellerType ?? "business");
       setBusinessName(row.businessName ?? row.displayName ?? "");
       setKvkNumber(row.kvkNumber ?? "");
@@ -115,15 +125,71 @@ export function SellerOnboardingScreen() {
       setBusinessPostalCode(row.businessPostalCode ?? "");
       setBusinessStreet(row.businessStreet ?? "");
       setBusinessHouseNumber(row.businessHouseNumber ?? "");
-      setStep(resolveSellerOnboardingStep(row));
-    }
-  }, []);
+
+      const nextStep = opts?.canProceedToStep3
+        ? 3
+        : resolveSellerOnboardingStep(row);
+
+      if (opts?.canProceedToStep3) {
+        logSellerOnboarding("SELLER_STEP3_NAVIGATION_START");
+      }
+
+      setStep(nextStep);
+      logSellerOnboarding("STRIPE_ONBOARDING_STEP_RESOLVED", {
+        nextStep,
+        canProceedToStep3: opts?.canProceedToStep3 === true,
+        onboardingComplete: row.stripeConnectOnboardingComplete,
+        currentlyDueCount: row.stripeRequirementsCurrentlyDue.length,
+        hasAccount: !!row.stripeConnectAccountId,
+      });
+
+      if (opts?.canProceedToStep3) {
+        logSellerOnboarding("SELLER_STEP3_NAVIGATION_SUCCESS");
+      }
+    },
+    []
+  );
+
+  const load = useCallback(
+    async (options?: { syncStripe?: boolean }) => {
+      let row = await fetchMySellerOnboarding();
+      const shouldSyncStripe =
+        options?.syncStripe !== false &&
+        row &&
+        !!row.stripeConnectAccountId &&
+        !hasCompletedStripeOnboardingForm(row);
+
+      if (shouldSyncStripe) {
+        try {
+          const synced = await syncSellerOnboardingAfterStripe();
+          row = synced.onboarding;
+          applyOnboardingRow(row, {
+            canProceedToStep3: synced.canProceedToStep3,
+          });
+          return;
+        } catch (e) {
+          const message =
+            e instanceof Error ? e.message : "Stripe-status ophalen mislukt";
+          logSellerOnboarding("STRIPE_STATUS_SYNC_ERROR_MESSAGE", { message });
+        }
+      }
+
+      applyOnboardingRow(row);
+    },
+    [applyOnboardingRow]
+  );
 
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
-      void load().finally(() => setLoading(false));
-    }, [load])
+      void load({ syncStripe: true }).finally(() => {
+        setLoading(false);
+        logSellerOnboarding("SELLER_STEP2_FOCUSED", {
+          step,
+          hasConnectAccount: !!onboarding?.stripeConnectAccountId,
+        });
+      });
+    }, [load, onboarding?.stripeConnectAccountId, step])
   );
 
   const buildPayload = useCallback((): BusinessInfoPayload => {
@@ -203,41 +269,82 @@ export function SellerOnboardingScreen() {
 
   const stripeButtonLabel = !hasConnectAccount
     ? "Uitbetalingen instellen"
-    : stripePayoutsActive
-      ? "Status vernieuwen"
-      : "Doorgaan met uitbetalingen instellen";
+    : stripeDone
+      ? "Ga verder naar controle"
+      : "Status controleren";
 
-  const onStartStripeConnect = useCallback(async () => {
+  const onRefreshStripeStatus = useCallback(async () => {
+    const synced = await syncSellerOnboardingAfterStripe();
+    applyOnboardingRow(synced.onboarding, {
+      canProceedToStep3: synced.canProceedToStep3,
+    });
+
+    if (!synced.canProceedToStep3) {
+      Alert.alert(
+        "Stripe-status",
+        "Je Stripe-gegevens zijn nog niet volledig bevestigd. Probeer het opnieuw of open Stripe om verder te gaan."
+      );
+    }
+  }, [applyOnboardingRow]);
+
+  const onOpenStripeOnboarding = useCallback(async () => {
     setSubmitting(true);
     try {
-      if (stripePayoutsActive) {
-        await refreshStripeConnectStatus();
-        const row = await refreshOnboardingFromServer();
-        if (isStripePayoutFullyActive(row)) {
-          Alert.alert("Uitbetalingen actief", "Je Stripe-uitbetalingen zijn ingesteld.");
-        }
+      const result = await openStripeConnectOnboarding();
+      if (!result.ok) {
+        Alert.alert("Stripe", result.message);
         return;
       }
 
-      const result = await startStripeConnectOnboarding();
-      const row = await refreshOnboardingFromServer();
-      if (result.ok) {
-        if (hasCompletedStripePayoutSetup(row)) {
-          setStep(3);
-        }
-        if (isStripePayoutFullyActive(row)) {
-          Alert.alert("Uitbetalingen actief", "Je Stripe-uitbetalingen zijn ingesteld.");
-        }
+      const synced = await syncSellerOnboardingAfterStripe({ maxAttempts: 2 });
+      applyOnboardingRow(synced.onboarding, {
+        canProceedToStep3: synced.canProceedToStep3 || result.status.canProceedToStep3,
+      });
+
+      if (result.alreadyComplete || synced.canProceedToStep3) {
         return;
       }
-      Alert.alert("Stripe", result.message);
+
+      if (isStripePayoutFullyActive(synced.onboarding)) {
+        Alert.alert("Uitbetalingen actief", "Je Stripe-uitbetalingen zijn ingesteld.");
+      }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Stripe onboarding mislukt.";
-      Alert.alert("Fout", msg);
+      const msg = e instanceof Error ? e.message : "Stripe openen mislukt.";
+      Alert.alert("Stripe", msg);
     } finally {
       setSubmitting(false);
     }
-  }, [refreshOnboardingFromServer, stripePayoutsActive]);
+  }, [applyOnboardingRow]);
+
+  const onStripeStep2Primary = useCallback(async () => {
+    setSubmitting(true);
+    try {
+      if (!hasConnectAccount) {
+        await onOpenStripeOnboarding();
+        return;
+      }
+      if (stripeDone) {
+        const synced = await syncSellerOnboardingAfterStripe({ maxAttempts: 1 });
+        applyOnboardingRow(synced.onboarding, {
+          canProceedToStep3: synced.canProceedToStep3 || stripeDone,
+        });
+        return;
+      }
+      await onRefreshStripeStatus();
+    } catch (e) {
+      const msg =
+        e instanceof Error ? e.message : "Stripe-status ophalen mislukt.";
+      Alert.alert("Stripe-status", msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [
+    applyOnboardingRow,
+    hasConnectAccount,
+    onOpenStripeOnboarding,
+    onRefreshStripeStatus,
+    stripeDone,
+  ]);
 
   const onSubmitForReview = useCallback(async () => {
     setSubmitting(true);
@@ -287,10 +394,54 @@ export function SellerOnboardingScreen() {
   const resumeStep = resolveSellerOnboardingStep(onboarding);
 
   useEffect(() => {
-    if (step === 2 && showWizard) {
-      void refreshOnboardingFromServer().catch(() => undefined);
+    if (step !== 2 || !showWizard || !hasConnectAccount || stripeDone) {
+      return;
     }
-  }, [refreshOnboardingFromServer, showWizard, step]);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const synced = await syncSellerOnboardingAfterStripe({
+          maxAttempts: 3,
+          delayMs: 700,
+        });
+        if (cancelled) {
+          return;
+        }
+        applyOnboardingRow(synced.onboarding, {
+          canProceedToStep3: synced.canProceedToStep3,
+        });
+      } catch (e) {
+        const message =
+          e instanceof Error ? e.message : "Stripe-status ophalen mislukt";
+        logSellerOnboarding("STRIPE_STATUS_SYNC_ERROR_MESSAGE", { message });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyOnboardingRow, hasConnectAccount, showWizard, step, stripeDone]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active" || step !== 2 || !hasConnectAccount || stripeDone) {
+        return;
+      }
+      void syncSellerOnboardingAfterStripe({ maxAttempts: 2, delayMs: 600 })
+        .then((synced) => {
+          applyOnboardingRow(synced.onboarding, {
+            canProceedToStep3: synced.canProceedToStep3,
+          });
+        })
+        .catch((e) => {
+          const message =
+            e instanceof Error ? e.message : "Stripe-status ophalen mislukt";
+          logSellerOnboarding("STRIPE_STATUS_SYNC_ERROR_MESSAGE", { message });
+        });
+    });
+    return () => sub.remove();
+  }, [applyOnboardingRow, hasConnectAccount, step, stripeDone]);
 
   const stepTitle =
     step === 1
@@ -592,7 +743,7 @@ export function SellerOnboardingScreen() {
               </Pressable>
               <Pressable
                 style={[styles.primaryBtn, submitting && styles.btnDisabled]}
-                onPress={() => void onStartStripeConnect()}
+                onPress={() => void onStripeStep2Primary()}
                 disabled={submitting}
                 accessibilityRole="button"
                 accessibilityLabel={stripeButtonLabel}
@@ -603,15 +754,15 @@ export function SellerOnboardingScreen() {
                   <Text style={styles.primaryBtnText}>{stripeButtonLabel}</Text>
                 )}
               </Pressable>
-              {stripeDone ? (
+              {hasConnectAccount && shouldOpenStripeOnboardingLink(onboarding) ? (
                 <Pressable
                   style={styles.secondaryBtn}
-                  onPress={() => setStep(3)}
+                  onPress={() => void onOpenStripeOnboarding()}
                   disabled={submitting}
                   accessibilityRole="button"
-                  accessibilityLabel="Ga verder naar controle"
+                  accessibilityLabel="Open Stripe"
                 >
-                  <Text style={styles.secondaryBtnText}>Ga verder naar controle</Text>
+                  <Text style={styles.secondaryBtnText}>Open Stripe</Text>
                 </Pressable>
               ) : null}
             </>

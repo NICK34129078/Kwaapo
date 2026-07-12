@@ -1,6 +1,9 @@
 import { CLOUD_VIDEO_WORKER_BASE } from "../constants/cloudVideo";
 import { buildWorkerAuthHeaders } from "./workerRequest";
 import type { BusinessInfoPayload } from "../types/sellerOnboarding";
+import { normalizeKvkNumberInput } from "../utils/kvkNumber";
+
+export { normalizeKvkNumberInput } from "../utils/kvkNumber";
 
 type WorkerJson = Record<string, unknown> & {
   error?: string;
@@ -9,9 +12,17 @@ type WorkerJson = Record<string, unknown> & {
   valid?: boolean;
 };
 
-function formatWorkerError(_json: WorkerJson, status: number): string {
+function formatWorkerError(json: WorkerJson, status: number): string {
   if (status === 401 || status === 403) {
     return "Je sessie is verlopen. Log opnieuw in.";
+  }
+  const serverMessage = typeof json.error === "string" ? json.error.trim() : "";
+  if (
+    serverMessage.length > 0 &&
+    serverMessage.length <= 220 &&
+    !/KVK_API_KEY|stack|TypeError/i.test(serverMessage)
+  ) {
+    return serverMessage;
   }
   return "KVK-controle mislukt. Probeer het opnieuw.";
 }
@@ -28,15 +39,6 @@ async function parseWorkerResponse(res: Response): Promise<WorkerJson> {
       `Worker antwoord is geen JSON (${res.status}): ${text.slice(0, 280)}`
     );
   }
-}
-
-/** 8-digit Dutch KVK number or null if invalid. */
-export function normalizeKvkNumberInput(raw: string | null | undefined): string | null {
-  const digits = (raw ?? "").replace(/\D/g, "");
-  if (digits.length !== 8) {
-    return null;
-  }
-  return digits;
 }
 
 export async function verifyKvkBusinessDetails(

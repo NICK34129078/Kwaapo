@@ -4,4 +4,7 @@ export { LegalLinkButton } from "./LegalLinkButton";
 export { LegalSection } from "./LegalSection";
 export { LegalSummaryCard } from "./LegalSummaryCard";
 export { LegalTableOfContents } from "./LegalTableOfContents";
+export { PrivacyContactCard } from "./PrivacyContactCard";
+export { PrivacyDataTable } from "./PrivacyDataTable";
+export { PrivacyRightsCard } from "./PrivacyRightsCard";
 export type { TocItem } from "./LegalTableOfContents";

@@ -16,6 +16,7 @@ import {
   evaluateSellerPayoutReadiness,
 } from "./worker-seller-readiness.js";
 import { requireAuthUser } from "./worker-auth.js";
+import { rpcSetStripeConnectAccount } from "./worker-supabase-rpc.js";
 
 const STRIPE_API = "https://api.stripe.com/v1";
 
@@ -393,6 +394,170 @@ function mapConnectStatusResponse(account, accountId) {
 
 
 
+function resolveConnectStateFromMapped(mapped) {
+
+  const accountId = String(mapped?.accountId || "").trim();
+
+  if (!accountId.startsWith("acct_")) {
+
+    return "not_started";
+
+  }
+
+  if (mapped?.disabledReason) {
+
+    return "restricted";
+
+  }
+
+  const detailsSubmitted = mapped?.detailsSubmitted === true;
+
+  const chargesEnabled = mapped?.chargesEnabled === true;
+
+  const payoutsEnabled = mapped?.payoutsEnabled === true;
+
+  const currentlyDue = Array.isArray(mapped?.requirementsCurrentlyDue)
+
+    ? mapped.requirementsCurrentlyDue
+
+    : [];
+
+  const pastDue = Array.isArray(mapped?.requirementsPastDue)
+
+    ? mapped.requirementsPastDue
+
+    : [];
+
+
+
+  if (
+
+    chargesEnabled &&
+
+    payoutsEnabled &&
+
+    detailsSubmitted &&
+
+    currentlyDue.length === 0 &&
+
+    pastDue.length === 0
+
+  ) {
+
+    return "ready";
+
+  }
+
+  if (detailsSubmitted) {
+
+    if (currentlyDue.length > 0 || pastDue.length > 0) {
+
+      return "pending_verification";
+
+    }
+
+    return "details_submitted";
+
+  }
+
+  return "onboarding_incomplete";
+
+}
+
+
+
+function canProceedToStep3FromMapped(mapped) {
+
+  const currentlyDue = Array.isArray(mapped?.requirementsCurrentlyDue)
+
+    ? mapped.requirementsCurrentlyDue
+
+    : [];
+
+  return mapped?.detailsSubmitted === true && currentlyDue.length === 0;
+
+}
+
+
+
+function buildPublicStatusPayload(mapped, extra = {}) {
+
+  const currentlyDue = Array.isArray(mapped?.requirementsCurrentlyDue)
+
+    ? mapped.requirementsCurrentlyDue
+
+    : [];
+
+  const pastDue = Array.isArray(mapped?.requirementsPastDue)
+
+    ? mapped.requirementsPastDue
+
+    : [];
+
+  const state = resolveConnectStateFromMapped(mapped);
+
+  const canProceedToStep3 = canProceedToStep3FromMapped(mapped);
+
+
+
+  return {
+
+    success: true,
+
+    state,
+
+    accountId:
+
+      typeof mapped?.accountId === "string" && mapped.accountId.startsWith("acct_")
+
+        ? mapped.accountId
+
+        : null,
+
+    detailsSubmitted: mapped?.detailsSubmitted === true,
+
+    chargesEnabled: mapped?.chargesEnabled === true,
+
+    payoutsEnabled: mapped?.payoutsEnabled === true,
+
+    onboardingComplete:
+
+      mapped?.onboardingComplete === true || mapped?.detailsSubmitted === true,
+
+    currentlyDueCount: currentlyDue.length,
+
+    pastDueCount: pastDue.length,
+
+    disabledReason: mapped?.disabledReason ?? null,
+
+    canProceedToStep3,
+
+    requirementsCurrentlyDue: currentlyDue,
+
+    requirementsPastDue: pastDue,
+
+    requirementsEventuallyDue: Array.isArray(mapped?.requirementsEventuallyDue)
+
+      ? mapped.requirementsEventuallyDue
+
+      : [],
+
+    userFriendlyStatus:
+
+      mapped?.userFriendlyStatus ?? mapped?.statusLabel ?? "Uitbetalingen instellen",
+
+    statusLabel:
+
+      mapped?.statusLabel ?? mapped?.userFriendlyStatus ?? "Uitbetalingen instellen",
+
+    ...extra,
+
+  };
+
+}
+
+
+
 async function fetchSellerProfile(env, userId) {
 
   const rows = await supabaseRequest(
@@ -418,21 +583,20 @@ async function fetchSellerProfile(env, userId) {
 
 
 async function patchProfileConnect(env, userId, patch) {
-
-  await supabaseRequest(
-
-    env,
-
-    "PATCH",
-
-    `/profiles?id=eq.${encodeURIComponent(userId)}`,
-
-    JSON.stringify(patch),
-
-    { preferRepresentation: false }
-
-  );
-
+  if (patch?.stripe_connect_account_id) {
+    const saved = await rpcSetStripeConnectAccount(
+      env,
+      userId,
+      patch.stripe_connect_account_id
+    );
+    console.log("[stripeConnect] STRIPE_CONNECT_ACCOUNT_SAVED", {
+      userIdPrefix: String(userId).slice(0, 8),
+      reused: saved.reused === true,
+      created: saved.created === true,
+    });
+    return;
+  }
+  throw new Error("patchProfileConnect: only stripe_connect_account_id is supported via RPC");
 }
 
 
@@ -542,10 +706,17 @@ async function ensureConnectAccount(env, profile, userId) {
   const existing = String(profile?.stripe_connect_account_id || "").trim();
 
   if (existing.startsWith("acct_")) {
-
+    console.log("[stripeConnect] STRIPE_CONNECT_EXISTING_ACCOUNT", {
+      userIdPrefix: String(userId).slice(0, 8),
+      accountPrefix: existing.slice(0, 10),
+    });
     return existing;
 
   }
+
+  console.log("[stripeConnect] STRIPE_CONNECT_ACCOUNT_CREATED", {
+    userIdPrefix: String(userId).slice(0, 8),
+  });
 
   const account = await createConnectAccount(env, profile, userId);
 
@@ -582,6 +753,25 @@ async function syncConnectStatusFromStripe(env, userId, accountId) {
   );
 
   const mapped = mapConnectStatusResponse(account, accountId);
+
+  console.log("STRIPE_STATUS_ACCOUNT_FETCHED", {
+    userIdPrefix: String(userId).slice(0, 8),
+    accountPrefix: String(accountId).slice(0, 10),
+  });
+  console.log("STRIPE_STATUS_DETAILS_SUBMITTED", {
+    detailsSubmitted: mapped.detailsSubmitted === true,
+  });
+  console.log("STRIPE_STATUS_CHARGES_ENABLED", {
+    chargesEnabled: mapped.chargesEnabled === true,
+  });
+  console.log("STRIPE_STATUS_PAYOUTS_ENABLED", {
+    payoutsEnabled: mapped.payoutsEnabled === true,
+  });
+  console.log("STRIPE_STATUS_CURRENTLY_DUE_COUNT", {
+    currentlyDueCount: Array.isArray(mapped.requirementsCurrentlyDue)
+      ? mapped.requirementsCurrentlyDue.length
+      : 0,
+  });
 
   const readiness = await evaluateSellerPayoutReadiness(env, userId, {
 
@@ -693,11 +883,15 @@ export async function handleStripeConnectOnboardingLink(request, env, cors = {})
 
   try {
 
+    console.log("[stripeConnect] STRIPE_CONNECT_START");
     const auth = await requireAuthUser(request, env, cors);
     if (auth.error) {
       return auth.error;
     }
     const userId = auth.userId;
+    console.log("[stripeConnect] STRIPE_CONNECT_AUTH_VERIFIED", {
+      userIdPrefix: String(userId).slice(0, 8),
+    });
 
 
 
@@ -709,7 +903,63 @@ export async function handleStripeConnectOnboardingLink(request, env, cors = {})
 
     const accountId = await ensureConnectAccount(env, profile, userId);
 
+    const account = await stripeRequest(
+
+      env,
+
+      "GET",
+
+      `/accounts/${encodeURIComponent(accountId)}`,
+
+      null
+
+    );
+
+    const mapped = mapConnectStatusResponse(account, accountId);
+
+    await evaluateSellerPayoutReadiness(env, userId, { stripeStatus: mapped });
+
+
+
+    if (canProceedToStep3FromMapped(mapped)) {
+
+      console.log(logPrefix, "already_complete", {
+
+        userIdPrefix: String(userId).slice(0, 8),
+
+        state: resolveConnectStateFromMapped(mapped),
+
+      });
+
+      return jsonStripe(
+
+        {
+
+          ...buildPublicStatusPayload(mapped, {
+
+            alreadyComplete: true,
+
+            onboardingUrl: null,
+
+          }),
+
+          payoutReady: false,
+
+        },
+
+        200,
+
+        cors
+
+      );
+
+    }
+
+
+
     const base = getWorkerPublicBase(env);
+
+    const linkType = mapped.detailsSubmitted ? "account_update" : "account_onboarding";
 
     const link = await stripeRequest(env, "POST", "/account_links", {
 
@@ -719,7 +969,7 @@ export async function handleStripeConnectOnboardingLink(request, env, cors = {})
 
       return_url: `${base}?stripeConnectReturn=1`,
 
-      type: "account_onboarding",
+      type: linkType,
 
     });
 
@@ -731,11 +981,15 @@ export async function handleStripeConnectOnboardingLink(request, env, cors = {})
 
     }
 
+    console.log("[stripeConnect] STRIPE_CONNECT_LINK_CREATED", {
+      userIdPrefix: String(userId).slice(0, 8),
+      accountPrefix: String(accountId).slice(0, 10),
+      linkType,
+    });
 
+    console.log(logPrefix, "ok", { userId, accountId, linkType });
 
-    console.log(logPrefix, "ok", { userId, accountId });
-
-    return jsonStripe({ onboardingUrl: link.url, accountId }, 200, cors);
+    return jsonStripe({ onboardingUrl: link.url, accountId, linkType }, 200, cors);
 
   } catch (e) {
 
@@ -783,35 +1037,43 @@ export async function handleStripeConnectStatus(request, env, cors = {}) {
 
       const readiness = await evaluateSellerPayoutReadiness(env, userId, {});
 
+      const emptyMapped = {
+
+        accountId: null,
+
+        detailsSubmitted: false,
+
+        chargesEnabled: false,
+
+        payoutsEnabled: false,
+
+        onboardingComplete: false,
+
+        requirementsCurrentlyDue: [],
+
+        requirementsEventuallyDue: [],
+
+        requirementsPastDue: [],
+
+        disabledReason: null,
+
+        userFriendlyStatus: "Uitbetalingen instellen",
+
+        statusLabel: "Uitbetalingen instellen",
+
+      };
+
       return jsonStripe(
 
         {
 
-          accountId: null,
+          ...buildPublicStatusPayload(emptyMapped, {
 
-          detailsSubmitted: false,
+            payoutReady: readiness.payoutReady,
 
-          chargesEnabled: false,
+            sellerOnboardingStatus: readiness.sellerOnboardingStatus,
 
-          payoutsEnabled: false,
-
-          onboardingComplete: false,
-
-          requirementsCurrentlyDue: [],
-
-          requirementsEventuallyDue: [],
-
-          requirementsPastDue: [],
-
-          disabledReason: null,
-
-          userFriendlyStatus: "Uitbetalingen instellen",
-
-          statusLabel: "Uitbetalingen instellen",
-
-          payoutReady: readiness.payoutReady,
-
-          sellerOnboardingStatus: readiness.sellerOnboardingStatus,
+          }),
 
         },
 
@@ -829,15 +1091,39 @@ export async function handleStripeConnectStatus(request, env, cors = {}) {
 
     console.log(logPrefix, "ok", {
 
-      accountId: status.accountId,
+      accountPrefix: String(status.accountId || "").slice(0, 10),
+
+      state: resolveConnectStateFromMapped(status),
+
+      canProceedToStep3: canProceedToStep3FromMapped(status),
 
       charges: status.chargesEnabled,
 
       payouts: status.payoutsEnabled,
 
+      currentlyDueCount: Array.isArray(status.requirementsCurrentlyDue)
+
+        ? status.requirementsCurrentlyDue.length
+
+        : 0,
+
     });
 
-    return jsonStripe(status, 200, cors);
+    return jsonStripe(
+
+      buildPublicStatusPayload(status, {
+
+        payoutReady: status.payoutReady,
+
+        sellerOnboardingStatus: status.sellerOnboardingStatus,
+
+      }),
+
+      200,
+
+      cors
+
+    );
 
   } catch (e) {
 

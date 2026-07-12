@@ -14,6 +14,7 @@ import {
 } from "../constants/appPolicies";
 import { SELLER_TERMS_SECTIONS } from "../constants/sellerTerms";
 import { TermsOfUseScreen } from "./TermsOfUseScreen";
+import { PrivacyPolicyScreen } from "./PrivacyPolicyScreen";
 
 type RouteParams = {
   policyId: PolicyId;
@@ -31,6 +32,10 @@ export function PolicyDocumentScreen() {
 
   if (policyId === "terms") {
     return <TermsOfUseScreen />;
+  }
+
+  if (policyId === "privacy") {
+    return <PrivacyPolicyScreen />;
   }
 
   const policy = getPolicyById(policyId);

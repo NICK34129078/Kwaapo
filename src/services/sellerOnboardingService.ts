@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { logSellerOnboarding } from "../constants/sellerOnboardingDebug";
 import {
   normalizeKvkNumberInput,
   verifyKvkBusinessDetails,
@@ -12,22 +13,44 @@ import {
   type SellerOnboardingStatus,
   type SellerType,
 } from "../types/sellerOnboarding";
+import {
+  logSellerSaveErrorDev,
+  mapSellerRpcError,
+  mapSellerSaveError,
+} from "../utils/sellerOnboardingErrors";
+
+import {
+  hasCompletedStripeOnboardingForm,
+  isStripeConnectPayoutReady,
+} from "../utils/stripeConnectState";
+import { resolveSellerOnboardingStep } from "../utils/sellerOnboardingStep";
+
+export { resolveSellerOnboardingStep };
 
 function clean(value: string | null | undefined): string {
   return value?.trim() ?? "";
 }
 
 async function getCurrentUserId(): Promise<string> {
+  logSellerOnboarding("SELLER_AUTH_GET_USER_START");
   const {
     data: { user },
     error,
   } = await supabase.auth.getUser();
   if (error) {
+    logSellerOnboarding("SELLER_AUTH_GET_USER_FAILED", {
+      code: (error as { code?: string }).code ?? null,
+      message: error.message?.slice(0, 120) ?? null,
+    });
     throw error;
   }
   if (!user?.id) {
+    logSellerOnboarding("SELLER_AUTH_GET_USER_FAILED", { reason: "no_user" });
     throw new Error("Niet ingelogd.");
   }
+  logSellerOnboarding("SELLER_AUTH_GET_USER_SUCCESS", {
+    userIdPrefix: user.id.slice(0, 8),
+  });
   return user.id;
 }
 
@@ -59,10 +82,21 @@ function validateBusinessPayload(payload: BusinessInfoPayload): BusinessInfoPayl
   }
 
   if (payload.sellerType === "business") {
-    const kvkNumber = normalizeKvkNumberInput(clean(payload.kvkNumber));
+    const rawKvk = clean(payload.kvkNumber);
+    logSellerOnboarding("SELLER_KVK_RAW_INPUT", {
+      length: rawKvk.length,
+      hasSeparators: /[\s-]/.test(rawKvk),
+    });
+    const kvkNumber = normalizeKvkNumberInput(rawKvk);
+    logSellerOnboarding("SELLER_KVK_NORMALIZED", {
+      ok: !!kvkNumber,
+      length: kvkNumber?.length ?? 0,
+    });
     if (!kvkNumber) {
+      logSellerOnboarding("SELLER_KVK_VALIDATION_RESULT", { valid: false });
       throw new Error("Vul een geldig KVK-nummer in (8 cijfers).");
     }
+    logSellerOnboarding("SELLER_KVK_VALIDATION_RESULT", { valid: true });
     return {
       ...payload,
       businessName,
@@ -229,20 +263,15 @@ export function canSellerAcceptSales(
 export function hasCompletedStripePayoutSetup(
   onboarding: SellerOnboarding | null | undefined
 ): boolean {
-  return !!onboarding?.stripeConnectOnboardingComplete;
+  return hasCompletedStripeOnboardingForm(onboarding);
 }
+
+export { hasCompletedStripeOnboardingForm };
 
 export function isStripePayoutFullyActive(
   onboarding: SellerOnboarding | null | undefined
 ): boolean {
-  if (!onboarding) {
-    return false;
-  }
-  return (
-    onboarding.stripeChargesEnabled &&
-    onboarding.stripePayoutsEnabled &&
-    onboarding.stripeConnectOnboardingComplete
-  );
+  return isStripeConnectPayoutReady(onboarding);
 }
 
 /** Ideale live-verkoop: verified + Stripe Connect volledig actief. */
@@ -337,24 +366,6 @@ export function getSellerOnboardingDashboardLines(
     `Controle: ${kontroleStatusLabel(onboarding.status)}`,
     `Verkoop actief: ${getSalesStatusLabel(onboarding)}`,
   ];
-}
-
-/** Bepaal onboarding-stap (1=gegevens, 2=Stripe, 3=indienen). */
-export function resolveSellerOnboardingStep(
-  onboarding: SellerOnboarding | null | undefined
-): 1 | 2 | 3 {
-  if (
-    !onboarding ||
-    onboarding.status === "not_started" ||
-    !onboarding.sellerType ||
-    !clean(onboarding.businessName)
-  ) {
-    return 1;
-  }
-  if (!hasCompletedStripePayoutSetup(onboarding)) {
-    return 2;
-  }
-  return 3;
 }
 
 /** Toon waarschuwing op productpagina als verkoper nog niet geverifieerd is. */
@@ -554,6 +565,7 @@ export async function fetchSellerOnboardingByProfileId(
 export async function updateMyBusinessInfo(
   payload: BusinessInfoPayload
 ): Promise<SellerOnboarding> {
+  logSellerOnboarding("SELLER_ONBOARDING_STEP1_START");
   const userId = await getCurrentUserId();
   const validated = validateBusinessPayload(payload);
 
@@ -572,37 +584,70 @@ export async function updateMyBusinessInfo(
     kvkVerificationSource = null;
   }
 
-  const { error } = await supabase
-    .from("profiles")
-    .update({
-      seller_type: validated.sellerType,
-      business_name: validated.businessName,
-      kvk_number: validated.kvkNumber ?? null,
-      vat_number: validated.vatNumber ?? null,
-      business_email: validated.businessEmail,
-      business_phone: validated.businessPhone,
-      business_country: validated.businessCountry,
-      business_city: validated.businessCity,
-      business_postal_code: validated.businessPostalCode,
-      business_street: validated.businessStreet,
-      business_house_number: validated.businessHouseNumber,
-      seller_onboarding_status: "needs_business_info",
-      seller_rejection_reason: null,
-      kvk_verified_at: kvkVerifiedAt,
-      kvk_verification_source: kvkVerificationSource,
-    })
-    .eq("id", userId);
+  logSellerOnboarding("SELLER_SAVE_TARGET", { target: "rpc:update_my_seller_business_info" });
+  logSellerOnboarding("SELLER_SAVE_PAYLOAD_KEYS", {
+    keys: [
+      "seller_type",
+      "business_name",
+      "kvk_number",
+      "business_email",
+      "business_country",
+      "business_city",
+      "business_postal_code",
+      "business_street",
+      "business_house_number",
+      "kvk_verified_at",
+    ],
+    sellerType: validated.sellerType,
+    hasKvk: !!validated.kvkNumber,
+  });
+  logSellerOnboarding("SELLER_SAVE_START", { userIdPrefix: userId.slice(0, 8) });
+
+  const { data, error } = await supabase.rpc("update_my_seller_business_info", {
+    p_seller_type: validated.sellerType,
+    p_business_name: validated.businessName,
+    p_kvk_number: validated.kvkNumber ?? null,
+    p_vat_number: validated.vatNumber ?? null,
+    p_business_email: validated.businessEmail,
+    p_business_phone: validated.businessPhone,
+    p_business_country: validated.businessCountry,
+    p_business_city: validated.businessCity,
+    p_business_postal_code: validated.businessPostalCode,
+    p_business_street: validated.businessStreet,
+    p_business_house_number: validated.businessHouseNumber,
+    p_kvk_verified_at: kvkVerifiedAt,
+    p_kvk_verification_source: kvkVerificationSource,
+  });
 
   if (error) {
-    throw error;
+    logSellerSaveErrorDev(error);
+    logSellerOnboarding("SELLER_SAVE_ERROR_CODE", {
+      code: (error as { code?: string }).code ?? null,
+    });
+    logSellerOnboarding("SELLER_SAVE_ERROR_MESSAGE", {
+      message: error.message?.slice(0, 200) ?? null,
+    });
+    throw mapSellerSaveError(error);
   }
-  // Sensitive columns are no longer readable via a RETURNING select (migration
-  // 0039); re-read the owner's own record through the definer RPC.
+
+  const result = (data ?? null) as { success?: boolean; error?: string } | null;
+  if (!result?.success) {
+    const rpcError = mapSellerRpcError(result?.error);
+    logSellerOnboarding("SELLER_SAVE_ERROR_MESSAGE", { message: result?.error ?? null });
+    throw new Error(rpcError);
+  }
+
+  logSellerOnboarding("SELLER_SAVE_SUCCESS");
+  logSellerOnboarding("SELLER_PROFILE_LOOKUP_START");
   const mapped = await fetchMySellerOnboarding();
+  logSellerOnboarding("SELLER_PROFILE_LOOKUP_RESULT", { found: !!mapped });
   if (!mapped) {
     throw new Error("Kon je verkopersgegevens niet laden na opslaan.");
   }
   void refreshSellerReadinessFromWorker().catch(() => undefined);
+  logSellerOnboarding("SELLER_NAVIGATE_STEP2", {
+    nextStep: resolveSellerOnboardingStep(mapped),
+  });
   return mapped;
 }
 

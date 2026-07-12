@@ -3,6 +3,8 @@
  * Geen IBAN/KYC opslag — alleen Stripe-status + minimale verificatievelden.
  */
 
+import { rpcSyncSellerPayoutReadiness } from "./worker-supabase-rpc.js";
+
 const READINESS_PROFILE_COLUMNS = [
   "id",
   "account_type",
@@ -303,13 +305,7 @@ export async function evaluateSellerPayoutReadiness(env, profileId, options = {}
     patch.seller_verified_at = null;
   }
 
-  await supabaseRequest(
-    env,
-    "PATCH",
-    `/profiles?id=eq.${encodeURIComponent(profileId)}`,
-    JSON.stringify(patch),
-    { preferRepresentation: false }
-  );
+  await rpcSyncSellerPayoutReadiness(env, profileId, patch);
 
   console.log("[sellerReadiness] evaluated", {
     profileId,

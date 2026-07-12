@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { LEGAL_PLACEHOLDER_VALUES } from "../constants/legalPlaceholders";
+import { TERMS_REQUIRED_PLACEHOLDERS } from "../constants/legalPlaceholders";
 import {
   REQUIRED_TERMS_SECTION_IDS,
   TERMS_CHAPTERS,
@@ -95,7 +95,7 @@ test("settings legal links use valid policy routes", () => {
 
 test("terms placeholders are discoverable for release checklist", () => {
   const found = findTermsPlaceholdersInContent();
-  for (const placeholder of LEGAL_PLACEHOLDER_VALUES) {
+  for (const placeholder of TERMS_REQUIRED_PLACEHOLDERS) {
     assert.ok(
       found.includes(placeholder),
       `placeholder missing in terms content: ${placeholder}`

@@ -9,7 +9,7 @@ export const LEGAL_DISCLAIMER =
   "Deze voorwaarden moeten vóór publieke release juridisch worden gecontroleerd en aangepast aan de definitieve bedrijfsstructuur, landen en betaalflow.";
 
 /** Vul in vóór App Store submission. Publiceer dezelfde privacy policy op het web. */
-export const PRIVACY_POLICY_WEB_URL = "[INVULLEN: https://jouwdomein.nl/privacy]";
+export const PRIVACY_POLICY_WEB_URL = `https://${LEGAL_PLACEHOLDERS.WEB_DOMAIN}/privacy`;
 
 /** Support e-mail voor App Store Connect en in-app contact. */
 export const SUPPORT_EMAIL = LEGAL_PLACEHOLDERS.CONTACT_EMAIL;
